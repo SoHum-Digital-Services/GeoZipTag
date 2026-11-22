@@ -816,7 +816,9 @@ function updateThumbnail(canvas) {
     thumbUrl = URL.createObjectURL(blob)
     $('lastPhotoImage').src = thumbUrl
     const button = $('lastPhotoButton')
-    button.hidden = false
+    $('lastPhotoImage').hidden = false
+    button.disabled = false
+    button.setAttribute('aria-label', 'Open last photo')
     button.classList.remove('fresh')
     void button.offsetWidth
     button.classList.add('fresh')
