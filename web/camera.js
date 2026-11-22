@@ -928,7 +928,7 @@ async function capture(source, picked, snapshot) {
     if (photoUrl) URL.revokeObjectURL(photoUrl)
     photoUrl = URL.createObjectURL(jpeg)
     fromPicker = picked
-    lastPhoto = { jpeg, date, snapshot, address }
+    lastPhoto = { jpeg, date, snapshot, address, note: stampNote }
     if (originalUrl) URL.revokeObjectURL(originalUrl)
     originalUrl = original ? URL.createObjectURL(original) : undefined
     $('saveOriginal').hidden = !originalUrl
@@ -1296,9 +1296,83 @@ for (const input of document.querySelectorAll('.file-input')) {
 $('reportType').addEventListener('change', updateReportFields)
 $('reportPhoto').addEventListener('change', updateReportFields)
 
-function reportElement(tag, text, parent) {
+// ---------- PDF report ----------
+// One layout for the browser print dialog and the Android print service.
+const reportHost = typeof android === 'object' && android ? android : undefined
+const reportCss = `
+@page { size: A4; margin: 14mm 14mm 16mm;
+  @bottom-left { content: "GeoZipTag photo report"; font: 500 7.5pt Inter, system-ui, sans-serif; color: #7a8487; }
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 500 7.5pt Inter, system-ui, sans-serif; color: #7a8487; } }
+#reportDocument { display: block; color: #1d2528; font: 9.5pt/1.45 Inter, system-ui, sans-serif;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+#reportDocument * { box-sizing: border-box; }
+.gz-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 8mm;
+  padding-bottom: 3.5mm; border-bottom: 0.6mm solid #c3422b; }
+.gz-logo { display: block; height: 8.5mm; width: auto; }
+.gz-head-meta { display: grid; justify-items: end; gap: 0.6mm; color: #5b6669; font-size: 8pt; text-align: right; }
+.gz-kicker { color: #123f49; font-size: 7.5pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.gz-title { margin: 7mm 0 5mm; }
+.gz-title h1 { margin: 0; color: #123f49; font-size: 20pt; line-height: 1.15; letter-spacing: -.02em; }
+.gz-title p { margin: 1.5mm 0 0; color: #5b6669; font-size: 10.5pt; font-weight: 500; }
+.gz-summary { display: flex; gap: 6mm; align-items: flex-start; margin-bottom: 6mm; padding: 4.5mm 5mm;
+  border-radius: 2.5mm; background: #f6f1e7; break-inside: avoid; }
+.gz-details { flex: 1; display: grid; grid-template-columns: 27mm 1fr; gap: 1.8mm 4mm; margin: 0; }
+.gz-details dt { color: #7a8487; font-size: 7.5pt; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding-top: .4mm; }
+.gz-details dd { margin: 0; color: #1d2528; font-weight: 500; }
+.gz-details dd.gz-strong { color: #123f49; font-size: 11pt; font-weight: 700; }
+.gz-qr { flex: 0 0 auto; display: grid; justify-items: center; gap: 1.5mm; margin: 0; }
+.gz-qr img { display: block; width: 24mm; height: 24mm; padding: 1.5mm; border-radius: 1.5mm; background: #fff; image-rendering: pixelated; }
+.gz-qr figcaption { color: #5b6669; font-size: 6.5pt; font-weight: 600; letter-spacing: .04em; text-align: center; }
+.gz-photos { display: grid; gap: 5mm; }
+.gz-photos.gz-pair { grid-template-columns: 1fr 1fr; }
+.gz-photo { display: grid; justify-items: center; align-content: start; margin: 0; break-inside: avoid; }
+.gz-photo img { display: block; max-width: 100%; max-height: 150mm; width: auto; height: auto; border-radius: 2mm; }
+.gz-pair .gz-photo img { max-height: 110mm; }
+.gz-photo figcaption { display: flex; align-items: center; gap: 2.5mm; margin-top: 2mm; color: #5b6669; font-size: 8pt; }
+.gz-label { padding: .5mm 2.2mm; border-radius: 99mm; background: #123f49; color: #fff; font-size: 7pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.gz-pair .gz-photo:last-child .gz-label { background: #c3422b; }
+.gz-notes { margin-top: 6mm; padding-top: 4mm; border-top: 0.25mm solid #d9dcdc; break-inside: avoid; }
+.gz-notes h2 { margin: 0 0 2mm; color: #123f49; font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; }
+.gz-notes p { margin: 0; white-space: pre-wrap; }
+`
+
+let reportAssets
+async function loadReportAssets() {
+  if (reportAssets) return reportAssets
+  const text = async (path) => (await fetch(path)).text()
+  const dataUrl = async (path) => readPhotoBlob(await (await fetch(path)).blob())
+  const [logo, font] = await Promise.all([
+    text('assets/geoziptag-wordmark-light.svg').then(svg => `data:image/svg+xml;base64,${btoa(svg)}`).catch(() => ''),
+    reportHost ? dataUrl('assets/inter.woff2').catch(() => '') : Promise.resolve('')
+  ])
+  reportAssets = { logo, font }
+  return reportAssets
+}
+
+function readPhotoBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+function mapsQrDataUrl({ lat, lon }) {
+  const qr = qrcode(0, 'M')
+  const link = new URL('https://www.google.com/maps/search/')
+  link.search = new URLSearchParams({ api: '1', query: `${lat.toFixed(6)},${lon.toFixed(6)}` })
+  qr.addData(link.toString())
+  qr.make()
+  return qr.createDataURL(4, 0)
+}
+
+const reportDay = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
+
+function reportElement(tag, text, parent, className) {
   const element = document.createElement(tag)
-  element.textContent = text
+  if (text) element.textContent = text
+  if (className) element.className = className
   parent.append(element)
   return element
 }
@@ -1329,29 +1403,99 @@ $('reportForm').addEventListener('submit', async (event) => {
   $('printReport').disabled = true
   $('reportStatus').textContent = 'Preparing report…'
   try {
-    reportElement('h1', comparison ? 'Before and after' : 'Photo report', report)
-    const reportLocation = $('reportLocation').value.trim() || (!comparison && !chosenPhoto ? locationLabel(lastPhoto) : '')
-    for (const value of [$('reportCompany').value, $('reportProject').value, reportLocation]) {
-      if (value.trim()) reportElement('p', value.trim(), report)
+    const { logo, font } = await loadReportAssets()
+    const company = $('reportCompany').value.trim()
+    const project = $('reportProject').value.trim()
+    const enteredLocation = $('reportLocation').value.trim()
+    const notes = $('reportNote').value.trim()
+    // Capture details are only known for the latest photo taken in the app.
+    const captured = !comparison && !chosenPhoto ? lastPhoto : undefined
+    const kind = comparison ? 'Before and after' : 'Photo report'
+
+    const head = reportElement('header', '', report, 'gz-head')
+    if (logo) {
+      const image = reportElement('img', '', head, 'gz-logo')
+      image.src = logo
+      image.alt = 'GeoZipTag'
+    } else reportElement('strong', 'GeoZipTag', head)
+    const meta = reportElement('div', '', head, 'gz-head-meta')
+    reportElement('span', kind, meta, 'gz-kicker')
+    reportElement('span', `Prepared ${reportDay.format(new Date())}`, meta)
+
+    const title = reportElement('section', '', report, 'gz-title')
+    reportElement('h1', project || (comparison ? 'Before and after comparison' : 'Site photo report'), title)
+    if (company) reportElement('p', company, title)
+
+    const details = []
+    const place = enteredLocation || (captured?.snapshot ? placeHeading(captured.snapshot, captured.address) : '')
+    if (place) details.push(['Location', place, true])
+    if (captured?.address) details.push(['Address', fullAddress(captured.address)])
+    if (captured?.snapshot) {
+      details.push(['Coordinates', `${formatCoordinates(captured.snapshot)}${captured.snapshot.manual ? ' (manual pin)' : ' (GPS)'}`])
     }
-    if (!comparison && !chosenPhoto && lastPhoto) reportElement('p', localDate.format(lastPhoto.date), report)
-    const images = reportElement('div', '', report)
-    images.className = comparison ? 'report-images comparison' : 'report-images'
+    if (captured) details.push(['Captured', localDate.format(captured.date)])
+    if (captured?.note) details.push(['Stamp note', captured.note])
+    if (details.length) {
+      const summary = reportElement('section', '', report, 'gz-summary')
+      const list = reportElement('dl', '', summary, 'gz-details')
+      for (const [label, value, strong] of details) {
+        reportElement('dt', label, list)
+        reportElement('dd', value, list, strong ? 'gz-strong' : '')
+      }
+      if (captured?.snapshot) {
+        const code = reportElement('figure', '', summary, 'gz-qr')
+        const image = reportElement('img', '', code)
+        image.src = mapsQrDataUrl(captured.snapshot)
+        image.alt = 'QR code linking to this location on a map'
+        reportElement('figcaption', 'Scan to open location', code)
+      }
+    }
+
+    const images = reportElement('section', '', report, comparison ? 'gz-photos gz-pair' : 'gz-photos')
     await Promise.all(photos.map(async ({ file, label }) => {
-      const figure = reportElement('figure', '', images)
-      reportElement('figcaption', label, figure)
+      const figure = reportElement('figure', '', images, 'gz-photo')
       const image = reportElement('img', '', figure)
       image.alt = label
-      const url = URL.createObjectURL(file)
-      reportUrls.push(url)
-      image.src = url
+      const caption = reportElement('figcaption', '', figure)
+      reportElement('span', label, caption, 'gz-label')
+      if (captured) reportElement('span', 'Stamped by GeoZipTag at capture', caption)
+      else if (file.name) reportElement('span', file.name, caption)
+      if (reportHost) image.src = await readPhotoBlob(file)
+      else {
+        const url = URL.createObjectURL(file)
+        reportUrls.push(url)
+        image.src = url
+      }
       await image.decode()
     }))
-    if ($('reportNote').value.trim()) {
-      reportElement('p', $('reportNote').value.trim(), report).className = 'report-notes'
+
+    if (notes) {
+      const section = reportElement('section', '', report, 'gz-notes')
+      reportElement('h2', 'Notes', section)
+      reportElement('p', notes, section)
     }
+
+    const fileTitle = ['GeoZipTag', project || kind, new Date().toISOString().slice(0, 10)].join(' - ')
     $('reportStatus').textContent = 'Choose Save as PDF in the print dialog to keep a copy.'
-    window.print()
+    if (reportHost) {
+      const fontFace = font ? `@font-face { font-family: Inter; src: url(${font}) format("woff2"); font-weight: 400 700; }` : ''
+      const title = document.createElement('title')
+      title.textContent = fileTitle
+      reportHost.printReport(`<!doctype html><meta charset="utf-8">${title.outerHTML}<style>${fontFace}${reportCss}</style>${report.outerHTML}`)
+    } else {
+      let style = $('reportStyle')
+      if (!style) {
+        style = document.createElement('style')
+        style.id = 'reportStyle'
+        style.media = 'print'
+        style.textContent = reportCss
+        document.head.append(style)
+      }
+      const pageTitle = document.title
+      document.title = fileTitle
+      window.print()
+      document.title = pageTitle
+    }
   } catch {
     $('reportStatus').textContent = 'A photo could not be opened. Try a JPEG or PNG image.'
   } finally {

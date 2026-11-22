@@ -743,12 +743,5 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
   :root { color-scheme: light; background: #fff; color: #111; }
   body { background: #fff; }
   body > main, body > dialog, .icon-sprite { display: none !important; }
-  #reportDocument { display: block; padding: .25in; }
-  #reportDocument h1 { margin: 0 0 12pt; font-size: 22pt; }
-  #reportDocument figure { margin: 0; break-inside: avoid; }
-  #reportDocument img { width: 100%; max-height: 6.5in; object-fit: contain; }
-  #reportDocument figcaption { font-weight: 700; margin-bottom: .25em; }
-  .report-images { display: grid; gap: .2in; }
-  .report-images.comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .report-notes { white-space: pre-wrap; }
+  /* The report layout itself lives in camera.js (reportCss), shared with Android. */
 }
