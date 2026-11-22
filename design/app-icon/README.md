@@ -2,7 +2,7 @@
 
 A bevelled cream shutter-ring lens with the approved India-facing globe as its
 glass, a 3D coral location pin, and (on the home-screen version) a mini GeoZipTag
-stamp card with its tab, on a bright azure-to-cobalt gradient: `#8FDBFF` →
+stamp card with its tab, in a bright sky with soft clouds. Sky gradient: `#8FDBFF` →
 `#3D97F2` → `#1C3F9E`. Ring cream `#FFFBF2`, pin coral `#FF9A7E` → `#C9432F`.
 
 Drawn on Android's 108-unit adaptive-icon grid (visible area 18–90, safe circle

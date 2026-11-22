@@ -8,7 +8,21 @@
   <radialGradient id="shade" cx=".5" cy=".5" r=".5"><stop offset=".72" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#001218" stop-opacity=".55"/></radialGradient>
   <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16201F"/><stop offset="1" stop-color="#0A0F10"/></linearGradient>
   <linearGradient id="map" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7DB46C"/><stop offset=".55" stop-color="#4E8C67"/><stop offset="1" stop-color="#3B7FA8"/></linearGradient>
+  <linearGradient id="cloud" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".65" stop-color="#F2F9FF"/><stop offset="1" stop-color="#CFE6FF"/></linearGradient>
+  <filter id="cloudShadow" x="-30%" y="-40%" width="160%" height="200%"><feDropShadow dx="0" dy=".8" stdDeviation=".9" flood-color="#1C3F9E" flood-opacity=".28"/></filter>
   <clipPath id="glass"><circle cx="54" cy="48" r="14.9"/></clipPath>
   <filter id="drop" x="-40%" y="-40%" width="180%" height="190%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#032830" flood-opacity=".5"/></filter>
   <filter id="soft" x="-40%" y="-40%" width="180%" height="190%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="#021A20" flood-opacity=".55"/></filter>
-</defs><rect width="108" height="108" fill="url(#bg)"/></svg>
+</defs><rect width="108" height="108" fill="url(#bg)"/><g filter="url(#cloudShadow)" opacity="0.95"><rect x="19" y="26.06" width="19" height="4.94" rx="2.47" fill="url(#cloud)"/>
+    <circle cx="24.7" cy="26.307" r="3.8000000000000003" fill="url(#cloud)"/>
+    <circle cx="30.02" cy="24.825" r="4.94" fill="url(#cloud)"/>
+    <circle cx="34.2" cy="27.048" r="2.85" fill="url(#cloud)"/></g><g filter="url(#cloudShadow)" opacity="0.9"><rect x="72.5" y="49.58" width="17" height="4.42" rx="2.21" fill="url(#cloud)"/>
+    <circle cx="77.6" cy="49.801" r="3.4000000000000004" fill="url(#cloud)"/>
+    <circle cx="82.36" cy="48.475" r="4.42" fill="url(#cloud)"/>
+    <circle cx="86.1" cy="50.464" r="2.55" fill="url(#cloud)"/></g><g filter="url(#cloudShadow)" opacity="0.85"><rect x="16" y="60.1" width="15" height="3.9000000000000004" rx="1.9500000000000002" fill="url(#cloud)"/>
+    <circle cx="20.5" cy="60.295" r="3" fill="url(#cloud)"/>
+    <circle cx="24.7" cy="59.125" r="3.9000000000000004" fill="url(#cloud)"/>
+    <circle cx="28" cy="60.88" r="2.25" fill="url(#cloud)"/></g><g filter="url(#cloudShadow)" opacity="0.7"><rect x="74" y="24.16" width="9" height="2.34" rx="1.17" fill="url(#cloud)"/>
+    <circle cx="76.7" cy="24.277" r="1.8" fill="url(#cloud)"/>
+    <circle cx="79.22" cy="23.575" r="2.34" fill="url(#cloud)"/>
+    <circle cx="81.2" cy="24.628" r="1.3499999999999999" fill="url(#cloud)"/></g></svg>
