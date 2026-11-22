@@ -16,7 +16,7 @@ OTA_PRIVATE_KEY=$(cat "$work/test.pem") node tools/ota/publish.mjs --out "$work/
 cp -R "$work/serve/good" "$work/serve/tampered"
 sed -i.bak 's/^min-apk 5$/min-apk 4/' "$work/serve/tampered/ota/manifest.txt"
 cp -R "$work/serve/good" "$work/serve/badfile"
-printf 'changed' >> "$work/serve/badfile/ota/files/style.css"
+printf 'changed' >> "$work/serve/badfile/ota/files/camera.js"   # a file the app must download
 
 port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 python3 -m http.server "$port" --bind 127.0.0.1 --directory "$work/serve" >/dev/null 2>&1 &
