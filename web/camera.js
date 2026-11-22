@@ -494,6 +494,20 @@ function nominatimAddress(result) {
 }
 
 // Keep the first source's fields; fill any gaps from the next.
+// Photon answers with the nearest named thing. When that is a building or shop, its street is the one on
+// its own address, which can be a different road if the building is not right here; that street is dropped.
+function photonAddress(feature, snapshot) {
+  const properties = feature?.properties
+  if (!properties) return undefined
+  const [lon, lat] = feature.geometry?.coordinates || []
+  if (properties.street && properties.osm_key !== 'highway' && Number.isFinite(lat) && Number.isFinite(lon) &&
+      metresBetween(snapshot, { lat, lon }) > 60) {
+    const { street, housenumber, ...rest } = properties
+    return rest
+  }
+  return properties
+}
+
 function fillAddress(primary, fallback) {
   if (!primary) return fallback
   if (!fallback) return primary
@@ -539,7 +553,7 @@ async function locate(snapshot) {
   const request = (url) => lookup(url, abort.signal)
   try {
     const [address, map, osm] = await Promise.allSettled([
-      request(reverse).then((response) => response.json()).then((data) => data.features?.[0]?.properties),
+      request(reverse).then((response) => response.json()).then((data) => photonAddress(data.features?.[0], snapshot)),
       loadSatelliteMap(snapshot, request, abort.signal),
       request(nominatim).then((response) => response.json()).then(nominatimAddress)
     ])
