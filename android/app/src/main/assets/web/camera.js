@@ -20,7 +20,8 @@ let manualFix, originalUrl, lastPhoto
 let cameraHardware, countdownTimer, focusTimer
 let gridEnabled = false
 let timerSeconds = 0
-const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9' }
+const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
+  quality: 'high', tapAction: 'focus', volumeShutter: true, showLogo: true, shareAfter: false }
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
   if (['satellite', 'time', 'qr'].includes(saved.template)) preferences.template = saved.template
@@ -28,6 +29,11 @@ try {
   preferences.keepOriginal = saved.keepOriginal === true
   preferences.preferShare = saved.preferShare === true
   if (['16:9', '4:3', '1:1'].includes(saved.aspect)) preferences.aspect = saved.aspect
+  if (saved.quality === 'standard') preferences.quality = 'standard'
+  if (saved.tapAction === 'capture') preferences.tapAction = 'capture'
+  preferences.volumeShutter = saved.volumeShutter !== false
+  preferences.showLogo = saved.showLogo !== false
+  preferences.shareAfter = saved.shareAfter === true
 } catch {}
 
 // Dates and times are shown in the time zone of the photo's location (GPS or manual pin),
@@ -833,7 +839,7 @@ function formatCoordinates({ lat, lon }) {
 
 // `base` is the size the stamp scales with (normally the photo's short side). Returns the stamp's top and
 // bottom edges, tab included, in canvas pixels.
-function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base }) {
+function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base, brand = preferences.showLogo }) {
   const ctx = canvas.getContext('2d')
   const unit = (base || Math.min(canvas.width, canvas.height)) / 460
   const w = canvas.width / unit, h = canvas.height / unit
@@ -911,13 +917,17 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   // Card and GeoZipTag tab are one outline, filled once so the translucent
   // background stays even where they join. The tab rises from the card's
   // top-right corner (or hangs from the bottom-right when the stamp is at the top).
-  const tabHeight = 24, iconSize = 16, markHeight = 11, tabRadius = 8, joinRadius = 5
+  const tabHeight = brand ? 24 : 0, iconSize = 16, markHeight = 11, tabRadius = 8, joinRadius = 5
   const { wordmark, icon } = stampBrand
   const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
   ctx.font = `700 12px ${stampFace}`
   const tabWidth = 7 + iconSize + 7 + (markWidth || ctx.measureText('GeoZipTag').width) + 11
   const x0 = inset, x1 = inset + width, y0 = top, y1 = top + panelHeight, tabX = x1 - tabWidth
   function cardWithTab(grow = 0) {
+    if (!brand) {
+      rounded(x0 + grow, y0 + grow, x1 - x0 - 2 * grow, y1 - y0 - 2 * grow, radius - grow)
+      return
+    }
     const a = x0 + grow, b = x1 - grow, c = y0 + grow, d = y1 - grow, t = y0 - tabHeight + grow, tx = tabX + grow
     ctx.beginPath()
     ctx.moveTo(a + radius, c)
@@ -953,11 +963,13 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   cardWithTab(0.375)
   ctx.stroke()
   // Faint seam where the tab meets the card, as on printed tab labels.
-  ctx.beginPath()
-  ctx.moveTo(tabX + 0.75, y0)
-  ctx.lineTo(x1 - 0.75, y0)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)'
-  ctx.stroke()
+  if (brand) {
+    ctx.beginPath()
+    ctx.moveTo(tabX + 0.75, y0)
+    ctx.lineTo(x1 - 0.75, y0)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)'
+    ctx.stroke()
+  }
   ctx.restore()
 
   if (accentBar) {
@@ -1053,24 +1065,26 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
 
   // Tab contents: the app icon and the wordmark.
-  const tabTop = position === 'top' ? y1 : y0 - tabHeight
-  const iconX = tabX + 7, iconY = tabTop + (tabHeight - iconSize) / 2
-  ctx.save()
-  rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.23)
-  ctx.fillStyle = '#3d97f2'
-  ctx.fill()
-  if (icon) {
-    ctx.clip()
-    ctx.drawImage(icon, iconX, iconY, iconSize, iconSize)
-  }
-  ctx.restore()
-  const markX = iconX + iconSize + 7
-  if (wordmark) ctx.drawImage(wordmark, markX, tabTop + (tabHeight - markHeight) / 2, markWidth, markHeight)
-  else {
-    ctx.fillStyle = colors.text
-    ctx.textBaseline = 'middle'
-    ctx.font = `700 12px ${stampFace}`
-    ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
+  if (brand) {
+    const tabTop = position === 'top' ? y1 : y0 - tabHeight
+    const iconX = tabX + 7, iconY = tabTop + (tabHeight - iconSize) / 2
+    ctx.save()
+    rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.23)
+    ctx.fillStyle = '#3d97f2'
+    ctx.fill()
+    if (icon) {
+      ctx.clip()
+      ctx.drawImage(icon, iconX, iconY, iconSize, iconSize)
+    }
+    ctx.restore()
+    const markX = iconX + iconSize + 7
+    if (wordmark) ctx.drawImage(wordmark, markX, tabTop + (tabHeight - markHeight) / 2, markWidth, markHeight)
+    else {
+      ctx.fillStyle = colors.text
+      ctx.textBaseline = 'middle'
+      ctx.font = `700 12px ${stampFace}`
+      ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
+    }
   }
   ctx.restore()
   return position === 'top'
@@ -1264,6 +1278,10 @@ $('zoomSlider').addEventListener('change', async event => {
 
 video.addEventListener('click', async event => {
   if (pinch || Date.now() - pinchEndedAt < 400) return
+  if (preferences.tapAction === 'capture') {
+    if (!busy && countdownTimer === undefined) $('shutter').click()
+    return
+  }
   const camera = cameraHardware
   const frame = videoFrame()
   if (!camera?.focus || !frame) return
@@ -1460,14 +1478,7 @@ function showReview() {
   }
   $('share').hidden = !canShare
   updateSharePreference()
-  $('share').onclick = async () => {
-    try {
-      if (hostSaves) await exportToAndroid('share', name, jpeg)
-      else await navigator.share({ files: [shareFile] })
-    } catch (error) {
-      if (error.name !== 'AbortError') message('Sharing is unavailable. Use Save photo instead.')
-    }
-  }
+  $('share').onclick = () => sharePhoto(lastPhoto)
   $('review').hidden = false
   $('deletePhoto').hidden = false
   message('')
@@ -1640,12 +1651,14 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     if (!sourceWidth || !sourceHeight) throw new Error('No image frame')
     // Camera photos are cut to the chosen photo shape (the centre, as the live view shows it).
     const crop = live ? cropToShape(sourceWidth, sourceHeight) : { x: 0, y: 0, width: sourceWidth, height: sourceHeight }
+    // Standard quality: at most 2560 pixels on the long side (about 1 MB), for quick sharing.
+    const fit = preferences.quality === 'standard' ? Math.min(1, 2560 / Math.max(crop.width, crop.height)) : 1
     canvas = document.createElement('canvas')
-    canvas.width = crop.width
-    canvas.height = crop.height
+    canvas.width = Math.round(crop.width * fit)
+    canvas.height = Math.round(crop.height * fit)
     const context = canvas.getContext('2d', { alpha: false })
     if (!context) throw new Error('out of memory')
-    context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
+    context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await placeFor(snapshot)
     await stampFonts
@@ -1667,6 +1680,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       entry.saved = true
       entry.saving = saveAutomatically(name, jpeg, original)
     }
+    if (live && preferences.shareAfter) sharePhoto(entry, true)
     if (!live && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
     if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
@@ -1728,6 +1742,16 @@ if (android) {
   }
 }
 
+// Volume buttons as a shutter (apps only): the app passes presses on while this is on.
+function applyVolumeShutter() {
+  try { android?.setVolumeShutter?.(preferences.volumeShutter) } catch {}
+}
+$('volumeShutterRow').hidden = typeof android?.setVolumeShutter !== 'function'
+window.onHardwareShutter = () => {
+  if (!video.hidden && $('review').hidden && !document.querySelector('dialog[open]') && !busy) $('shutter').click()
+}
+applyVolumeShutter()
+
 // Photo shape: the long side over the short side; the photo keeps the camera's orientation.
 const shapeRatios = { '16:9': 16 / 9, '4:3': 4 / 3, '1:1': 1 }
 const shapeRatio = () => shapeRatios[preferences.aspect] || 16 / 9
@@ -1740,8 +1764,20 @@ function cropToShape(width, height) {
   return { x: Math.round((width - cropWidth) / 2), y: Math.round((height - cropHeight) / 2), width: cropWidth, height: cropHeight }
 }
 
+async function sharePhoto(entry, automatic = false) {
+  if (!entry) return
+  try {
+    if (hostSaves) await exportToAndroid('share', entry.name, entry.jpeg)
+    else await navigator.share({ files: [entry.shareFile] })
+  } catch (error) {
+    // Right after the shutter a browser may refuse to open sharing; the photo view's Share still works.
+    if (automatic) message('Photo saved. Open it from the thumbnail to share.', 3500)
+    else if (error.name !== 'AbortError') message('Sharing is unavailable. Use Save photo instead.')
+  }
+}
+
 function exportJpeg(canvas) {
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.94))
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', preferences.quality === 'standard' ? 0.85 : 0.94))
 }
 
 $('shutter').addEventListener('click', () => {
@@ -1909,6 +1945,11 @@ $('stampPosition').value = preferences.position
 $('keepOriginal').checked = preferences.keepOriginal
 $('preferShare').checked = preferences.preferShare
 $('photoShape').value = preferences.aspect
+$('photoQuality').value = preferences.quality
+$('tapAction').value = preferences.tapAction
+$('volumeShutter').checked = preferences.volumeShutter
+$('showLogo').checked = preferences.showLogo
+$('shareAfter').checked = preferences.shareAfter
 
 $('settings').addEventListener('change', () => {
   setTimeout(renderLiveStamp)
@@ -1916,6 +1957,12 @@ $('settings').addEventListener('change', () => {
   preferences.keepOriginal = $('keepOriginal').checked
   preferences.preferShare = $('preferShare').checked
   preferences.aspect = $('photoShape').value
+  preferences.quality = $('photoQuality').value
+  preferences.tapAction = $('tapAction').value
+  preferences.volumeShutter = $('volumeShutter').checked
+  preferences.showLogo = $('showLogo').checked
+  preferences.shareAfter = $('shareAfter').checked
+  applyVolumeShutter()
   savePreferences()
   layoutFrame()
   updateSharePreference()

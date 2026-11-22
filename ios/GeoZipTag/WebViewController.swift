@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import CoreLocation
 import Photos
 import UIKit
@@ -27,6 +28,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         cameraFocus: (x, y) => post({ type: 'cameraFocus', x: Number(x), y: Number(y) }),
         cameraLayout: (x, y, w, h) => post({ type: 'cameraLayout', x: Number(x), y: Number(y), w: Number(w), h: Number(h) }),
         cameraCapture: (id) => post({ type: 'cameraCapture', id: String(id) }),
+        setVolumeShutter: window.__geoZipTagVolumeButtons ? (on) => post({ type: 'setVolumeShutter', on: !!on }) : undefined,
         exportPhoto: (action, filename, data) => post({ type: 'exportPhoto', action, filename, data }),
         deletePhoto: (filename) => post({ type: 'deletePhoto', filename }),
         reverseGeocode: (id, lat, lon) => post({ type: 'reverseGeocode', id, lat, lon }),
@@ -37,6 +39,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     private var webView: WKWebView!
     private let camera = NativeCamera()
+    private var volumeInteraction: UIInteraction?
     private var server: LocalServer?
     private var updater: OtaUpdater?
     private var lastUpdateCheck = Date.distantPast
@@ -97,7 +100,10 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         info["pending"] = pending != nil
         info["pendingLabel"] = pending ?? ""
         let data = (try? JSONSerialization.data(withJSONObject: info)) ?? Data("{}".utf8)
-        let script = "window.__geoZipTagUpdateInfo = \(String(decoding: data, as: UTF8.self));\n" + Self.shim
+        var volumeButtons = false
+        if #available(iOS 17.2, *) { volumeButtons = true }
+        let script = "window.__geoZipTagUpdateInfo = \(String(decoding: data, as: UTF8.self));\n"
+            + "window.__geoZipTagVolumeButtons = \(volumeButtons);\n" + Self.shim
         controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
 
@@ -168,6 +174,21 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         label.textAlignment = .center
         label.numberOfLines = 0
         view.addSubview(label)
+    }
+
+    /// Volume up/down take a photo (Apple's capture-button support; it works while the camera is running).
+    private func setVolumeShutter(_ on: Bool) {
+        guard #available(iOS 17.2, *) else { return }
+        if on, volumeInteraction == nil {
+            let interaction = AVCaptureEventInteraction { [weak self] event in
+                if event.phase == .began { self?.callPage("window.onHardwareShutter && window.onHardwareShutter()") }
+            }
+            view.addInteraction(interaction)
+            volumeInteraction = interaction
+        } else if !on, let interaction = volumeInteraction {
+            view.removeInteraction(interaction)
+            volumeInteraction = nil
+        }
     }
 
     private func currentOrientation() -> AVCaptureVideoOrientation {
@@ -274,6 +295,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                 if let data { self.server?.putPhoto(id, data) }
                 self.callPage("window.onNativePhoto && window.onNativePhoto(\(Self.js(id)), \(data != nil))")
             }
+        case "setVolumeShutter":
+            setVolumeShutter(body["on"] as? Bool == true)
         case "checkForUpdates": checkForUpdates(manual: true)
         case "applyUpdate": applyUpdate()
         case "otaConfirm": updater?.confirm()

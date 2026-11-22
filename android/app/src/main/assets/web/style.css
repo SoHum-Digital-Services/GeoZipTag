@@ -684,6 +684,13 @@ dialog .setting-row select { width: auto; min-width: 7.5rem; min-height: 40px; p
 .setting-link:hover { background: var(--surface-3); }
 .setting-link:active { transform: none; }
 .setting-link .icon { color: var(--text-3); }
+.setting-row .row-icon { flex: 0 0 auto; width: 22px; height: 22px; margin-right: -.2rem; color: var(--text-2); }
+.setting-link .row-icon { color: var(--text-2); }
+.setting-row .row-text { flex: 1 1 auto; min-width: 0; }
+.info-text { padding: 0 .2rem .5rem; color: var(--text-2); font-size: .92rem; line-height: 1.55; }
+.info-text h3 { margin: 1.1rem 0 .3rem; color: var(--text); font-size: .95rem; }
+.info-text p { margin: 0 0 .5rem; }
+.info-text strong { color: var(--text); }
 .switch {
   position: relative;
   flex: 0 0 auto;

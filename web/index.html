@@ -38,6 +38,13 @@
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m4 17.5 5-4.5 4 3.5 3-2.5 4 3.5"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.4 3 7.9 7 9.5 4-1.6 7-5.1 7-9.5V6Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-frame" viewBox="0 0 24 24"><rect x="5.5" y="3" width="13" height="18" rx="2"/><path d="M9 6.5H8v1.5M15 17.5h1V16"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M11 3.5l1.7 4.8 4.8 1.7-4.8 1.7L11 16.5l-1.7-4.8L4.5 10l4.8-1.7Z"/><path d="M18.5 15v5M16 17.5h5"/></symbol>
+  <symbol id="i-tap" viewBox="0 0 24 24"><path d="M9.5 12V5.8a1.5 1.5 0 0 1 3 0V11m0-.5a1.5 1.5 0 0 1 3 0V12m0-.5a1.5 1.5 0 0 1 3 0v3.7a6 6 0 0 1-6 6h-.7a6 6 0 0 1-5-2.6l-2.4-3.7a1.5 1.5 0 0 1 2.4-1.8l1.7 2.2"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4Z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.7a7.5 7.5 0 0 1 0 10.6"/></symbol>
+  <symbol id="i-badge" viewBox="0 0 24 24"><path d="M3 10.5A2.5 2.5 0 0 1 5.5 8H12V6a1.5 1.5 0 0 1 1.5-1.5h6A1.5 1.5 0 0 1 21 6v11.5a2 2 0 0 1-2 2H5.5A2.5 2.5 0 0 1 3 17Z"/><path d="M6.5 13h7M6.5 16h4.5"/></symbol>
+  <symbol id="i-position" viewBox="0 0 24 24"><rect x="4.5" y="3" width="15" height="18" rx="2"/><path d="M7.5 16.5h9"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.9.7c0 1.7-2.5 2.1-2.5 3.7M12 17h.01"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5M14 11v5"/></symbol>
 </svg>
 
@@ -188,39 +195,130 @@
 
 <dialog id="settings" aria-labelledby="settingsTitle" autofocus>
   <div class="sheet-head"><h2 id="settingsTitle">Settings</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <section class="settings-group" aria-labelledby="settingsCamera">
+    <h3 id="settingsCamera">Camera</h3>
+    <div class="settings-list">
+      <div class="setting-row">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-frame"/></svg>
+        <label class="row-text" for="photoShape"><strong>Photo size</strong><small>16:9 full screen · 4:3 full sensor · 1:1 square</small></label>
+        <select id="photoShape"><option value="16:9">16:9</option><option value="4:3">4:3</option><option value="1:1">1:1</option></select>
+      </div>
+      <div class="setting-row">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-sparkle"/></svg>
+        <label class="row-text" for="photoQuality"><strong>Photo quality</strong><small>Standard makes smaller files for sharing</small></label>
+        <select id="photoQuality"><option value="high">High</option><option value="standard">Standard</option></select>
+      </div>
+      <div class="setting-row">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-tap"/></svg>
+        <label class="row-text" for="tapAction"><strong>Tap on screen</strong><small>What tapping the camera view does</small></label>
+        <select id="tapAction"><option value="focus">Focus</option><option value="capture">Take photo</option></select>
+      </div>
+      <label id="volumeShutterRow" class="setting-row" hidden>
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-volume"/></svg>
+        <span class="row-text"><strong>Volume buttons</strong><small>Press volume up or down to take a photo</small></span>
+        <input id="volumeShutter" class="switch" type="checkbox">
+      </label>
+      <button id="settingsPhoneCamera" class="setting-row setting-link" type="button">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-camera"/></svg>
+        <span class="row-text"><strong>Use phone camera</strong><small>Open the built-in camera app instead</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+    </div>
+  </section>
   <section class="settings-group" aria-labelledby="settingsStamp">
     <h3 id="settingsStamp">Stamp</h3>
     <div class="settings-list">
       <div class="setting-row">
-        <label for="stampPosition"><strong>Position</strong><small>Where the stamp sits on the photo</small></label>
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-position"/></svg>
+        <label class="row-text" for="stampPosition"><strong>Position</strong><small>Where the stamp sits on the photo</small></label>
         <select id="stampPosition"><option value="bottom">Bottom</option><option value="top">Top</option></select>
       </div>
+      <label class="setting-row">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-badge"/></svg>
+        <span class="row-text"><strong>GeoZipTag logo</strong><small>Show the GeoZipTag tab on the stamp</small></span>
+        <input id="showLogo" class="switch" type="checkbox">
+      </label>
     </div>
   </section>
   <section class="settings-group" aria-labelledby="settingsCapture">
     <h3 id="settingsCapture">After capture</h3>
     <div class="settings-list">
-      <label class="setting-row"><span><strong>Keep original</strong><small>Also offer a copy without the stamp</small></span><input id="keepOriginal" class="switch" type="checkbox"></label>
-      <label class="setting-row"><span><strong>Share first</strong><small>Make Share the main button when available</small></span><input id="preferShare" class="switch" type="checkbox"></label>
+      <label class="setting-row">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-image"/></svg>
+        <span class="row-text"><strong>Keep original</strong><small>Also save a copy without the stamp</small></span>
+        <input id="keepOriginal" class="switch" type="checkbox">
+      </label>
+      <label class="setting-row">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-share"/></svg>
+        <span class="row-text"><strong>Share after each photo</strong><small>Open the share sheet as soon as a photo is taken</small></span>
+        <input id="shareAfter" class="switch" type="checkbox">
+      </label>
+      <label class="setting-row">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-layers"/></svg>
+        <span class="row-text"><strong>Share button first</strong><small>Make Share the main button in the photo view</small></span>
+        <input id="preferShare" class="switch" type="checkbox">
+      </label>
     </div>
   </section>
-  <section class="settings-group" aria-labelledby="settingsCamera">
-    <h3 id="settingsCamera">Camera</h3>
+  <section class="settings-group" aria-labelledby="settingsHelp">
+    <h3 id="settingsHelp">Help &amp; about</h3>
     <div class="settings-list">
-      <div class="setting-row">
-        <label for="photoShape"><strong>Photo size</strong><small>The camera shows exactly this frame</small></label>
-        <select id="photoShape"><option value="16:9">16:9 · Full screen</option><option value="4:3">4:3 · Full sensor</option><option value="1:1">1:1 · Square</option></select>
-      </div>
-      <button id="settingsPhoneCamera" class="setting-row setting-link" type="button"><span><strong>Use phone camera</strong><small>Open the built-in camera app instead</small></span><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+      <button class="setting-row setting-link" type="button" data-open="helpSheet">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-help"/></svg>
+        <span class="row-text"><strong>How to use</strong><small>Taking, stamping and sharing photos</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+      <button class="setting-row setting-link" type="button" data-open="privacySheet">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-shield"/></svg>
+        <span class="row-text"><strong>Privacy policy</strong><small>What the app uses and sends</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
     </div>
   </section>
   <section id="updatesGroup" class="settings-group" aria-labelledby="settingsUpdates" hidden>
     <h3 id="settingsUpdates">App updates</h3>
     <div class="settings-list">
-      <button id="checkUpdates" class="setting-row setting-link" type="button"><span><strong>Check for updates</strong><small id="updateStatus">Updates download in the background.</small></span><svg class="icon" aria-hidden="true"><use href="#i-retake"/></svg></button>
+      <button id="checkUpdates" class="setting-row setting-link" type="button">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-download"/></svg>
+        <span class="row-text"><strong>Check for updates</strong><small id="updateStatus">Updates download in the background.</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-retake"/></svg>
+      </button>
     </div>
   </section>
   <p id="appVersion" class="app-version">GeoZipTag</p>
+</dialog>
+
+<dialog id="helpSheet" class="info-sheet" aria-labelledby="helpTitle" autofocus>
+  <div class="sheet-head"><h2 id="helpTitle">How to use</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <div class="info-text">
+    <h3>Take a stamped photo</h3>
+    <p>Point the camera and press the shutter. The photo is stamped with the place, address, satellite map, coordinates, date and time, and saved straight away.</p>
+    <h3>Choose a stamp</h3>
+    <p><strong>Satellite</strong> adds the map, address and GPS. <strong>Date &amp; time</strong> stamps only the time, with no location. <strong>QR code</strong> adds a code that opens the spot in a map.</p>
+    <h3>Location</h3>
+    <p>The pin button at the top shows the GPS status. Wait for the green dot for the most accurate address, or set a location by hand.</p>
+    <h3>Camera</h3>
+    <p>Tap the screen to focus, pinch or use .5 / 1 / 2 to zoom, and use the buttons at the top for the grid, timer and torch. Photo size and quality are in Settings.</p>
+    <h3>Your photos</h3>
+    <p>Tap the thumbnail beside the shutter to open the last photo, share it, or delete it. Swipe down to go back to the camera.</p>
+    <h3>Reports</h3>
+    <p>The report button at the top turns a photo, or a before-and-after pair, into a PDF with your company logo and notes.</p>
+  </div>
+</dialog>
+
+<dialog id="privacySheet" class="info-sheet" aria-labelledby="privacyTitle" autofocus>
+  <div class="sheet-head"><h2 id="privacyTitle">Privacy policy</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <div class="info-text">
+    <p>GeoZipTag has no accounts, no ads and no tracking. Your photos stay on your phone.</p>
+    <h3>Camera and photos</h3>
+    <p>The camera is used only to take your photos. Photos are saved on your phone, in the GeoZipTag album or folder, and are shared only when you choose to share them.</p>
+    <h3>Location</h3>
+    <p>Your location is used to write the place, address and coordinates on your photos. To find the address and satellite map, the coordinates are sent to these services: Photon (komoot), Nominatim (OpenStreetMap), Esri satellite imagery, and your phone's own address lookup (Apple or Google). They receive only the coordinates, never your photos.</p>
+    <h3>Reports</h3>
+    <p>Reports, logos and notes are made on your phone and are not uploaded anywhere.</p>
+    <h3>Updates</h3>
+    <p>The app checks GitHub Pages for signed updates. This request contains no personal information.</p>
+  </div>
 </dialog>
 
 <dialog id="reports" aria-labelledby="reportsTitle" autofocus>
