@@ -2,6 +2,7 @@ package com.geostampcam.mobile;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ContentValues;
@@ -14,6 +15,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.media.ExifInterface;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -34,6 +36,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 import java.io.ByteArrayInputStream;
@@ -47,6 +50,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +64,7 @@ public final class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String HOME = "https://" + HOST + "/index.html";
     private static final int CAMERA_ACCESS = 1, LOCATION_ACCESS = 2, PICKER_CAMERA_ACCESS = 3;
-    private static final int CHOOSE_IMAGE = 4, SAVE_DOCUMENT = 5, PHONE_LOCATION_ACCESS = 6;
+    private static final int CHOOSE_IMAGE = 4, SAVE_DOCUMENT = 5, PHONE_LOCATION_ACCESS = 6, STORAGE_ACCESS = 7;
     private static final int PHONE_WITHOUT_LOCATION = 1, PHONE_WITH_LOCATION = 2;
     private static final long MAX_FIX_AGE = 60_000;
     private static final int MAX_PAYLOAD = 28 * 1024 * 1024;
@@ -95,6 +99,10 @@ public final class MainActivity extends Activity {
         @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
     };
     private byte[] pendingDocument;
+    private final ArrayList<Object[]> pendingLegacySaves = new ArrayList<>();
+    private boolean storageRequested, savedOnce;
+    private Toast saveToast;
+    private AlertDialog exitDialog;
 
     @Override public void onCreate(Bundle savedState) {
         super.onCreate(savedState);
@@ -115,6 +123,11 @@ public final class MainActivity extends Activity {
         setContentView(root);
         configureCameraView();
         cameraView.loadUrl(HOME);
+        if (Build.VERSION.SDK_INT >= 33) {
+            // Android 16 apps no longer receive onBackPressed(); the back gesture goes through this callback.
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
+        }
         storage.execute(this::removeExpiredCache);
     }
 
@@ -265,6 +278,26 @@ public final class MainActivity extends Activity {
             else openImagePicker();
         } else if (code == PHONE_LOCATION_ACCESS && pickerCallback != null) {
             beginPhoneLocation();
+        } else if (code == STORAGE_ACCESS) {
+            storageRequested = false;
+            boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+            ArrayList<Object[]> queue;
+            synchronized (pendingLegacySaves) {
+                queue = new ArrayList<>(pendingLegacySaves);
+                pendingLegacySaves.clear();
+            }
+            if (granted) {
+                storage.execute(() -> {
+                    for (Object[] item : queue) {
+                        try { saveLegacy((String) item[0], (byte[]) item[1]); }
+                        catch (IOException | SecurityException error) { notifyUser("Could not save the photo."); }
+                    }
+                });
+            } else if (!queue.isEmpty()) {
+                Object[] last = queue.get(queue.size() - 1);
+                notifyUser("Allow storage access to save photos automatically.");
+                createPhotoDocument((String) last[0], (byte[]) last[1]);
+            }
         }
     }
 
@@ -522,7 +555,7 @@ public final class MainActivity extends Activity {
                     } else if (Build.VERSION.SDK_INT >= 29) {
                         saveToGallery(filename, bytes);
                     } else {
-                        runOnUiThread(() -> createPhotoDocument(filename, bytes));
+                        saveLegacy(filename, bytes);
                     }
                 } catch (IOException | IllegalArgumentException | SecurityException error) {
                     notifyUser("Could not export the photo.");
@@ -622,10 +655,41 @@ public final class MainActivity extends Activity {
                 throw new IOException("Could not finish saving");
             }
             complete = true;
-            notifyUser("Saved to Pictures/GeoZipTag.");
+            showSaved();
         } finally {
             if (!complete) getContentResolver().delete(uri, null, null);
         }
+    }
+
+    // Android 8-9: write into Pictures/GeoZipTag directly once storage access is granted.
+    private void saveLegacy(String filename, byte[] bytes) throws IOException {
+        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            synchronized (pendingLegacySaves) { pendingLegacySaves.add(new Object[]{filename, bytes}); }
+            runOnUiThread(() -> {
+                if (storageRequested) return;
+                storageRequested = true;
+                requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_ACCESS);
+            });
+            return;
+        }
+        File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GeoZipTag");
+        if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Could not create the photo folder");
+        File file = new File(folder, filename);
+        try (OutputStream out = new FileOutputStream(file)) { out.write(bytes); }
+        MediaScannerConnection.scanFile(this, new String[]{file.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
+        showSaved();
+    }
+
+    // One short toast per photo (replacing the previous one), with the folder named the first time.
+    private void showSaved() {
+        String text = savedOnce ? "Saved" : "Saved to Pictures/GeoZipTag";
+        savedOnce = true;
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (saveToast != null) saveToast.cancel();
+            saveToast = Toast.makeText(this, text, Toast.LENGTH_SHORT);
+            saveToast.show();
+        });
     }
 
     private void write(Uri uri, byte[] bytes) throws IOException {
@@ -694,9 +758,26 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
+        handleBack();
+    }
+
+    // Back first closes a sheet or leaves the photo view; otherwise it asks before exiting.
+    private void handleBack() {
         cameraView.evaluateJavascript("window.closeGeoStampDialog && window.closeGeoStampDialog()", value -> {
-            if (!"true".equals(value)) finish();
+            if (!"true".equals(value)) confirmExit();
         });
+    }
+
+    private void confirmExit() {
+        if (isFinishing() || isDestroyed()) return;
+        if (exitDialog != null && exitDialog.isShowing()) return;
+        int theme = getResources().getIdentifier("ExitDialog", "style", getPackageName());
+        exitDialog = new AlertDialog.Builder(this, theme != 0 ? theme : android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("Exit GeoZipTag?")
+                .setMessage("Photos you took are already saved.")
+                .setPositiveButton("Exit", (dialog, which) -> finish())
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     @Override protected void onPause() {
@@ -710,6 +791,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (exitDialog != null) exitDialog.dismiss();
         finishImagePicker(null);
         storage.shutdown();
         lookups.shutdownNow();

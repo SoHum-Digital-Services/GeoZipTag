@@ -57,6 +57,7 @@
   <section class="viewfinder" aria-label="Photo viewfinder">
     <video id="video" autoplay muted playsinline hidden></video>
     <img id="result" alt="Photo with the stamp embedded" hidden>
+    <canvas id="switchFrame" class="switch-frame" aria-hidden="true" hidden></canvas>
     <div id="start" class="start">
       <div class="start-mark" aria-hidden="true"><svg class="icon"><use href="#i-camera"/></svg></div>
       <div class="start-copy">
@@ -80,6 +81,7 @@
       <input id="zoomSlider" type="range" aria-label="Camera zoom">
     </div>
     <div id="cameraCountdown" class="camera-countdown" role="status" hidden></div>
+    <div id="shutterFlash" class="shutter-flash" aria-hidden="true"></div>
     <p id="status" role="status" hidden></p>
   </section>
   <canvas id="liveStamp" class="live-stamp" aria-hidden="true" hidden></canvas>
@@ -119,7 +121,7 @@
   </div>
 
   <div id="review" class="review" aria-label="Photo actions" hidden>
-    <button id="retake" type="button"><svg class="icon" aria-hidden="true"><use href="#i-retake"/></svg><span id="retakeLabel">Retake</span></button>
+    <button id="retake" type="button"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span id="retakeLabel">Camera</span></button>
     <a id="save" class="primary" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Save photo</a>
     <button id="share" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Share</button>
     <a id="saveOriginal" class="secondary" download hidden>Also save the original, without stamp</a>

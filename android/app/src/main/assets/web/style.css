@@ -147,6 +147,15 @@ dialog:focus, dialog:focus-visible { outline: none; }
   object-fit: contain;
 }
 .viewfinder.photo-review { background: #000; }
+/* Flipping cameras: the last frame stays up, blurred, until the new camera is ready. */
+.switch-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: blur(14px) brightness(.7); transform: scale(1.05); }
+.switch-frame.mirror { transform: scaleX(-1) scale(1.05); }
+.shutter-flash { position: absolute; inset: 0; z-index: 2; background: #fff; opacity: 0; pointer-events: none; }
+.shutter-flash.fire { animation: shutter-flash .22s ease-out; }
+@keyframes shutter-flash { 0% { opacity: .8; } 100% { opacity: 0; } }
+/* Reviewing the last photo: the camera keeps running underneath, out of sight. */
+.viewfinder.photo-review video, .viewfinder.photo-review .switch-frame { visibility: hidden; }
+.viewfinder.photo-review :is(.live-camera-tools, .camera-zoom, .camera-grid, .focus-point, .camera-countdown) { display: none; }
 video.mirror { transform: scaleX(-1); }
 .viewfinder video { touch-action: none; }
 video.can-focus { cursor: crosshair; }
@@ -465,7 +474,7 @@ dialog::backdrop { background: #000000a6; animation: fade-in .25s ease; }
 @keyframes sheet-in { from { transform: translateY(40px); opacity: 0; } }
 @keyframes fade-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  dialog[open], dialog::backdrop, #status, .gps-choice, .focus-point, .last-photo.fresh { animation: none; }
+  dialog[open], dialog::backdrop, #status, .gps-choice, .focus-point, .last-photo.fresh, .shutter-flash.fire { animation: none; }
 }
 .sheet-head {
   position: sticky;
@@ -717,7 +726,7 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
     border-radius: 0;
     background: #000;
   }
-  .viewfinder video { object-fit: cover; }
+  .viewfinder video, .switch-frame { object-fit: cover; }
   /* Review: the whole stamped photo stays visible between the bars. */
   .viewfinder.photo-review { top: calc(env(safe-area-inset-top) + 56px); bottom: var(--bottom-bar, 200px); }
   .camera-header {

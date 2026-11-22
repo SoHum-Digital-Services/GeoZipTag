@@ -7,7 +7,7 @@ const status = $('status')
 let placeLabel = ''
 let stampNote = ''
 let stream, photoUrl, watchId, fix
-let facing = 'environment'
+let facing = 'user'   // GeoZipTag always opens on the front camera
 let cameraRequest = 0
 let busy = false
 let fromPicker = false
@@ -62,6 +62,7 @@ function expireLocationFix() {
 }
 setInterval(expireLocationFix, 1000)
 
+const hostSaves = typeof android !== 'undefined' && !!android   // the Android app saves every photo itself
 let messageTimer
 function message(value, hideAfter = 0) {
   clearTimeout(messageTimer)
@@ -119,13 +120,54 @@ function stopCamera() {
   resetLiveControls()
 }
 
-async function startCamera(nextFacing = facing) {
-  stopCamera()
+let switching = false
+function freezeFrame() {
+  const frame = $('switchFrame')
+  if (video.hidden || !video.videoWidth || !video.videoHeight) return false
+  frame.width = video.videoWidth
+  frame.height = video.videoHeight
+  frame.getContext('2d').drawImage(video, 0, 0)
+  frame.classList.toggle('mirror', video.classList.contains('mirror'))
+  frame.hidden = false
+  return true
+}
+function releaseFrame() { $('switchFrame').hidden = true }
+function endSwitch() {
+  switching = false
+  releaseFrame()
+  $('shutter').disabled = busy
+  $('switchCamera').disabled = busy
+}
+
+// Flipping cameras keeps the screen as it is (last frame, blurred) instead of the start screen.
+function softStopCamera() {
+  cameraRequest++
+  stream?.getTracks().forEach((track) => track.stop())
+  stream = undefined
+  video.srcObject = null
+  video.hidden = true
+  cancelCountdown()
+  cameraHardware = undefined
+  $('zoomControl').hidden = true
+  $('torchToggle').hidden = true
+  $('focusPoint').hidden = true
+  video.classList.remove('can-focus')
+}
+
+async function startCamera(nextFacing = facing, { soft = false } = {}) {
+  if (soft) {
+    softStopCamera()
+    switching = true
+    $('shutter').disabled = true
+    $('switchCamera').disabled = true
+  } else stopCamera()
   const request = cameraRequest
-  $('start').hidden = false
-  $('startCamera').disabled = true
-  $('startWithoutLocation').disabled = true
-  $('startCamera').textContent = 'Opening camera…'
+  if (!soft) {
+    $('start').hidden = false
+    $('startCamera').disabled = true
+    $('startWithoutLocation').disabled = true
+    $('startCamera').textContent = 'Opening camera…'
+  }
   message('')
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
@@ -162,8 +204,11 @@ async function startCamera(nextFacing = facing) {
   } catch {
     if (cameraRequest !== request) return
     stopCamera()
+    endSwitch()
+    $('start').hidden = false
     message('Live camera unavailable. Check camera permission or use your phone camera.')
   } finally {
+    if (cameraRequest === request) endSwitch()
     if (cameraRequest === request || !stream) resetStart()
   }
 }
@@ -205,7 +250,10 @@ $('startWithoutLocation').addEventListener('click', () => {
   clearGpsChoice()
   startCamera()
 })
-$('switchCamera').addEventListener('click', () => startCamera(facing === 'environment' ? 'user' : 'environment'))
+$('switchCamera').addEventListener('click', () => {
+  if (busy || switching) return
+  startCamera(facing === 'environment' ? 'user' : 'environment', { soft: freezeFrame() })
+})
 
 function openPicker(snapshot) {
   pickerFix = snapshot
@@ -1055,20 +1103,73 @@ function updateThumbnail(canvas) {
 }
 
 $('lastPhotoButton').addEventListener('click', () => {
-  if (busy || !photoUrl) return
+  if (busy) return
+  showReview()
+})
+
+// ---- Reviewing the last photo (opened from the thumbnail; the camera keeps running) ----
+async function saveAutomatically(name, jpeg, original) {
+  try {
+    await exportToAndroid('save', name, jpeg)
+    if (original) await exportToAndroid('save', name.replace('.jpg', '-original.jpg'), original)
+  } catch {
+    if (lastPhoto?.name === name) lastPhoto.saved = false
+    message('Could not save the photo. Open it from the thumbnail to try again.', 6000)
+  }
+}
+
+function fireFlash() {
+  const flash = $('shutterFlash')
+  flash.classList.remove('fire')
+  void flash.offsetWidth
+  flash.classList.add('fire')
+}
+
+function showReview() {
+  if (!photoUrl || !lastPhoto) return
   cancelCountdown()
   clearGpsChoice()
-  stopCamera()
+  const { name, jpeg, shareFile } = lastPhoto
   $('start').hidden = true
   $('controls').hidden = true
   $('result').src = photoUrl
   $('result').hidden = false
   $('result').parentElement.classList.add('photo-review')
   $('retakeLabel').textContent = 'Camera'
+  $('save').href = photoUrl
+  $('save').download = name
+  $('save').hidden = hostSaves && lastPhoto.saved
+  $('saveOriginal').hidden = hostSaves || !originalUrl
+  let canShare = hostSaves
+  if (!hostSaves) {
+    try { canShare = !!navigator.canShare?.({ files: [shareFile] }) } catch {}
+  }
+  $('share').hidden = !canShare
+  updateSharePreference()
+  $('share').onclick = async () => {
+    try {
+      if (hostSaves) await exportToAndroid('share', name, jpeg)
+      else await navigator.share({ files: [shareFile] })
+    } catch (error) {
+      if (error.name !== 'AbortError') message('Sharing is unavailable. Use Save photo instead.')
+    }
+  }
   $('review').hidden = false
   message('')
-  $('save').focus()
-})
+  ;($('share').classList.contains('share-primary') ? $('share') : $('save')).focus()
+  renderLiveStamp()
+}
+
+function hideReview() {
+  $('result').hidden = true
+  $('result').parentElement.classList.remove('photo-review')
+  $('result').removeAttribute('src')
+  $('review').hidden = true
+  $('controls').hidden = false
+  $('start').hidden = !!stream
+  message('')
+  renderLiveStamp()
+}
 
 function cancelCountdown() {
   clearInterval(countdownTimer)
@@ -1122,7 +1223,9 @@ async function capture(source, picked, snapshot) {
   $('fallback').disabled = true
   $('startCamera').disabled = true
   $('switchCamera').disabled = true
-  message(snapshot && !placeReady(snapshot) ? 'Adding address and satellite map…' : 'Stamping photo…')
+  if (source === video) fireFlash()
+  if (source !== video) message('Stamping photo…')
+  else if (snapshot && !placeReady(snapshot)) message('Adding address and satellite map…')
   try {
     const canvas = document.createElement('canvas')
     canvas.width = picked ? source.naturalWidth : source.videoWidth
@@ -1140,7 +1243,7 @@ async function capture(source, picked, snapshot) {
     if (photoUrl) URL.revokeObjectURL(photoUrl)
     photoUrl = URL.createObjectURL(jpeg)
     fromPicker = picked
-    lastPhoto = { jpeg, date, snapshot, address, note: stampNote }
+    lastPhoto = { jpeg, date, snapshot, address, note: stampNote, name, shareFile, saved: false }
     if (originalUrl) URL.revokeObjectURL(originalUrl)
     originalUrl = original ? URL.createObjectURL(original) : undefined
     $('saveOriginal').hidden = !originalUrl
@@ -1148,33 +1251,17 @@ async function capture(source, picked, snapshot) {
       $('saveOriginal').href = originalUrl
       $('saveOriginal').download = name.replace('.jpg', '-original.jpg')
     } else $('saveOriginal').removeAttribute('href')
-    stopCamera()
-    $('start').hidden = true
-    $('controls').hidden = true
-    $('result').src = photoUrl
-    $('result').hidden = false
-    $('result').parentElement.classList.add('photo-review')
-    $('save').href = photoUrl
-    $('save').download = name
-    $('retakeLabel').textContent = 'Retake'
-    $('review').hidden = false
+    // The photo is ready: the thumbnail updates at once and the viewfinder stays on screen.
     updateThumbnail(canvas)
-    let canShare = false
-    try { canShare = !!navigator.canShare?.({ files: [shareFile] }) } catch {}
-    $('share').hidden = !canShare
-    updateSharePreference()
-    $('share').onclick = async () => {
-      try { await navigator.share({ files: [shareFile] }) }
-      catch (error) {
-        if (error.name !== 'AbortError') message('Sharing is unavailable. Use Save photo instead.')
-      }
+    if (hostSaves) {
+      lastPhoto.saved = true
+      saveAutomatically(name, jpeg, original)
     }
+    if (source !== video && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
-    message(!snapshot ? (preferences.template === 'time' ? 'Date and time added' : 'Timestamp added · no GPS location') : address && map ? 'Timestamp, address, and satellite map added' :
-      map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
-        'Timestamp and coordinates added · map and address unavailable', complete ? 2500 : 6000)
-    const primaryAction = canShare && preferences.preferShare ? $('share') : $('save')
-    primaryAction.focus()
+    if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
+    else message(map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
+      'Timestamp and coordinates added · map and address unavailable', 6000)
   } catch {
     message('Could not create the photo. Take another photo or try the phone camera.')
   } finally {
@@ -1206,16 +1293,8 @@ file.addEventListener('change', async () => {
   finally { URL.revokeObjectURL(url) }
 })
 $('retake').addEventListener('click', () => {
-  $('result').hidden = true
-  $('result').parentElement.classList.remove('photo-review')
-  // Keep the photo URLs so the thumbnail can reopen it; the next capture replaces them.
-  $('result').removeAttribute('src')
-  $('review').hidden = true
-  $('controls').hidden = false
-  $('start').hidden = false
-  message('')
-  if (fromPicker) requestCapture(openPicker)
-  else startLiveCamera()
+  hideReview()
+  if (!stream) startLiveCamera()
 })
 window.addEventListener('pagehide', () => {
   stopCamera()
@@ -1258,7 +1337,7 @@ function savePreferences() {
 }
 
 function updateSharePreference() {
-  const highlightShare = preferences.preferShare && !$('share').hidden
+  const highlightShare = (preferences.preferShare || $('save').hidden) && !$('share').hidden
   $('share').classList.toggle('share-primary', highlightShare)
   $('save').classList.toggle('primary', !highlightShare)
   $('save').classList.toggle('secondary', highlightShare)
@@ -1804,7 +1883,7 @@ window.addEventListener('pageshow', event => {
 const liveStamp = $('liveStamp')
 const phoneLayout = window.matchMedia('(max-width: 759px)')
 function renderLiveStamp() {
-  const show = phoneLayout.matches && !video.hidden && $('review').hidden
+  const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden
   liveStamp.hidden = !show
   if (!show) return
   const scale = Math.min(window.devicePixelRatio || 1, 3)
