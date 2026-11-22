@@ -1079,8 +1079,59 @@ function endTouch(event) {
 for (const type of ['pointerup', 'pointercancel', 'pointerleave']) video.addEventListener(type, endTouch)
 
 // The last photo stays available from a thumbnail beside the shutter.
-let thumbUrl
-function updateThumbnail(canvas) {
+// The last photos of this session stay available from the thumbnail; deleting one falls back to the previous.
+const photoHistory = []
+const MAX_PHOTOS = 12
+
+function setCurrentPhoto(entry) {
+  lastPhoto = entry
+  photoUrl = entry?.url
+  originalUrl = entry?.originalUrl
+}
+
+function releasePhoto(entry) {
+  for (const url of [entry.url, entry.originalUrl, entry.thumb]) if (url) URL.revokeObjectURL(url)
+}
+
+function rememberPhoto(entry) {
+  photoHistory.push(entry)
+  while (photoHistory.length > MAX_PHOTOS) releasePhoto(photoHistory.shift())
+  setCurrentPhoto(entry)
+}
+
+function removePhoto(entry) {
+  const index = photoHistory.indexOf(entry)
+  if (index < 0) return
+  photoHistory.splice(index, 1)
+  releasePhoto(entry)
+  if (lastPhoto === entry) {
+    const previous = photoHistory[photoHistory.length - 1]
+    setCurrentPhoto(previous)
+    showThumbnail(previous)
+  }
+}
+
+function showThumbnail(entry, fresh = false) {
+  const button = $('lastPhotoButton'), image = $('lastPhotoImage')
+  if (!entry?.thumb) {
+    image.hidden = true
+    image.removeAttribute('src')
+    button.disabled = true
+    button.setAttribute('aria-label', 'Last photo. None yet')
+    return
+  }
+  image.src = entry.thumb
+  image.hidden = false
+  button.disabled = false
+  button.setAttribute('aria-label', 'Open last photo')
+  if (fresh) {
+    button.classList.remove('fresh')
+    void button.offsetWidth
+    button.classList.add('fresh')
+  }
+}
+
+function updateThumbnail(canvas, entry) {
   const size = 144
   const thumb = document.createElement('canvas')
   thumb.width = thumb.height = size
@@ -1089,16 +1140,9 @@ function updateThumbnail(canvas) {
   thumb.getContext('2d').drawImage(canvas, (size - width) / 2, (size - height) / 2, width, height)
   thumb.toBlob(blob => {
     if (!blob) return
-    if (thumbUrl) URL.revokeObjectURL(thumbUrl)
-    thumbUrl = URL.createObjectURL(blob)
-    $('lastPhotoImage').src = thumbUrl
-    const button = $('lastPhotoButton')
-    $('lastPhotoImage').hidden = false
-    button.disabled = false
-    button.setAttribute('aria-label', 'Open last photo')
-    button.classList.remove('fresh')
-    void button.offsetWidth
-    button.classList.add('fresh')
+    if (!photoHistory.includes(entry)) return   // deleted or evicted while the thumbnail was being made
+    entry.thumb = URL.createObjectURL(blob)
+    if (lastPhoto === entry) showThumbnail(entry, true)
   }, 'image/jpeg', 0.82)
 }
 
@@ -1140,6 +1184,10 @@ function showReview() {
   $('save').download = name
   $('save').hidden = hostSaves && lastPhoto.saved
   $('saveOriginal').hidden = hostSaves || !originalUrl
+  if (originalUrl) {
+    $('saveOriginal').href = originalUrl
+    $('saveOriginal').download = name.replace('.jpg', '-original.jpg')
+  } else $('saveOriginal').removeAttribute('href')
   let canShare = hostSaves
   if (!hostSaves) {
     try { canShare = !!navigator.canShare?.({ files: [shareFile] }) } catch {}
@@ -1155,6 +1203,7 @@ function showReview() {
     }
   }
   $('review').hidden = false
+  $('deletePhoto').hidden = false
   message('')
   ;($('share').classList.contains('share-primary') ? $('share') : $('save')).focus()
   renderLiveStamp()
@@ -1165,11 +1214,99 @@ function hideReview() {
   $('result').parentElement.classList.remove('photo-review')
   $('result').removeAttribute('src')
   $('review').hidden = true
+  $('deletePhoto').hidden = true
+  $('result').style.transition = 'none'
+  $('result').style.transform = ''
+  $('result').style.opacity = ''
   $('controls').hidden = false
   $('start').hidden = !!stream
   message('')
   renderLiveStamp()
 }
+
+// Leaving the photo view: back to the live camera.
+function closePhotoView() {
+  hideReview()
+  if (!stream) startLiveCamera()
+}
+
+// ---- Delete the photo being viewed ----
+$('deletePhoto').addEventListener('click', () => {
+  const fromDevice = hostSaves && typeof android.deletePhoto === 'function'
+  $('deleteText').textContent = !hostSaves
+    ? 'It is only kept in this browser session, so it will be gone for good.'
+    : fromDevice ? 'It will also be removed from Pictures/GeoZipTag in your Gallery.'
+      : 'It will be removed from the app. This version cannot remove it from your Gallery, so delete it there too.'
+  $('deleteConfirm').showModal()
+})
+$('cancelDelete').addEventListener('click', () => $('deleteConfirm').close())
+$('confirmDelete').addEventListener('click', async () => {
+  $('deleteConfirm').close()
+  const entry = lastPhoto
+  if (!entry) return
+  const fromDevice = hostSaves && entry.saved && typeof android.deletePhoto === 'function'
+  if (fromDevice) {
+    try { await entry.saving } catch {}   // let the automatic save finish first, so no file is left behind
+    android.deletePhoto(entry.name)
+  }
+  removePhoto(entry)
+  closePhotoView()
+  message(hostSaves && entry.saved && !fromDevice ? 'Removed from the app. It is still in your Gallery.' : 'Photo deleted',
+    hostSaves && entry.saved && !fromDevice ? 5000 : 2000)
+})
+// The app reports back when the file could not be removed from the Gallery.
+window.onPhotoDeleted = (name, ok) => {
+  if (!ok) message('Could not remove the photo from your Gallery. Delete it there.', 6000)
+}
+
+// ---- Swipe down on the photo to go back to the camera ----
+{
+  const area = $('result').parentElement, photo = $('result')
+  let drag
+  const settle = (animated) => {
+    photo.style.transition = animated ? 'transform .2s cubic-bezier(.2,.8,.2,1), opacity .2s' : 'none'
+    photo.style.transform = ''
+    photo.style.opacity = ''
+  }
+  area.addEventListener('pointerdown', (event) => {
+    if (!area.classList.contains('photo-review') || event.target.closest('button')) return
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now(), dy: 0, active: false }
+    photo.style.transition = 'none'
+  })
+  area.addEventListener('pointermove', (event) => {
+    if (!drag || drag.id !== event.pointerId) return
+    const dx = event.clientX - drag.x, dy = event.clientY - drag.y
+    if (!drag.active) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+      if (dy <= 0 || Math.abs(dx) > dy) { drag = undefined; return }   // up or sideways: not a swipe down
+      drag.active = true
+      try { area.setPointerCapture(event.pointerId) } catch {}
+    }
+    drag.dy = dy
+    photo.style.transform = `translateY(${dy}px) scale(${Math.max(0.8, 1 - dy / 1600)})`
+    photo.style.opacity = String(Math.max(0.25, 1 - dy / 450))
+  })
+  const release = (event) => {
+    if (!drag || drag.id !== event.pointerId) return
+    const { dy, time, active } = drag
+    drag = undefined
+    if (!active) return
+    const fast = dy / Math.max(1, performance.now() - time) > 0.6   // pixels per millisecond
+    if (event.type !== 'pointercancel' && (dy > 110 || (dy > 40 && fast))) {
+      photo.style.transition = 'transform .16s ease-in, opacity .16s'
+      photo.style.transform = `translateY(${Math.round(window.innerHeight * 0.4)}px) scale(.8)`
+      photo.style.opacity = '0'
+      setTimeout(() => { closePhotoView(); settle(false) }, 150)
+    } else settle(true)
+  }
+  photo.addEventListener('dragstart', (event) => event.preventDefault())   // the browser would otherwise start dragging the image
+  area.addEventListener('pointerup', release)
+  area.addEventListener('pointercancel', release)
+}
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !$('review').hidden && !document.querySelector('dialog[open]')) closePhotoView()
+})
 
 function cancelCountdown() {
   clearInterval(countdownTimer)
@@ -1240,22 +1377,17 @@ async function capture(source, picked, snapshot) {
     if (!jpeg) throw new Error('Export unavailable')
     const name = `GeoZipTag-${date.toISOString().replace(/[:.]/g, '-')}.jpg`
     const shareFile = new File([jpeg], name, { type: 'image/jpeg' })
-    if (photoUrl) URL.revokeObjectURL(photoUrl)
-    photoUrl = URL.createObjectURL(jpeg)
     fromPicker = picked
-    lastPhoto = { jpeg, date, snapshot, address, note: stampNote, name, shareFile, saved: false }
-    if (originalUrl) URL.revokeObjectURL(originalUrl)
-    originalUrl = original ? URL.createObjectURL(original) : undefined
-    $('saveOriginal').hidden = !originalUrl
-    if (originalUrl) {
-      $('saveOriginal').href = originalUrl
-      $('saveOriginal').download = name.replace('.jpg', '-original.jpg')
-    } else $('saveOriginal').removeAttribute('href')
+    const entry = {
+      jpeg, date, snapshot, address, note: stampNote, name, shareFile, saved: false,
+      url: URL.createObjectURL(jpeg), originalUrl: original ? URL.createObjectURL(original) : undefined
+    }
+    rememberPhoto(entry)
     // The photo is ready: the thumbnail updates at once and the viewfinder stays on screen.
-    updateThumbnail(canvas)
+    updateThumbnail(canvas, entry)
     if (hostSaves) {
-      lastPhoto.saved = true
-      saveAutomatically(name, jpeg, original)
+      entry.saved = true
+      entry.saving = saveAutomatically(name, jpeg, original)
     }
     if (source !== video && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
@@ -1292,10 +1424,7 @@ file.addEventListener('change', async () => {
   catch { message('This image could not be opened. Try a JPEG or PNG photo.') }
   finally { URL.revokeObjectURL(url) }
 })
-$('retake').addEventListener('click', () => {
-  hideReview()
-  if (!stream) startLiveCamera()
-})
+$('retake').addEventListener('click', closePhotoView)
 window.addEventListener('pagehide', () => {
   stopCamera()
   if (!$('controls').hidden) $('start').hidden = false

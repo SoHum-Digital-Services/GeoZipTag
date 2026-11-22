@@ -59,6 +59,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONException;
@@ -107,6 +108,8 @@ public final class MainActivity extends Activity {
     };
     private byte[] pendingDocument;
     private final ArrayList<Object[]> pendingLegacySaves = new ArrayList<>();
+    // Where this session's photos went in the gallery (API 29+), so the photo view can delete them again.
+    private final Map<String, Uri> savedPhotos = new ConcurrentHashMap<>();
     private boolean storageRequested, savedOnce;
     private Toast saveToast;
     private AlertDialog exitDialog;
@@ -641,6 +644,21 @@ public final class MainActivity extends Activity {
             nextPhoneMode = withLocation ? PHONE_WITH_LOCATION : PHONE_WITHOUT_LOCATION;
         }
 
+        /** Deletes a photo (and its "-original" twin) that this app saved into Pictures/GeoZipTag. */
+        @JavascriptInterface public void deletePhoto(String filename) {
+            if (filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.jpg")) return;
+            storage.execute(() -> {
+                boolean ok = true;
+                for (String name : new String[]{filename, filename.replace(".jpg", "-original.jpg")}) {
+                    ok &= deleteSaved(name);
+                }
+                String script = "window.onPhotoDeleted && window.onPhotoDeleted(" + JSONObject.quote(filename) + "," + ok + ")";
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
+                });
+            });
+        }
+
         @JavascriptInterface public void exportPhoto(String action, String filename, String encoded) {
             if (filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.jpg")
                     || encoded == null || encoded.length() > MAX_PAYLOAD) {
@@ -761,10 +779,35 @@ public final class MainActivity extends Activity {
                 throw new IOException("Could not finish saving");
             }
             complete = true;
+            savedPhotos.put(filename, uri);
             showSaved();
         } finally {
             if (!complete) getContentResolver().delete(uri, null, null);
         }
+    }
+
+    // A photo that was never saved (or is already gone) counts as deleted.
+    private boolean deleteSaved(String filename) {
+        synchronized (pendingLegacySaves) {
+            for (int i = pendingLegacySaves.size() - 1; i >= 0; i--) {
+                if (filename.equals(pendingLegacySaves.get(i)[0])) pendingLegacySaves.remove(i);
+            }
+        }
+        boolean ok = true;
+        Uri uri = savedPhotos.remove(filename);
+        if (uri != null) {
+            try { getContentResolver().delete(uri, null, null); }
+            catch (SecurityException | IllegalArgumentException error) { ok = false; }
+        }
+        if (Build.VERSION.SDK_INT < 29
+                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+            File file = new File(new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GeoZipTag"), filename);
+            if (file.exists()) {
+                if (file.delete()) MediaScannerConnection.scanFile(this, new String[]{file.getAbsolutePath()}, null, null);
+                else ok = false;
+            }
+        }
+        return ok;
     }
 
     // Android 8-9: write into Pictures/GeoZipTag directly once storage access is granted.

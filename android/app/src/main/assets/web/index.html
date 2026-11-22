@@ -38,6 +38,7 @@
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m4 17.5 5-4.5 4 3.5 3-2.5 4 3.5"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.4 3 7.9 7 9.5 4-1.6 7-5.1 7-9.5V6Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5M14 11v5"/></symbol>
 </svg>
 
 <main class="camera">
@@ -81,6 +82,8 @@
       <input id="zoomSlider" type="range" aria-label="Camera zoom">
     </div>
     <div id="cameraCountdown" class="camera-countdown" role="status" hidden></div>
+    <button id="deletePhoto" class="delete-photo" type="button" aria-label="Delete photo" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
+    <div class="swipe-handle" aria-hidden="true"></div>
     <div id="shutterFlash" class="shutter-flash" aria-hidden="true"></div>
     <p id="status" role="status" hidden></p>
   </section>
@@ -248,6 +251,14 @@
     <p id="reportStatus" role="status" class="hint"></p>
     <div class="sheet-actions stacked"><button id="printReport" type="submit" class="primary">Print or save as PDF</button></div>
   </form>
+</dialog>
+<dialog id="deleteConfirm" aria-labelledby="deleteTitle" autofocus>
+  <div class="sheet-head"><h2 id="deleteTitle">Delete this photo?</h2></div>
+  <p id="deleteText" class="hint"></p>
+  <div class="sheet-actions stacked">
+    <button id="confirmDelete" class="danger" type="button">Delete photo</button>
+    <button id="cancelDelete" class="text-button" type="button">Cancel</button>
+  </div>
 </dialog>
 <article id="reportDocument" aria-hidden="true"></article>
 </body>
