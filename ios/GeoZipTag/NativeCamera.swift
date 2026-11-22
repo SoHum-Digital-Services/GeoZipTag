@@ -17,6 +17,8 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
     private var input: AVCaptureDeviceInput?
     private var wideFactor: CGFloat = 1          // zoom factor of the main (1×) lens on multi-lens cameras
     private var pending: [Int64: (Data?) -> Void] = [:]
+    private var lightTimer: DispatchSourceTimer?
+    private var brightened = false
 
     override init() {
         super.init()
@@ -44,6 +46,8 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
 
     func stop() {
         queue.async {
+            self.lightTimer?.cancel()
+            self.lightTimer = nil
             self.setTorchLocked(false)
             if self.session.isRunning { self.session.stopRunning() }
         }
@@ -89,9 +93,17 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
             if device.isLowLightBoostSupported { device.automaticallyEnablesLowLightBoostWhenAvailable = true }
             if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
             if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+            // Low light: let each frame collect light for up to 1/10 s instead of keeping a smooth 30 fps
+            // (the camera builds the photo from these frames), as the Camera app does in the dark.
+            if let range = device.activeFormat.videoSupportedFrameRateRanges.max(by: { $0.maxFrameDuration < $1.maxFrameDuration }) {
+                device.activeVideoMaxFrameDuration = CMTimeMinimum(range.maxFrameDuration, CMTime(value: 1, timescale: 10))
+            }
+            if device.exposureTargetBias != 0 { device.setExposureTargetBias(0, completionHandler: nil) }
             device.unlockForConfiguration()
         }
+        brightened = false
         if !session.isRunning { session.startRunning() }
+        watchLight()
 
         let size = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
         let others = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .unspecified)
@@ -104,6 +116,30 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
             "canFocus": device.isFocusPointOfInterestSupported,
             "cameras": max(1, others.devices.count),
         ])
+    }
+
+    // MARK: Brightening in the dark
+
+    /// When the camera is at a high ISO (a dark scene), exposes one stop brighter, like the Camera app's
+    /// low-light look; back to normal once the light is good. The gap between the two limits avoids flicker.
+    private func watchLight() {
+        lightTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+        timer.setEventHandler { [weak self] in self?.adjustForLight() }
+        timer.resume()
+        lightTimer = timer
+    }
+
+    private func adjustForLight() {
+        guard session.isRunning, let device = input?.device, device.exposureMode == .continuousAutoExposure else { return }
+        let maxISO = device.activeFormat.maxISO, iso = device.iso
+        let dark = brightened ? iso > maxISO * 0.2 : iso > maxISO * 0.45
+        guard dark != brightened, (try? device.lockForConfiguration()) != nil else { return }
+        let bias: Float = dark ? min(1.0, device.maxExposureTargetBias) : 0
+        device.setExposureTargetBias(bias, completionHandler: nil)
+        device.unlockForConfiguration()
+        brightened = dark
     }
 
     // MARK: Zoom, torch, focus
