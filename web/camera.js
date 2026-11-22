@@ -21,7 +21,7 @@ let cameraHardware, countdownTimer, focusTimer
 let gridEnabled = false
 let timerSeconds = 0
 const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
-  quality: 'high', tapAction: 'focus', volumeShutter: true, showLogo: true, shareAfter: false }
+  quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false }
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
   if (['satellite', 'time', 'qr'].includes(saved.template)) preferences.template = saved.template
@@ -32,7 +32,6 @@ try {
   if (saved.quality === 'standard') preferences.quality = 'standard'
   if (saved.tapAction === 'capture') preferences.tapAction = 'capture'
   preferences.volumeShutter = saved.volumeShutter !== false
-  preferences.showLogo = saved.showLogo !== false
   preferences.shareAfter = saved.shareAfter === true
 } catch {}
 
@@ -839,7 +838,7 @@ function formatCoordinates({ lat, lon }) {
 
 // `base` is the size the stamp scales with (normally the photo's short side). Returns the stamp's top and
 // bottom edges, tab included, in canvas pixels.
-function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base, brand = preferences.showLogo }) {
+function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base }) {
   const ctx = canvas.getContext('2d')
   const unit = (base || Math.min(canvas.width, canvas.height)) / 460
   const w = canvas.width / unit, h = canvas.height / unit
@@ -917,17 +916,13 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   // Card and GeoZipTag tab are one outline, filled once so the translucent
   // background stays even where they join. The tab rises from the card's
   // top-right corner (or hangs from the bottom-right when the stamp is at the top).
-  const tabHeight = brand ? 24 : 0, iconSize = 16, markHeight = 11, tabRadius = 8, joinRadius = 5
+  const tabHeight = 24, iconSize = 16, markHeight = 11, tabRadius = 8, joinRadius = 5
   const { wordmark, icon } = stampBrand
   const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
   ctx.font = `700 12px ${stampFace}`
   const tabWidth = 7 + iconSize + 7 + (markWidth || ctx.measureText('GeoZipTag').width) + 11
   const x0 = inset, x1 = inset + width, y0 = top, y1 = top + panelHeight, tabX = x1 - tabWidth
   function cardWithTab(grow = 0) {
-    if (!brand) {
-      rounded(x0 + grow, y0 + grow, x1 - x0 - 2 * grow, y1 - y0 - 2 * grow, radius - grow)
-      return
-    }
     const a = x0 + grow, b = x1 - grow, c = y0 + grow, d = y1 - grow, t = y0 - tabHeight + grow, tx = tabX + grow
     ctx.beginPath()
     ctx.moveTo(a + radius, c)
@@ -963,13 +958,11 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   cardWithTab(0.375)
   ctx.stroke()
   // Faint seam where the tab meets the card, as on printed tab labels.
-  if (brand) {
-    ctx.beginPath()
-    ctx.moveTo(tabX + 0.75, y0)
-    ctx.lineTo(x1 - 0.75, y0)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)'
-    ctx.stroke()
-  }
+  ctx.beginPath()
+  ctx.moveTo(tabX + 0.75, y0)
+  ctx.lineTo(x1 - 0.75, y0)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)'
+  ctx.stroke()
   ctx.restore()
 
   if (accentBar) {
@@ -1065,26 +1058,24 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
 
   // Tab contents: the app icon and the wordmark.
-  if (brand) {
-    const tabTop = position === 'top' ? y1 : y0 - tabHeight
-    const iconX = tabX + 7, iconY = tabTop + (tabHeight - iconSize) / 2
-    ctx.save()
-    rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.23)
-    ctx.fillStyle = '#3d97f2'
-    ctx.fill()
-    if (icon) {
-      ctx.clip()
-      ctx.drawImage(icon, iconX, iconY, iconSize, iconSize)
-    }
-    ctx.restore()
-    const markX = iconX + iconSize + 7
-    if (wordmark) ctx.drawImage(wordmark, markX, tabTop + (tabHeight - markHeight) / 2, markWidth, markHeight)
-    else {
-      ctx.fillStyle = colors.text
-      ctx.textBaseline = 'middle'
-      ctx.font = `700 12px ${stampFace}`
-      ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
-    }
+  const tabTop = position === 'top' ? y1 : y0 - tabHeight
+  const iconX = tabX + 7, iconY = tabTop + (tabHeight - iconSize) / 2
+  ctx.save()
+  rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.23)
+  ctx.fillStyle = '#3d97f2'
+  ctx.fill()
+  if (icon) {
+    ctx.clip()
+    ctx.drawImage(icon, iconX, iconY, iconSize, iconSize)
+  }
+  ctx.restore()
+  const markX = iconX + iconSize + 7
+  if (wordmark) ctx.drawImage(wordmark, markX, tabTop + (tabHeight - markHeight) / 2, markWidth, markHeight)
+  else {
+    ctx.fillStyle = colors.text
+    ctx.textBaseline = 'middle'
+    ctx.font = `700 12px ${stampFace}`
+    ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
   }
   ctx.restore()
   return position === 'top'
@@ -1948,7 +1939,6 @@ $('photoShape').value = preferences.aspect
 $('photoQuality').value = preferences.quality
 $('tapAction').value = preferences.tapAction
 $('volumeShutter').checked = preferences.volumeShutter
-$('showLogo').checked = preferences.showLogo
 $('shareAfter').checked = preferences.shareAfter
 
 $('settings').addEventListener('change', () => {
@@ -1960,7 +1950,6 @@ $('settings').addEventListener('change', () => {
   preferences.quality = $('photoQuality').value
   preferences.tapAction = $('tapAction').value
   preferences.volumeShutter = $('volumeShutter').checked
-  preferences.showLogo = $('showLogo').checked
   preferences.shareAfter = $('shareAfter').checked
   applyVolumeShutter()
   savePreferences()
