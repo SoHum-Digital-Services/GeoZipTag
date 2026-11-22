@@ -77,25 +77,32 @@ let placeCache
 function prefetchPlace(snapshot) {
   if (!snapshot || preferences.template === 'time') return
   const cached = placeCache
-  if (cached && !cached.failed && metresBetween(snapshot, cached) < 30 && Date.now() - cached.at < 600000) return
+  if (cached && usable(cached, snapshot)) return
   if (cached && !cached.done && metresBetween(snapshot, cached) < 200) return   // one request at a time nearby
   const entry = { lat: snapshot.lat, lon: snapshot.lon, at: Date.now(), done: false, failed: false }
   entry.promise = locate(snapshot).then(result => {
     entry.done = true
     entry.failed = !result.address && !result.map
+    entry.partial = !result.complete   // e.g. Nominatim busy: retried shortly instead of kept
     return result
   }, () => { entry.done = true; entry.failed = true; return {} })
   placeCache = entry
 }
 
+// A cached place is reused within 30 m: complete results for 10 minutes, partial ones for 20 s.
+function usable(cached, snapshot) {
+  const age = Date.now() - cached.at
+  return !cached.failed && metresBetween(snapshot, cached) < 30 && age < (cached.partial ? 20000 : 600000)
+}
+
 function placeReady(snapshot) {
   const cached = placeCache
-  return !!(snapshot && cached && cached.done && !cached.failed && metresBetween(snapshot, cached) < 30)
+  return !!(snapshot && cached && cached.done && usable(cached, snapshot))
 }
 
 function placeFor(snapshot) {
   const cached = placeCache
-  if (snapshot && cached && !cached.failed && metresBetween(snapshot, cached) < 30) return cached.promise
+  if (snapshot && cached && usable(cached, snapshot)) return cached.promise
   return locate(snapshot)
 }
 
@@ -471,7 +478,7 @@ async function locate(snapshot) {
       loadSatelliteMap(snapshot, request, abort.signal),
       request(nominatim).then((response) => response.json()).then(nominatimAddress)
     ])
-    return { address: fillAddress(osm.value, address.value), map: map.value?.image }
+    return { address: fillAddress(osm.value, address.value), map: map.value?.image, complete: !!(osm.value && map.value) }
   } finally {
     clearTimeout(timer)
   }
@@ -815,7 +822,9 @@ function resetLiveControls() {
 function videoFrame() {
   const box = video.getBoundingClientRect()
   if (!video.videoWidth || !video.videoHeight || !box.width || !box.height) return undefined
-  const scale = Math.min(box.width / video.videoWidth, box.height / video.videoHeight)
+  // The full-screen phone layout fills the screen (cover) and crops the edges; otherwise it fits (contain).
+  const fit = getComputedStyle(video).objectFit === 'cover' ? Math.max : Math.min
+  const scale = fit(box.width / video.videoWidth, box.height / video.videoHeight)
   const width = video.videoWidth * scale
   const height = video.videoHeight * scale
   return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, width, height }
@@ -830,13 +839,28 @@ function updateCameraGrid() {
   const frame = videoFrame()
   if (!frame) return
   const bounds = grid.parentElement.getBoundingClientRect()
-  grid.style.left = `${frame.left - bounds.left}px`
-  grid.style.top = `${frame.top - bounds.top}px`
-  grid.style.width = `${frame.width}px`
-  grid.style.height = `${frame.height}px`
+  // Keep the grid on the visible part of the preview.
+  const left = Math.max(frame.left, bounds.left), top = Math.max(frame.top, bounds.top)
+  const right = Math.min(frame.left + frame.width, bounds.right), bottom = Math.min(frame.top + frame.height, bounds.bottom)
+  grid.style.left = `${left - bounds.left}px`
+  grid.style.top = `${top - bounds.top}px`
+  grid.style.width = `${right - left}px`
+  grid.style.height = `${bottom - top}px`
   grid.hidden = false
 }
 window.addEventListener('resize', updateCameraGrid)
+
+// The floating bottom bar's height positions the zoom slider, messages and review photo.
+function syncBottomBar() {
+  const bar = $('review').hidden ? $('controls') : $('review')
+  document.documentElement.style.setProperty('--bottom-bar', `${bar.offsetHeight}px`)
+}
+if ('ResizeObserver' in window) {
+  const observer = new ResizeObserver(syncBottomBar)
+  observer.observe($('controls'))
+  observer.observe($('review'))
+}
+window.addEventListener('resize', syncBottomBar)
 video.addEventListener('resize', updateCameraGrid)
 $('gridToggle').addEventListener('click', () => {
   gridEnabled = !gridEnabled

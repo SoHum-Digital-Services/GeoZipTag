@@ -701,6 +701,62 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 #reportDocument { display: none; }
 
 /* ---------- Small and large screens ---------- */
+/* ---------- Phones: full-screen camera, controls floating over the preview ---------- */
+@media (max-width: 759px) {
+  .camera { display: block; height: 100vh; height: 100dvh; padding: 0; }
+  .viewfinder {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    border-radius: 0;
+    background: #000;
+  }
+  .viewfinder video { object-fit: cover; }
+  /* Review: the whole stamped photo stays visible between the bars. */
+  .viewfinder.photo-review { top: calc(env(safe-area-inset-top) + 56px); bottom: var(--bottom-bar, 200px); }
+  .camera-header {
+    position: fixed;
+    z-index: 5;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: env(safe-area-inset-top) .4rem 1.1rem 1rem;
+    background: linear-gradient(rgba(0, 0, 0, .55), rgba(0, 0, 0, .2) 70%, transparent);
+  }
+  .camera-header .icon-button { filter: drop-shadow(0 1px 2px #0008); }
+  .controls, .review {
+    position: fixed;
+    z-index: 5;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding-top: 2.2rem;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .38) 30%, rgba(0, 0, 0, .62));
+  }
+  .review { background: linear-gradient(transparent, rgba(0, 0, 0, .7) 30%, #000 70%); }
+  /* Frosted glass instead of solid panels. */
+  .location-row, .dock-tool, .last-photo:disabled {
+    background: rgba(12, 16, 18, .38);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    backdrop-filter: blur(16px) saturate(1.3);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+  }
+  .location-row:hover, .dock-tool:hover { background: rgba(12, 16, 18, .5); }
+  .map-location-action {
+    background: rgba(242, 99, 78, .32);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    color: #ffd2c9;
+  }
+  .mode-tabs button { color: rgba(255, 255, 255, .78); text-shadow: 0 1px 3px #000a; }
+  .mode-tabs button[aria-pressed=true] { background: rgba(0, 0, 0, .38); color: var(--cream); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .gps-choice { background: rgba(12, 16, 18, .72); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+  .live-camera-tools { top: calc(env(safe-area-inset-top) + 64px); }
+  .camera-zoom { bottom: calc(var(--bottom-bar, 200px) + .5rem); }
+  #status { bottom: calc(var(--bottom-bar, 200px) + 4rem); }
+  .viewfinder:has(.start:not([hidden])) #status { bottom: calc(var(--bottom-bar, 200px) + 1rem); }
+  .start { margin-top: -6rem; }
+}
 @media (max-width: 350px) {
   .controls, .review { padding-inline: .7rem; }
   .map-location-action { padding-inline: .7rem; font-size: .8rem; }
