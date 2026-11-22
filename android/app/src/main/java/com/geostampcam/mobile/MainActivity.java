@@ -211,7 +211,7 @@ public final class MainActivity extends Activity {
         if (path == null || path.equals("/")) path = "/index.html";
         // Only these app files are served; anything else gets a local 404.
         if (path.matches("/(index\\.html|style\\.css|camera\\.js|manifest\\.webmanifest"
-                + "|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt"
+                + "|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt|vendor/tz-lookup\\.js|vendor/tz-lookup-LICENSE\\.txt"
                 + "|assets/[a-z0-9-]{1,60}\\.(svg|woff2|jpg|png|txt))")) {
             String mime = assetType(path);
             try {

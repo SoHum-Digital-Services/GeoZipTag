@@ -29,16 +29,35 @@ try {
   preferences.preferShare = saved.preferShare === true
 } catch {}
 
-const localDate = new Intl.DateTimeFormat(undefined, {
-  year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric',
-  minute: '2-digit', second: '2-digit', timeZoneName: 'longOffset'
-})
-const stampDate = new Intl.DateTimeFormat(undefined, {
-  weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
-})
-const stampTime = new Intl.DateTimeFormat(undefined, {
-  hour: 'numeric', minute: '2-digit', timeZoneName: 'longOffset'
-})
+// Dates and times are shown in the time zone of the photo's location (GPS or manual pin),
+// looked up offline with tz-lookup; without a location they use the device's zone.
+const timeFormats = new Map()
+function formatsFor(timeZone) {
+  const key = timeZone || ''
+  if (!timeFormats.has(key)) {
+    const zone = timeZone ? { timeZone } : {}
+    timeFormats.set(key, {
+      full: new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'longOffset', ...zone }),
+      date: new Intl.DateTimeFormat(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', ...zone }),
+      time: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'longOffset', ...zone })
+    })
+  }
+  return timeFormats.get(key)
+}
+
+function placeTimeZone(snapshot) {
+  if (!snapshot || typeof window.tzlookup !== 'function') return undefined
+  try {
+    const zone = window.tzlookup(snapshot.lat, snapshot.lon)
+    new Intl.DateTimeFormat(undefined, { timeZone: zone })   // throws if the browser lacks this zone
+    return zone
+  } catch {
+    return undefined
+  }
+}
+
+const timeAt = (snapshot) => formatsFor(placeTimeZone(snapshot))
+
 function expireLocationFix() {
   if (manualFix || !fix || currentFix()) return
   fix = undefined
@@ -649,8 +668,9 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   }
   const addressRows = addressLines(address, snapshot)
 
-  const dateLabel = `${picked ? 'Stamped ' : ''}${stampDate.format(date)}`
-  const time = stampTime.format(date)
+  const zoned = timeAt(snapshot)
+  const dateLabel = `${picked ? 'Stamped ' : ''}${zoned.date.format(date)}`
+  const time = zoned.time.format(date)
   if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
   if (snapshot) {
     add(placeHeading(snapshot, address) || 'GPS location', 18, colors.text, 700, { gapAfter: 1 })
@@ -1746,7 +1766,7 @@ $('reportForm').addEventListener('submit', async (event) => {
     if (captured?.snapshot) {
       details.push(['Coordinates', `${formatCoordinates(captured.snapshot)}${captured.snapshot.manual ? ' (manual pin)' : ' (GPS)'}`])
     }
-    if (captured) details.push(['Captured', localDate.format(captured.date)])
+    if (captured) details.push(['Captured', timeAt(captured.snapshot).full.format(captured.date)])
     if (captured?.note) details.push(['Stamp note', captured.note])
     if (details.length) {
       const summary = reportElement('section', '', report, 'gz-summary')
