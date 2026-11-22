@@ -65,9 +65,41 @@ function expireLocationFix() {
 }
 setInterval(expireLocationFix, 1000)
 
-function message(value) {
+let messageTimer
+function message(value, hideAfter = 0) {
+  clearTimeout(messageTimer)
   status.textContent = value
   status.hidden = !value
+  if (value && hideAfter) messageTimer = setTimeout(() => { status.hidden = true }, hideAfter)
+}
+status.addEventListener('click', () => { clearTimeout(messageTimer); status.hidden = true })
+
+// Address and satellite map are fetched in the background whenever GPS updates, so the
+// shutter can stamp instantly. Refetched after moving about 30 m or after 10 minutes.
+let placeCache
+function prefetchPlace(snapshot) {
+  if (!snapshot || preferences.template === 'time') return
+  const cached = placeCache
+  if (cached && !cached.failed && metresBetween(snapshot, cached) < 30 && Date.now() - cached.at < 600000) return
+  if (cached && !cached.done && metresBetween(snapshot, cached) < 200) return   // one request at a time nearby
+  const entry = { lat: snapshot.lat, lon: snapshot.lon, at: Date.now(), done: false, failed: false }
+  entry.promise = locate(snapshot).then(result => {
+    entry.done = true
+    entry.failed = !result.address && !result.map
+    return result
+  }, () => { entry.done = true; entry.failed = true; return {} })
+  placeCache = entry
+}
+
+function placeReady(snapshot) {
+  const cached = placeCache
+  return !!(snapshot && cached && cached.done && !cached.failed && metresBetween(snapshot, cached) < 30)
+}
+
+function placeFor(snapshot) {
+  const cached = placeCache
+  if (snapshot && cached && !cached.failed && metresBetween(snapshot, cached) < 30) return cached.promise
+  return locate(snapshot)
 }
 
 function stopCamera() {
@@ -290,15 +322,21 @@ function enableLocation() {
   location.textContent = 'Turn off location'
   location.setAttribute('aria-pressed', 'true')
   setLocationStatus('Finding GPS…')
-  watchId = navigator.geolocation.watchPosition(({ coords, timestamp }) => {
+  const onFix = ({ coords, timestamp }) => {
     if (watchId === undefined) return
-    fix = { lat: coords.latitude, lon: coords.longitude, timestamp }
+    // Keep the more accurate of a quick recent position and a fresh GPS reading.
+    if (fix && fix.accuracy < coords.accuracy && timestamp - fix.timestamp < 10000) return
+    fix = { lat: coords.latitude, lon: coords.longitude, timestamp, accuracy: coords.accuracy }
     if (coords.accuracy > 100) setLocationStatus('Approximate GPS')
     else setLocationStatus('GPS ready', true)
+    prefetchPlace(fix)
     if (pendingCapture) {
       $('gpsHint').textContent = 'Location ready. Tap the shutter or phone camera to include it.'
     }
-  }, (error) => {
+  }
+  // A recent position (up to a minute old) appears straight away; GPS then refines it.
+  navigator.geolocation.getCurrentPosition(onFix, () => {}, { enableHighAccuracy: false, maximumAge: 60000, timeout: 4000 })
+  watchId = navigator.geolocation.watchPosition(onFix, (error) => {
     if (watchId === undefined) return
     if (error.code === 1) {
       stopLocation('Location denied. Allow access in your browser’s site settings, then tap Enable location.')
@@ -1133,7 +1171,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
   $('fallback').disabled = true
   $('startCamera').disabled = true
   $('switchCamera').disabled = true
-  message(snapshot ? 'Adding address and satellite map…' : 'Stamping photo…')
+  message(snapshot && !placeReady(snapshot) ? 'Adding address and satellite map…' : 'Stamping photo…')
   try {
     const canvas = document.createElement('canvas')
     canvas.width = imageFile ? source.naturalWidth : source.videoWidth
@@ -1141,7 +1179,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     if (!canvas.width || !canvas.height) throw new Error('No image frame')
     canvas.getContext('2d', { alpha: false }).drawImage(source, 0, 0)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
-    const { address, map } = await locate(snapshot)
+    const { address, map } = await placeFor(snapshot)
     await stampFonts
     drawStamp(canvas, { snapshot, date, picked, address, map })
     const jpeg = await exportJpeg(canvas)
@@ -1186,9 +1224,10 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
         if (error.name !== 'AbortError') message('Sharing is unavailable. Use Save photo instead.')
       }
     }
+    const complete = !snapshot || (address && map)
     message(!snapshot ? (preferences.template === 'time' ? 'Date and time added' : 'Timestamp added · no GPS location') : address && map ? 'Timestamp, address, and satellite map added' :
       map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
-        'Timestamp and coordinates added · map and address unavailable')
+        'Timestamp and coordinates added · map and address unavailable', complete ? 2500 : 6000)
     const primaryAction = canShare && preferences.preferShare ? $('share') : $('save')
     primaryAction.focus()
   } catch {
@@ -1308,6 +1347,7 @@ $('placeLabel').addEventListener('input', (event) => {
 })
 
 function updateTemplateLabel() {
+  prefetchPlace(manualFix || currentFix())
   $('chosenTemplate').textContent = { satellite: 'Satellite', time: 'Date & Time', qr: 'QR Location' }[preferences.template]
   for (const tab of document.querySelectorAll('[data-template]')) {
     tab.setAttribute('aria-pressed', String(tab.dataset.template === preferences.template))
@@ -1540,6 +1580,7 @@ $('manualForm').addEventListener('submit', (event) => {
   if (!snapshot) return
   stopLocation()
   manualFix = snapshot
+  prefetchPlace(snapshot)
   timestampOnly = false
   $('location').textContent = 'Use device location'
   setLocationStatus('Manual location ready', true)
