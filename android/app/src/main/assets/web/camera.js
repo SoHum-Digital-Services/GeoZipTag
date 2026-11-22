@@ -381,6 +381,55 @@ async function lookup(url, signal) {
   return response
 }
 
+// Nominatim (OpenStreetMap) gives the full Indian hierarchy: village, mandal (county),
+// district (state_district) and PIN code. Map it onto the app's address fields.
+function nominatimAddress(result) {
+  const a = result?.address
+  if (!a) return undefined
+  const local = a.neighbourhood || a.quarter || (isWard(a.suburb) ? '' : a.suburb)
+  const out = {
+    street: a.road, housenumber: a.house_number, village: a.village || a.hamlet,
+    locality: local, city: a.city || a.town, county: a.county, region: a.state_district,
+    state: a.state, postcode: a.postcode, country: a.country, countrycode: a.country_code
+  }
+  return Object.fromEntries(Object.entries(out).filter(([, value]) => value))
+}
+
+// Keep the first source's fields; fill any gaps from the next.
+function fillAddress(primary, fallback) {
+  if (!primary) return fallback
+  if (!fallback) return primary
+  return { ...fallback, ...primary }
+}
+
+const mandalLabel = (county) => /\bmandal$/i.test(county) ? `${county.replace(/\s*mandal$/i, '')} (M)` : county
+const districtLabel = (district) => `${district.replace(/\s*district$/i, '')} (Dist)`
+
+// Address lines for the stamp and reports. In India: street; "Village (V), Mandal (M),
+// District (Dist)"; "State – PIN, Country" on its own line so the PIN is never cut off.
+function addressLines(address, snapshot) {
+  if (!address) return []
+  const indian = (address.countrycode || '').toLowerCase() === 'in' && (address.county || address.region)
+  if (!indian) {
+    const text = fullAddress(address)
+    return text ? [[text, 2]] : []
+  }
+  const street = address.street ? [address.housenumber, address.street.split(',')[0].trim()].filter(Boolean).join(' ') : ''
+  const village = unmappedVillageName(snapshot, address) || address.village
+  const place = village ? `${village} (V)` : (address.locality || address.city || '')
+  const seen = new Set()
+  const admin = [place, address.county && mandalLabel(address.county), address.region && districtLabel(address.region)]
+    .filter(Boolean).filter(part => {
+      const key = nameSkeleton(part.replace(/\s*\((V|M|Dist)\)$/, ''))
+      if (seen.has(key)) return false
+      seen.add(key); return true
+    })
+  const tail = [[address.state, address.postcode].filter(Boolean).join(' – '), address.country].filter(Boolean).join(', ')
+  return [street && [street, 1], admin.length && [admin.join(', '), 2], tail && [tail, 1]].filter(Boolean)
+}
+
+const addressText = (address, snapshot) => addressLines(address, snapshot).map(([text]) => text).join(', ')
+
 // The phone's built-in geocoder (Android only, free, no key). Answers arrive through
 // window.onPhoneAddress; a slow or missing answer never holds up the stamp.
 const pendingPhoneAddresses = new Map()
@@ -435,14 +484,17 @@ async function locate(snapshot) {
   const timer = setTimeout(() => abort.abort(), 15000)
   const reverse = new URL('https://photon.komoot.io/reverse')
   reverse.search = new URLSearchParams({ lat: snapshot.lat, lon: snapshot.lon, limit: 1 })
+  const nominatim = new URL('https://nominatim.openstreetmap.org/reverse')
+  nominatim.search = new URLSearchParams({ format: 'jsonv2', lat: snapshot.lat, lon: snapshot.lon, zoom: 18, addressdetails: 1, 'accept-language': 'en' })
   const request = (url) => lookup(url, abort.signal)
   try {
-    const [address, map, phone] = await Promise.allSettled([
+    const [address, map, phone, osm] = await Promise.allSettled([
       request(reverse).then((response) => response.json()).then((data) => data.features?.[0]?.properties),
       loadSatelliteMap(snapshot, request, abort.signal),
-      phoneAddress(snapshot)
+      phoneAddress(snapshot),
+      request(nominatim).then((response) => response.json()).then(nominatimAddress)
     ])
-    return { address: mergeAddresses(address.value, phone.value), map: map.value?.image }
+    return { address: mergeAddresses(fillAddress(osm.value, address.value), phone.value), map: map.value?.image }
   } finally {
     clearTimeout(timer)
   }
@@ -473,15 +525,21 @@ function metresBetween(a, b) {
 // Ward numbers ("Ward 78 Gunfoundry") are administrative codes, not place names people use.
 const isWard = (value) => /^ward\b/i.test(value || '')
 
-function localAreaName(snapshot, address) {
-  const local = address?.locality || (isWard(address?.district) ? '' : address?.district) ||
+function rawAreaName(address) {
+  return address?.village || address?.locality || (isWard(address?.district) ? '' : address?.district) ||
     (address?.osm_key === 'place' ? address.name : '') || address?.city || address?.county || ''
-  if (snapshot) {
-    const village = unmappedVillages.find(entry => (!local || entry.parentArea.test(local)) &&
-      entry.points.some(point => metresBetween(snapshot, point) <= entry.radius))
-    if (village) return village.name
-  }
-  return local
+}
+
+function unmappedVillageName(snapshot, address) {
+  if (!snapshot) return ''
+  const local = rawAreaName(address)
+  const village = unmappedVillages.find(entry => (!local || entry.parentArea.test(local)) &&
+    entry.points.some(point => metresBetween(snapshot, point) <= entry.radius))
+  return village?.name || ''
+}
+
+function localAreaName(snapshot, address) {
+  return unmappedVillageName(snapshot, address) || rawAreaName(address)
 }
 
 // Heading: the most specific area, then the full state name and country.
@@ -589,14 +647,14 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     if (ctx.roundRect) ctx.roundRect(x, y, width, height, r)
     else ctx.rect(x, y, width, height)
   }
-  const street = fullAddress(address)
+  const addressRows = addressLines(address, snapshot)
 
   const dateLabel = `${picked ? 'Stamped ' : ''}${stampDate.format(date)}`
   const time = stampTime.format(date)
   if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
   if (snapshot) {
     add(placeHeading(snapshot, address) || 'GPS location', 18, colors.text, 700, { gapAfter: 1 })
-    add(street, 12.5, colors.muted, 500, { gapAfter: 4 })
+    addressRows.forEach(([text, maxLines], index) => add(text, 12.5, colors.muted, 500, { maxLines, gapAfter: index === addressRows.length - 1 ? 4 : 0 }))
     add(formatCoordinates(snapshot), 11.5, colors.coordinate, 600, { maxLines: 1 })
     add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
   } else {
@@ -1684,7 +1742,7 @@ $('reportForm').addEventListener('submit', async (event) => {
     const details = []
     const place = enteredLocation || (captured?.snapshot ? placeHeading(captured.snapshot, captured.address) : '')
     if (place) details.push(['Location', place, true])
-    if (captured?.address) details.push(['Address', fullAddress(captured.address)])
+    if (captured?.address) details.push(['Address', addressText(captured.address, captured.snapshot)])
     if (captured?.snapshot) {
       details.push(['Coordinates', `${formatCoordinates(captured.snapshot)}${captured.snapshot.manual ? ' (manual pin)' : ' (GPS)'}`])
     }

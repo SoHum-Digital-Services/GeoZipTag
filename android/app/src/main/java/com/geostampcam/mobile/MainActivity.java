@@ -66,7 +66,7 @@ public final class MainActivity extends Activity {
     private static final int MAX_PAYLOAD = 28 * 1024 * 1024;
     private static final String CSP = "default-src 'none'; script-src 'self'; style-src 'self'; "
             + "img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; "
-            + "connect-src 'self' blob: https://photon.komoot.io https://*.arcgis.com; "
+            + "connect-src 'self' blob: https://photon.komoot.io https://nominatim.openstreetmap.org https://*.arcgis.com; "
             + "frame-src 'none'; base-uri 'none'; form-action 'self'";
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
     private final ExecutorService lookups = Executors.newSingleThreadExecutor();
