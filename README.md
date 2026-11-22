@@ -27,7 +27,7 @@ For a satellite stamp, allow location access and wait for GPS ready. The camera 
 
 ## Build Android
 
-Version 1.7, version code 8. Supports Android 8.0 and later, with minimum API 26 and target SDK 36.
+Version 1.8, version code 9. Supports Android 8.0 and later, with minimum API 26 and target SDK 36.
 
 Install Android SDK platform 36, build-tools 36.0.0, JDK 17 or newer, Bash and zip. Set ANDROID_HOME, GEOSTAMP_KEYSTORE and GEOSTAMP_SIGNING_PASSWORD_FILE to your local SDK and signing configuration, then run
 
