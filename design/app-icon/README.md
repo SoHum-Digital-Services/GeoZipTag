@@ -1,18 +1,20 @@
 # GeoZipTag app icon
 
-The icon is a cream shutter-ring lens with the approved India-facing globe as its
-glass and a coral location pin, on a teal gradient. It uses only the app's own
-colours: teal `#1A8797` → `#0A3A45`, cream `#FFF6E6`, coral `#FF8466` → `#E5533D`.
+A bevelled cream shutter-ring lens with the approved India-facing globe as its
+glass, a 3D coral location pin, and (on the home-screen version) a mini GeoZipTag
+stamp card with its tab, on a bright aqua-to-teal gradient. Only the app's own
+colours are used: aqua `#7EE3D6` → teal `#2BA9B4` → `#0C4F5E`, cream `#FFFBF2`,
+coral `#FF9A7E` → `#C9432F`.
 
-It is drawn on Android's 108-unit adaptive-icon grid (visible area 18–90, safe
-circle radius 33), so every version comes from the same artwork.
+Drawn on Android's 108-unit adaptive-icon grid (visible area 18–90, safe circle
+radius 33); all solid artwork stays inside the safe circle.
 
 | File | Used for |
 |---|---|
-| `geoziptag-app-icon-full.svg` | Square icon (visible 72 units): iPhone home screen, web icons, app header, stamp tab, legacy Android |
-| `geoziptag-app-icon-fg.svg` | Android adaptive foreground layer (transparent, full 108 grid) |
+| `geoziptag-app-icon-full.svg` | Home-screen icon (with stamp card): iPhone, web app icons, legacy Android |
+| `geoziptag-app-icon-fg.svg` + `-bg.svg` | Android adaptive foreground and background layers |
 | `geoziptag-app-icon-mono.svg` | Android 13+ themed icon (single colour) |
+| `geoziptag-app-icon-small.svg` | Simplified icon (no card) for small places: stamp tab, app header, favicon |
 | `globe-artwork-approved.svg` | The original approved globe artwork the icon is built from |
 
-The Android background layer is `android/app/src/main/res/drawable/geoziptag_launcher_background.xml`
-(same gradient). PNG exports live in the app's `res/mipmap-*` and `assets/` folders.
+PNG exports live in the app's `res/mipmap-*` and `assets/` folders.
