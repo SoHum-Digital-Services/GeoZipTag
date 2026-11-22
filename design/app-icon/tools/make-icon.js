@@ -58,8 +58,7 @@ const heroWith = (card) => `
 <path d="M${C.x - RING - RING_W / 2 + 1.2} ${C.y - 2} A${RING + RING_W / 2 - 1.2} ${RING + RING_W / 2 - 1.2} 0 0 1 ${C.x + 6} ${C.y - RING - RING_W / 2 + 1.4}" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="1" stroke-linecap="round"/>
 <g clip-path="url(#glass)">
   ${SAT ? `<image href="data:image/jpeg;base64,${SAT}" x="${C.x - GLASS}" y="${C.y - GLASS}" width="${GLASS * 2}" height="${GLASS * 2}"/>
-  <path d="${VG.india}" fill="#F2634E" fill-opacity=".46" stroke="#FF7A5F" stroke-width=".45" stroke-linejoin="round"/>
-  <path d="${VG.india}" fill="none" stroke="#FFF4DA" stroke-opacity=".7" stroke-width=".14" stroke-linejoin="round"/>` : `
+` : `
   <circle cx="${C.x}" cy="${C.y}" r="${GLASS}" fill="url(#ocean)"/>
   <path d="${VG.land}${VG.india}" fill="none" stroke="#8FC7FF" stroke-opacity=".5" stroke-width=".55" stroke-linejoin="round"/>
   <path d="${VG.land}" fill="url(#landFill)"/>
