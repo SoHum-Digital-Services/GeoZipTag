@@ -381,6 +381,54 @@ async function lookup(url, signal) {
   return response
 }
 
+// The phone's built-in geocoder (Android only, free, no key). Answers arrive through
+// window.onPhoneAddress; a slow or missing answer never holds up the stamp.
+const pendingPhoneAddresses = new Map()
+let phoneAddressRequest = 0
+window.onPhoneAddress = (id, value) => {
+  const done = pendingPhoneAddresses.get(id)
+  if (done) done(value && typeof value === 'object' ? value : undefined)
+}
+
+function phoneAddress(snapshot) {
+  if (typeof android?.reverseGeocode !== 'function') return Promise.resolve(undefined)
+  return new Promise(resolve => {
+    const id = `address${++phoneAddressRequest}`
+    const finish = (value) => {
+      clearTimeout(timer)
+      pendingPhoneAddresses.delete(id)
+      resolve(value)
+    }
+    const timer = setTimeout(() => finish(undefined), 5000)
+    pendingPhoneAddresses.set(id, finish)
+    try { android.reverseGeocode(id, snapshot.lat, snapshot.lon) } catch { finish(undefined) }
+  })
+}
+
+// Photon stays the base; the phone fills what Photon is missing, including the district.
+function mergeAddresses(photon, phone) {
+  const named = (value) => typeof value === 'string' && value.trim() && !/^unnamed\b/i.test(value) ? value.trim() : undefined
+  const fromPhone = phone && {
+    street: named(phone.thoroughfare), housenumber: named(phone.subThoroughfare),
+    locality: named(phone.subLocality), city: named(phone.locality), region: named(phone.subAdminArea),
+    state: named(phone.adminArea), postcode: named(phone.postalCode),
+    country: named(phone.countryName), countrycode: named(phone.countryCode)
+  }
+  if (!fromPhone) return photon
+  if (!photon) return Object.fromEntries(Object.entries(fromPhone).filter(([, value]) => value))
+  const merged = { ...photon }
+  if (!merged.street && !merged.name && fromPhone.street) {
+    merged.street = fromPhone.street
+    merged.housenumber = fromPhone.housenumber
+  }
+  for (const key of ['locality', 'city', 'state', 'postcode', 'country', 'countrycode']) {
+    if (!merged[key] && fromPhone[key]) merged[key] = fromPhone[key]
+  }
+  const known = [merged.locality, merged.district, merged.city, merged.county].filter(Boolean).map(value => value.toLowerCase())
+  if (fromPhone.region && !known.includes(fromPhone.region.toLowerCase())) merged.region = fromPhone.region
+  return merged
+}
+
 async function locate(snapshot) {
   if (!snapshot) return {}
   const abort = new AbortController()
@@ -389,11 +437,12 @@ async function locate(snapshot) {
   reverse.search = new URLSearchParams({ lat: snapshot.lat, lon: snapshot.lon, limit: 1 })
   const request = (url) => lookup(url, abort.signal)
   try {
-    const [address, map] = await Promise.allSettled([
+    const [address, map, phone] = await Promise.allSettled([
       request(reverse).then((response) => response.json()).then((data) => data.features?.[0]?.properties),
-      loadSatelliteMap(snapshot, request, abort.signal)
+      loadSatelliteMap(snapshot, request, abort.signal),
+      phoneAddress(snapshot)
     ])
-    return { address: address.value, map: map.value?.image }
+    return { address: mergeAddresses(address.value, phone.value), map: map.value?.image }
   } finally {
     clearTimeout(timer)
   }
@@ -406,7 +455,7 @@ async function locate(snapshot) {
 const unmappedVillages = [
   {
     name: 'Cheruvugattu',
-    parentArea: /^(?:narkatpalli|narketpalli|narketpally)(?: mandal)?$|^nalgonda(?: district)?$/i,
+    parentArea: /^nar(?:kat|ket)pal(?:li|le|ly)(?: mandal)?$|^nalgonda(?: district)?$/i,
     radius: 225,
     points: [
       { lat: 17.1740101, lon: 79.2121757 }, // Cheruvugattu temple (OSM node 10101107918)
@@ -442,7 +491,11 @@ function placeHeading(snapshot, address) {
   return [...new Map(parts.map(part => [part.toLowerCase(), part])).values()].join(', ')
 }
 
-// Full postal address: street, area, town, mandal or county, "State PIN", country.
+// Spelling variants of one name ("Chervugattu" / "Cheruvugattu") share their consonants.
+const nameSkeleton = (value) => value.toLowerCase().normalize('NFKD').replace(/[^a-z]/g, '')
+  .replace(/(.)\1+/g, '$1').replace(/(?!^)[aeiouy]/g, '')
+
+// Full postal address: street, area, town, mandal or county, district, "State PIN", country.
 function fullAddress(address) {
   if (!address) return ''
   const isStreetResult = address.osm_key === 'highway' || address.osm_key === 'place'
@@ -454,11 +507,11 @@ function fullAddress(address) {
   const seen = new Set()
   const parts = []
   // Some streets carry their own "Village, State PIN" suffix; split it so nothing repeats.
-  for (const value of [street, address.locality, address.district, address.city, address.county]) {
+  for (const value of [street, address.locality, address.district, address.city, address.county, address.region]) {
     for (const piece of (value || '').split(',')) {
       const part = piece.trim()
-      const key = part.toLowerCase()
-      if (!part || seen.has(key) || tail.has(key)) continue
+      const key = part.length > 5 ? nameSkeleton(part) || part.toLowerCase() : part.toLowerCase()
+      if (!part || seen.has(key) || tail.has(part.toLowerCase())) continue
       seen.add(key)
       parts.push(part)
     }

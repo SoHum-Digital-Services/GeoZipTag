@@ -8,6 +8,8 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -46,6 +48,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -62,10 +65,11 @@ public final class MainActivity extends Activity {
     private static final long MAX_FIX_AGE = 60_000;
     private static final int MAX_PAYLOAD = 28 * 1024 * 1024;
     private static final String CSP = "default-src 'none'; script-src 'self'; style-src 'self'; "
-            + "img-src 'self' blob: data:; media-src 'self' blob:; "
+            + "img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; "
             + "connect-src 'self' blob: https://photon.komoot.io https://*.arcgis.com; "
             + "frame-src 'none'; base-uri 'none'; form-action 'self'";
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
+    private final ExecutorService lookups = Executors.newSingleThreadExecutor();
     private WebView cameraView;
     private WebView reportView;
     private PermissionRequest cameraPermission;
@@ -95,7 +99,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedState) {
         super.onCreate(savedState);
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(0xff10171a);
+        root.setBackgroundColor(0xff000000);
         if (Build.VERSION.SDK_INT >= 30) {
             getWindow().setDecorFitsSystemWindows(false);
             root.setOnApplyWindowInsetsListener((view, insets) -> {
@@ -123,7 +127,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        cameraView.setBackgroundColor(0xff10171a);
+        cameraView.setBackgroundColor(0xff000000);
         cameraView.addJavascriptInterface(new AndroidHost(), "AndroidHost");
         cameraView.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -205,9 +209,11 @@ public final class MainActivity extends Activity {
     private WebResourceResponse asset(Uri url) {
         String path = url.getPath();
         if (path == null || path.equals("/")) path = "/index.html";
-        if (path.matches("/(index\\.html|style\\.css|camera\\.js|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt)")) {
-            String mime = path.endsWith(".html") ? "text/html" : path.endsWith(".css") ? "text/css"
-                    : path.endsWith(".txt") ? "text/plain" : "text/javascript";
+        // Only these app files are served; anything else gets a local 404.
+        if (path.matches("/(index\\.html|style\\.css|camera\\.js|manifest\\.webmanifest"
+                + "|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt"
+                + "|assets/[a-z0-9-]{1,60}\\.(svg|woff2|jpg|png|txt))")) {
+            String mime = assetType(path);
             try {
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Content-Security-Policy", CSP);
@@ -220,6 +226,18 @@ public final class MainActivity extends Activity {
         }
         return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", null,
                 new ByteArrayInputStream("Not found".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String assetType(String path) {
+        if (path.endsWith(".html")) return "text/html";
+        if (path.endsWith(".css")) return "text/css";
+        if (path.endsWith(".txt")) return "text/plain";
+        if (path.endsWith(".svg")) return "image/svg+xml";
+        if (path.endsWith(".woff2")) return "font/woff2";
+        if (path.endsWith(".jpg")) return "image/jpeg";
+        if (path.endsWith(".png")) return "image/png";
+        if (path.endsWith(".webmanifest")) return "application/manifest+json";
+        return "text/javascript";
     }
 
     private boolean hasCameraPermission() {
@@ -512,6 +530,45 @@ public final class MainActivity extends Activity {
             });
         }
 
+        /**
+         * Looks up the address with the phone's built-in geocoder (free, no API key) and
+         * answers through window.onPhoneAddress(requestId, address-or-null).
+         */
+        @JavascriptInterface public void reverseGeocode(String requestId, double lat, double lon) {
+            if (requestId == null || !requestId.matches("[A-Za-z0-9_-]{1,40}")
+                    || Double.isNaN(lat) || Double.isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+                return;
+            }
+            if (!Geocoder.isPresent()) {
+                deliverAddress(requestId, null);
+                return;
+            }
+            // English names with the phone's region, so stamps don't mix scripts with the rest of the text.
+            Geocoder geocoder = new Geocoder(MainActivity.this,
+                    new Locale("en", Locale.getDefault().getCountry()));
+            if (Build.VERSION.SDK_INT >= 33) {
+                geocoder.getFromLocation(lat, lon, 1, new Geocoder.GeocodeListener() {
+                    @Override public void onGeocode(List<Address> addresses) {
+                        deliverAddress(requestId, addresses.isEmpty() ? null : addresses.get(0));
+                    }
+                    @Override public void onError(String message) {
+                        deliverAddress(requestId, null);
+                    }
+                });
+            } else {
+                lookups.execute(() -> {
+                    Address address = null;
+                    try {
+                        List<Address> results = geocoder.getFromLocation(lat, lon, 1);
+                        if (results != null && !results.isEmpty()) address = results.get(0);
+                    } catch (IOException | IllegalArgumentException ignored) {
+                        // No network or no geocoder backend: the page falls back to Photon.
+                    }
+                    deliverAddress(requestId, address);
+                });
+            }
+        }
+
         @JavascriptInterface public void printReport(String html) {
             if (html == null || html.length() > MAX_PAYLOAD) {
                 notifyUser("This report is too large. Use smaller photos.");
@@ -519,6 +576,33 @@ public final class MainActivity extends Activity {
             }
             runOnUiThread(() -> showPrintDialog(html));
         }
+    }
+
+    private void deliverAddress(String requestId, Address address) {
+        String payload = "null";
+        if (address != null) {
+            JSONObject json = new JSONObject();
+            try {
+                json.putOpt("featureName", address.getFeatureName());
+                json.putOpt("thoroughfare", address.getThoroughfare());
+                json.putOpt("subThoroughfare", address.getSubThoroughfare());
+                json.putOpt("subLocality", address.getSubLocality());
+                json.putOpt("locality", address.getLocality());
+                json.putOpt("subAdminArea", address.getSubAdminArea());
+                json.putOpt("adminArea", address.getAdminArea());
+                json.putOpt("postalCode", address.getPostalCode());
+                json.putOpt("countryName", address.getCountryName());
+                json.putOpt("countryCode", address.getCountryCode());
+                if (address.getMaxAddressLineIndex() >= 0) json.putOpt("addressLine", address.getAddressLine(0));
+                payload = json.toString();
+            } catch (JSONException ignored) {
+                // Send no phone address; the page keeps the Photon result.
+            }
+        }
+        String script = "window.onPhoneAddress && window.onPhoneAddress(" + JSONObject.quote(requestId) + "," + payload + ")";
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
+        });
     }
 
     private void saveToGallery(String filename, byte[] bytes) throws IOException {
@@ -628,6 +712,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         finishImagePicker(null);
         storage.shutdown();
+        lookups.shutdownNow();
         if (reportView != null) reportView.destroy();
         cameraView.removeJavascriptInterface("AndroidHost");
         cameraView.destroy();

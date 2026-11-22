@@ -375,7 +375,7 @@ async function locate(snapshot) {
 const unmappedVillages = [
   {
     name: 'Cheruvugattu',
-    parentArea: /^(?:narkatpalli|narketpalli|narketpally)(?: mandal)?$|^nalgonda(?: district)?$/i,
+    parentArea: /^nar(?:kat|ket)pal(?:li|le|ly)(?: mandal)?$|^nalgonda(?: district)?$/i,
     radius: 225,
     points: [
       { lat: 17.1740101, lon: 79.2121757 }, // Cheruvugattu temple (OSM node 10101107918)
@@ -411,7 +411,11 @@ function placeHeading(snapshot, address) {
   return [...new Map(parts.map(part => [part.toLowerCase(), part])).values()].join(', ')
 }
 
-// Full postal address: street, area, town, mandal or county, "State PIN", country.
+// Spelling variants of one name ("Chervugattu" / "Cheruvugattu") share their consonants.
+const nameSkeleton = (value) => value.toLowerCase().normalize('NFKD').replace(/[^a-z]/g, '')
+  .replace(/(.)\1+/g, '$1').replace(/(?!^)[aeiouy]/g, '')
+
+// Full postal address: street, area, town, mandal or county, district, "State PIN", country.
 function fullAddress(address) {
   if (!address) return ''
   const isStreetResult = address.osm_key === 'highway' || address.osm_key === 'place'
@@ -423,11 +427,11 @@ function fullAddress(address) {
   const seen = new Set()
   const parts = []
   // Some streets carry their own "Village, State PIN" suffix; split it so nothing repeats.
-  for (const value of [street, address.locality, address.district, address.city, address.county]) {
+  for (const value of [street, address.locality, address.district, address.city, address.county, address.region]) {
     for (const piece of (value || '').split(',')) {
       const part = piece.trim()
-      const key = part.toLowerCase()
-      if (!part || seen.has(key) || tail.has(key)) continue
+      const key = part.length > 5 ? nameSkeleton(part) || part.toLowerCase() : part.toLowerCase()
+      if (!part || seen.has(key) || tail.has(part.toLowerCase())) continue
       seen.add(key)
       parts.push(part)
     }
