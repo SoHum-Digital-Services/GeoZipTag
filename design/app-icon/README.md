@@ -14,6 +14,6 @@ radius 33); all solid artwork stays inside the safe circle.
 | `geoziptag-app-icon-fg.svg` + `-bg.svg` | Android adaptive foreground and background layers |
 | `geoziptag-app-icon-mono.svg` | Android 13+ themed icon (single colour) |
 | `geoziptag-app-icon-small.svg` | Simplified icon (no card) for small places: stamp tab, app header, favicon |
-| `globe-artwork-approved.svg` | The original approved globe artwork the icon is built from |
+| `globe-artwork-approved.svg` | The original approved globe artwork (teal oceans). The icon uses it with the oceans shifted to blue `#104DAB`; land and India are unchanged |
 
 PNG exports live in the app's `res/mipmap-*` and `assets/` folders.
