@@ -879,3 +879,25 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
   #status { bottom: max(.5rem, calc(var(--bottom-bar, 200px) + 4rem - var(--frame-gap, 0px))); }
   .viewfinder:has(.start:not([hidden])) #status { bottom: max(.5rem, calc(var(--bottom-bar, 200px) + 1rem - var(--frame-gap, 0px))); }
 }
+
+/* Compact camera controls (phones): one size for the side buttons, a smaller shutter and a light fade,
+   so the preview and the live stamp behind the controls stay visible. */
+@media (max-width: 759px) {
+  .controls { padding-top: .8rem; background: linear-gradient(transparent, rgba(0, 0, 0, .14) 35%, rgba(0, 0, 0, .3)); }
+  .mode-tabs { margin: .15rem 0 .1rem; }
+  .mode-tabs button { min-height: 28px; padding: .15rem .65rem; font-size: .68rem; }
+  .capture-dock { margin-top: .1rem; }
+  .thumb-slot, .dock-tool, .last-photo { width: 44px; height: 44px; min-height: 44px; }
+  .last-photo { border-radius: 12px; box-shadow: 0 0 0 1.5px var(--cream); }
+  .dock-tool .icon, .last-photo .icon { width: 1.15rem; height: 1.15rem; }
+  .shutter-slot, .shutter { width: 62px; height: 62px; }
+  .shutter { box-shadow: inset 0 0 0 3px var(--text); }
+  .shutter::before { inset: 7px; }
+  .shutter:active::before { inset: 9px; }
+  .shutter.counting::before { inset: 20px; }
+  .live-camera-tools button { min-width: 36px; min-height: 32px; padding: 0 .55rem; font-size: .72rem; }
+  .live-camera-tools .icon { width: 1.05rem; height: 1.05rem; }
+  .camera-zoom { padding: .2rem; gap: .2rem; }
+  .camera-zoom button { width: 32px; height: 32px; font-size: .64rem; }
+  .camera-zoom button[aria-pressed=true] { font-size: .7rem; }
+}

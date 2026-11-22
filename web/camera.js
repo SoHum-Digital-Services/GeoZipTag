@@ -2412,13 +2412,11 @@ function renderLiveStamp() {
   liveStamp.hidden = !show
   if (!show) return
   const scale = Math.min(window.devicePixelRatio || 1, 3)
-  // The stamp preview sits in the camera area but above the bottom controls, at the photo's scale.
-  const frame = $('video').parentElement.getBoundingClientRect()
-  const controlsTop = window.innerHeight - ($('controls').offsetHeight || 0)
-  const visibleBottom = Math.max(frame.top + 120, Math.min(frame.bottom, controlsTop))
+  // The stamp preview sits exactly where it lands on the photo, behind the see-through controls.
+  const frame = video.parentElement.getBoundingClientRect()
   liveStamp.style.top = `${frame.top}px`
-  liveStamp.style.height = `${visibleBottom - frame.top}px`
-  const width = Math.round(frame.width * scale), height = Math.round((visibleBottom - frame.top) * scale)
+  liveStamp.style.height = `${frame.height}px`
+  const width = Math.round(frame.width * scale), height = Math.round(frame.height * scale)
   if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
   liveStamp.getContext('2d').clearRect(0, 0, width, height)
   let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
