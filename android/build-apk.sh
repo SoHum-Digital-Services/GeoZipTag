@@ -20,7 +20,11 @@ fi
 mapfile -d '' classes < <(find "$work/classes" -name '*.class' -print0)
 "$tools/d8" --min-api 26 --lib "$sdk_jar" --output "$work/dex" "${classes[@]}"
 "$tools/aapt2" compile --dir "$main/res" -o "$work/res.zip"
-"$tools/aapt2" link -I "$sdk_jar" --manifest "$main/AndroidManifest.xml" -A "$main/assets" \
+# The web files bundled in this APK carry a version, so the app only accepts newer over-the-air updates.
+assets="$work/assets"
+cp -R "$main/assets" "$assets"
+printf '%s\n%s\n' "$(( $(date -u +%s) / 60 ))" "$(date -u +%y.%m.%d-%H%M)" > "$assets/ota-version.txt"
+"$tools/aapt2" link -I "$sdk_jar" --manifest "$main/AndroidManifest.xml" -A "$assets" \
     -o "$work/resources.apk" "$work/res.zip"
 cp "$work/resources.apk" "$work/unsigned.apk"
 (cd "$work/dex" && zip -q "$work/unsigned.apk" classes.dex)

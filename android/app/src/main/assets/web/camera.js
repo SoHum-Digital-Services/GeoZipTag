@@ -2042,3 +2042,30 @@ function renderLiveStamp() {
 setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
 stampFonts.then(renderLiveStamp)
+
+// ---- App updates (Android): the app downloads signed web updates in the background ----
+if (typeof android !== 'undefined' && android && typeof android.updateInfo === 'function') {
+  let info = {}
+  try { info = JSON.parse(android.updateInfo()) } catch {}
+  $('appVersion').textContent = `GeoZipTag · v${info.app || '?'} · web ${info.web || ''}`.trim()
+  if (info.updates) {
+    $('updatesGroup').hidden = false
+    const messages = {
+      checking: () => 'Checking…',
+      current: () => 'You have the latest version.',
+      ready: (label) => `Update ${label} is ready. Restart to apply it.`,
+      'needs-apk': () => 'This update needs a newer app version. Install the latest APK.',
+      error: (text) => text || 'Could not check for updates. Try again later.'
+    }
+    window.onOtaStatus = (state, detail) => {
+      $('updateStatus').textContent = (messages[state] || (() => ''))(detail)
+      $('checkUpdates').disabled = state === 'checking'
+      $('updateReady').hidden = state !== 'ready'
+    }
+    if (info.pending) window.onOtaStatus('ready', info.pendingLabel)
+    $('checkUpdates').addEventListener('click', () => android.checkForUpdates())
+    $('updateReady').addEventListener('click', () => android.applyUpdate())
+  }
+}
+// The page started properly: an update being served is good (otherwise it is rolled back).
+try { android?.otaConfirm?.() } catch {}

@@ -1898,3 +1898,5 @@ function renderLiveStamp() {
 setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
 stampFonts.then(renderLiveStamp)
+
+$('appVersion').textContent = 'GeoZipTag · web version'

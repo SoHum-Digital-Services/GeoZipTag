@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.location.Address;
@@ -41,10 +42,13 @@ import android.widget.FrameLayout;
 import android.widget.Toast;
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -63,6 +67,9 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String HOME = "https://" + HOST + "/index.html";
+    // Signed web updates are published here by the GitHub Pages workflow (see tools/ota/README.md).
+    private static final String OTA_URL = "https://sohum-digital-services.github.io/GeoZipTag/ota/";
+    private static final long OTA_CHECK_INTERVAL = 30 * 60 * 1000L;
     private static final int CAMERA_ACCESS = 1, LOCATION_ACCESS = 2, PICKER_CAMERA_ACCESS = 3;
     private static final int CHOOSE_IMAGE = 4, SAVE_DOCUMENT = 5, PHONE_LOCATION_ACCESS = 6, STORAGE_ACCESS = 7;
     private static final int PHONE_WITHOUT_LOCATION = 1, PHONE_WITH_LOCATION = 2;
@@ -103,6 +110,12 @@ public final class MainActivity extends Activity {
     private boolean storageRequested, savedOnce;
     private Toast saveToast;
     private AlertDialog exitDialog;
+    private final ExecutorService updates = Executors.newSingleThreadExecutor();
+    private OtaUpdater ota;
+    private volatile File otaRoot;   // update served to the current page (null = the files bundled in the APK)
+    private long lastOtaCheck;
+    private String appVersionName = "";
+    private String bundledWebLabel = "bundled";
 
     @Override public void onCreate(Bundle savedState) {
         super.onCreate(savedState);
@@ -122,7 +135,14 @@ public final class MainActivity extends Activity {
         root.addView(cameraView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
         configureCameraView();
+        initOta();
         cameraView.loadUrl(HOME);
+        // The first check waits until the page is up, so it compares against the files actually running.
+        lastOtaCheck = System.currentTimeMillis();
+        mainHandler.postDelayed(() -> {
+            lastOtaCheck = 0;
+            runOtaCheck(false);
+        }, 3000);
         if (Build.VERSION.SDK_INT >= 33) {
             // Android 16 apps no longer receive onBackPressed(); the back gesture goes through this callback.
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -223,16 +243,13 @@ public final class MainActivity extends Activity {
         String path = url.getPath();
         if (path == null || path.equals("/")) path = "/index.html";
         // Only these app files are served; anything else gets a local 404.
-        if (path.matches("/(index\\.html|style\\.css|camera\\.js|manifest\\.webmanifest"
-                + "|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt|vendor/tz-lookup\\.js|vendor/tz-lookup-LICENSE\\.txt"
-                + "|assets/[a-z0-9-]{1,60}\\.(svg|woff2|jpg|png|txt))")) {
+        if (OtaUpdater.isWebPath(path)) {
             String mime = assetType(path);
             try {
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Content-Security-Policy", CSP);
                 headers.put("X-Content-Type-Options", "nosniff");
-                return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers,
-                        getAssets().open("web" + path));
+                return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, openWebFile(path));
             } catch (IOException ignored) {
                 // Return a local 404 so the WebView never loads remote app code.
             }
@@ -251,6 +268,64 @@ public final class MainActivity extends Activity {
         if (path.endsWith(".png")) return "image/png";
         if (path.endsWith(".webmanifest")) return "application/manifest+json";
         return "text/javascript";
+    }
+
+    private InputStream openWebFile(String path) throws IOException {
+        OtaUpdater updater = ota;
+        if (updater != null) {
+            // A new page load picks the bundle (a staged update is promoted here); its files then stay consistent.
+            if (path.equals("/index.html")) otaRoot = updater.servingRoot();
+            File root = otaRoot;
+            if (root != null) {
+                File file = new File(root, path.substring(1));
+                if (file.isFile()) return new FileInputStream(file);
+            }
+        }
+        return getAssets().open("web" + path);
+    }
+
+    private String readAssetText(String name) throws IOException {
+        return new String(OtaUpdater.readAll(getAssets().open(name), 64 * 1024), StandardCharsets.UTF_8);
+    }
+
+    private void initOta() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            appVersionName = info.versionName == null ? "" : info.versionName;
+            long code = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+            String[] bundled = readAssetText("ota-version.txt").split("\\s+");
+            long bundledVersion = Long.parseLong(bundled[0]);
+            bundledWebLabel = bundled.length > 1 ? bundled[1] : "bundled";
+            PublicKey key = OtaUpdater.parseKey(readAssetText("ota-public-key.b64"));
+            ota = new OtaUpdater(new File(getFilesDir(), "ota"), path -> getAssets().open("web/" + path),
+                    new OtaUpdater.HttpsFetcher(OTA_URL), key, code, bundledVersion, bundledWebLabel);
+        } catch (Exception error) {
+            ota = null;   // no updates in this build; the bundled web files keep working
+        }
+    }
+
+    // Looks for a signed web update in the background; a downloaded one applies on the next page load.
+    private void runOtaCheck(boolean manual) {
+        OtaUpdater updater = ota;
+        if (updater == null || isFinishing() || isDestroyed()) {
+            if (manual) sendOtaStatus("error", "Updates are not available in this build.");
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!manual && now - lastOtaCheck < OTA_CHECK_INTERVAL) return;
+        lastOtaCheck = now;
+        if (manual) sendOtaStatus("checking", "");
+        updates.execute(() -> {
+            OtaUpdater.Result result = updater.check();
+            if (manual || "ready".equals(result.state)) sendOtaStatus(result.state, result.detail);
+        });
+    }
+
+    private void sendOtaStatus(String state, String detail) {
+        String script = "window.onOtaStatus && window.onOtaStatus(" + JSONObject.quote(state) + "," + JSONObject.quote(detail) + ")";
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
+        });
     }
 
     private boolean hasCameraPermission() {
@@ -527,6 +602,37 @@ public final class MainActivity extends Activity {
     }
 
     public final class AndroidHost {
+        @JavascriptInterface public String updateInfo() {
+            OtaUpdater updater = ota;
+            JSONObject json = new JSONObject();
+            try {
+                json.put("app", appVersionName);
+                json.put("updates", updater != null);
+                json.put("web", updater != null ? updater.activeLabel() : bundledWebLabel);
+                String pending = updater != null ? updater.pendingLabel() : null;
+                json.put("pending", pending != null);
+                json.put("pendingLabel", pending == null ? "" : pending);
+            } catch (JSONException ignored) {
+                // Fall through with whatever was filled in.
+            }
+            return json.toString();
+        }
+
+        @JavascriptInterface public void checkForUpdates() {
+            runOnUiThread(() -> runOtaCheck(true));
+        }
+
+        // The page loaded and started properly: an update that was being served is good.
+        @JavascriptInterface public void otaConfirm() {
+            OtaUpdater updater = ota;
+            if (updater != null) updater.confirm();
+        }
+
+        // Loads the page again, which switches to a downloaded update.
+        @JavascriptInterface public void applyUpdate() {
+            runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) cameraView.loadUrl(HOME); });
+        }
+
         @JavascriptInterface public boolean hasLocationAccess() {
             return hasLocationPermission();
         }
@@ -788,6 +894,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         cameraView.onResume();
+        runOtaCheck(false);
     }
 
     @Override protected void onDestroy() {
@@ -795,6 +902,7 @@ public final class MainActivity extends Activity {
         finishImagePicker(null);
         storage.shutdown();
         lookups.shutdownNow();
+        updates.shutdownNow();
         if (reportView != null) reportView.destroy();
         cameraView.removeJavascriptInterface("AndroidHost");
         cameraView.destroy();

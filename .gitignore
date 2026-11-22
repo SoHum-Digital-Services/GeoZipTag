@@ -19,3 +19,9 @@ local.properties
 *.apk
 *.aab
 .openai/
+
+# Never commit signing keys or build output
+*.pem
+*.p12
+*.keystore
+_site/
