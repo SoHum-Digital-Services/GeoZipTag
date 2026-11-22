@@ -38,10 +38,11 @@ function formatsFor(timeZone) {
     const zone = timeZone ? { timeZone } : {}
     timeFormats.set(key, {
       full: new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'longOffset', ...zone }),
-      date: new Intl.DateTimeFormat(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', ...zone }),
-      time: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'longOffset', ...zone }),
-      clock: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit', ...zone }),
-      longDate: new Intl.DateTimeFormat(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', ...zone }),
+      // Stamps always read "Monday, 23/11/2026 · 2:33 AM GMT+05:30" (day/month/year), whatever the phone's language.
+      date: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', ...zone }),
+      time: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'longOffset', ...zone }),
+      clock: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', ...zone }),
+      longDate: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', ...zone }),
       zoneName: new Intl.DateTimeFormat(undefined, { timeZoneName: 'long', ...zone }),
       offset: new Intl.DateTimeFormat(undefined, { timeZoneName: 'longOffset', ...zone })
     })
@@ -878,13 +879,23 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.clip()
     ctx.drawImage(map, mapX, mapTop, mapSize, mapSize)
     if (!example) {
-      const credit = ['Esri, Vantor', 'Earthstar Geographics', 'GIS User Community']
-      const creditTop = mapTop + mapSize - 23
-      ctx.font = `500 6.5px ${stampFace}`
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.62)'
-      ctx.fillRect(mapX, creditTop, mapSize, 23)
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
-      credit.forEach((text, index) => ctx.fillText(text, mapX + 4, creditTop + 1.5 + index * 7))
+      // Imagery credit (required by Esri): one small line on a faint strip, so the map stays visible.
+      const credit = '© Esri, Vantor, Earthstar Geographics'
+      let size = 5.6
+      ctx.font = `500 ${size}px ${stampFace}`
+      const room = mapSize - 6
+      if (ctx.measureText(credit).width > room) {
+        size *= room / ctx.measureText(credit).width
+        ctx.font = `500 ${size}px ${stampFace}`
+      }
+      const stripHeight = size + 4
+      const strip = ctx.createLinearGradient(0, mapTop + mapSize - stripHeight - 3, 0, mapTop + mapSize)
+      strip.addColorStop(0, 'rgba(0, 0, 0, 0)')
+      strip.addColorStop(1, 'rgba(0, 0, 0, 0.55)')
+      ctx.fillStyle = strip
+      ctx.fillRect(mapX, mapTop + mapSize - stripHeight - 3, mapSize, stripHeight + 3)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+      ctx.fillText(credit, mapX + 3, mapTop + mapSize - size - 2)
     }
     ctx.restore()
 
