@@ -1179,7 +1179,9 @@ function setZoomLabel(value) {
 function buildZoomButtons(min, max) {
   const control = $('zoomControl')
   control.querySelectorAll('button').forEach(button => button.remove())
-  const stops = zoomStops.filter(stop => stop >= min - 0.01 && stop <= max + 0.01)
+  // The widest button is the camera's own ultra-wide (.5 on iPhones, often .6 or .7 on Android).
+  const widest = min < 0.95 ? Math.max(0.5, Math.round(min * 10) / 10) : undefined
+  const stops = [widest, ...zoomStops.filter(stop => stop >= 1)].filter(stop => stop && stop >= min - 0.01 && stop <= max + 0.01)
   for (const stop of stops) {
     const button = document.createElement('button')
     button.type = 'button'

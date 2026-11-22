@@ -27,6 +27,9 @@ import android.print.PrintAttributes;
 import android.print.PrintManager;
 import android.provider.MediaStore;
 import android.util.Base64;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.View;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -72,7 +75,8 @@ public final class MainActivity extends Activity {
     private static final String OTA_URL = "https://sohum-digital-services.github.io/GeoZipTag/ota/";
     private static final long OTA_CHECK_INTERVAL = 30 * 60 * 1000L;
     private static final int CAMERA_ACCESS = 1, LOCATION_ACCESS = 2, PICKER_CAMERA_ACCESS = 3;
-    private static final int CHOOSE_IMAGE = 4, SAVE_DOCUMENT = 5, PHONE_LOCATION_ACCESS = 6, STORAGE_ACCESS = 7;
+    private static final int CHOOSE_IMAGE = 4, SAVE_DOCUMENT = 5, PHONE_LOCATION_ACCESS = 6, STORAGE_ACCESS = 7,
+            NATIVE_CAMERA_ACCESS = 8;
     private static final int PHONE_WITHOUT_LOCATION = 1, PHONE_WITH_LOCATION = 2;
     private static final long MAX_FIX_AGE = 60_000;
     private static final int MAX_PAYLOAD = 28 * 1024 * 1024;
@@ -118,6 +122,11 @@ public final class MainActivity extends Activity {
     private volatile File otaRoot;   // update served to the current page (null = the files bundled in the APK)
     private long lastOtaCheck;
     private String appVersionName = "";
+    // The phone's own camera (preview behind the page), its last photos for the page, and volume-key capture.
+    private NativeCamera nativeCamera;
+    private final java.util.LinkedHashMap<String, byte[]> nativePhotos = new java.util.LinkedHashMap<>();
+    private String pendingCameraFacing;
+    private volatile boolean volumeShutter;
     private String bundledWebLabel = "bundled";
 
     @Override public void onCreate(Bundle savedState) {
@@ -134,6 +143,21 @@ public final class MainActivity extends Activity {
                 return insets;
             });
         }
+        nativeCamera = new NativeCamera(this, new NativeCamera.Listener() {
+            @Override public void onState(JSONObject state) {
+                callPage("window.onNativeCamera && window.onNativeCamera(" + state + ")");
+            }
+            @Override public void onPhoto(String id, byte[] jpeg) {
+                if (jpeg != null) {
+                    synchronized (nativePhotos) {
+                        nativePhotos.put(id, jpeg);
+                        while (nativePhotos.size() > 3) nativePhotos.remove(nativePhotos.keySet().iterator().next());
+                    }
+                }
+                callPage("window.onNativePhoto && window.onNativePhoto(" + JSONObject.quote(id) + "," + (jpeg != null) + ")");
+            }
+        });
+        root.addView(nativeCamera.view, new FrameLayout.LayoutParams(-1, -1));
         cameraView = new WebView(this);
         root.addView(cameraView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
@@ -163,7 +187,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        cameraView.setBackgroundColor(0xff000000);
+        cameraView.setBackgroundColor(0x00000000);   // see-through where the page shows the camera preview
         cameraView.addJavascriptInterface(new AndroidHost(), "AndroidHost");
         cameraView.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -245,6 +269,11 @@ public final class MainActivity extends Activity {
     private WebResourceResponse asset(Uri url) {
         String path = url.getPath();
         if (path == null || path.equals("/")) path = "/index.html";
+        if (path.startsWith("/native-photo/") && path.endsWith(".jpg")) {
+            byte[] photo;
+            synchronized (nativePhotos) { photo = nativePhotos.get(path.substring(14, path.length() - 4)); }
+            if (photo != null) return new WebResourceResponse("image/jpeg", null, new ByteArrayInputStream(photo));
+        }
         // Only these app files are served; anything else gets a local 404.
         if (OtaUpdater.isWebPath(path)) {
             String mime = assetType(path);
@@ -356,6 +385,11 @@ public final class MainActivity extends Activity {
             else openImagePicker();
         } else if (code == PHONE_LOCATION_ACCESS && pickerCallback != null) {
             beginPhoneLocation();
+        } else if (code == NATIVE_CAMERA_ACCESS) {
+            String facing = pendingCameraFacing;
+            pendingCameraFacing = null;
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) nativeCamera.start(facing);
+            else callPage("window.onNativeCamera && window.onNativeCamera({\"ok\":false,\"error\":\"denied\"})");
         } else if (code == STORAGE_ACCESS) {
             storageRequested = false;
             boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
@@ -635,6 +669,61 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void applyUpdate() {
             runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) cameraView.loadUrl(HOME); });
         }
+
+        // ---- The phone's own camera (same calls as the iPhone app) ----
+        @JavascriptInterface public void cameraStart(String facing) {
+            runOnUiThread(() -> {
+                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    nativeCamera.start(facing);
+                } else {
+                    pendingCameraFacing = facing;
+                    requestPermissions(new String[]{Manifest.permission.CAMERA}, NATIVE_CAMERA_ACCESS);
+                }
+            });
+        }
+
+        @JavascriptInterface public void cameraStop() { runOnUiThread(() -> nativeCamera.stop()); }
+
+        @JavascriptInterface public void cameraSet(String json) {
+            try {
+                JSONObject settings = new JSONObject(json);
+                nativeCamera.set(settings.has("zoom") ? settings.getDouble("zoom") : null,
+                        settings.has("torch") ? settings.getBoolean("torch") : null);
+            } catch (JSONException ignored) {
+                // Ignore malformed settings.
+            }
+        }
+
+        /** x, y: a point in the page (CSS pixels). */
+        @JavascriptInterface public void cameraFocus(double x, double y) {
+            runOnUiThread(() -> {
+                float density = getResources().getDisplayMetrics().density;
+                View preview = nativeCamera.view;
+                nativeCamera.focus(cameraView.getLeft() + (float) x * density - preview.getLeft(),
+                        cameraView.getTop() + (float) y * density - preview.getTop());
+            });
+        }
+
+        /** The page's camera area (CSS pixels): the preview fills exactly the photo's frame. */
+        @JavascriptInterface public void cameraLayout(double x, double y, double width, double height) {
+            if (!(width > 0 && height > 0)) return;
+            runOnUiThread(() -> {
+                float density = getResources().getDisplayMetrics().density;
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                        Math.round((float) width * density), Math.round((float) height * density), Gravity.TOP | Gravity.START);
+                params.leftMargin = Math.round((float) x * density);
+                params.topMargin = Math.round((float) y * density);
+                nativeCamera.view.setLayoutParams(params);
+                nativeCamera.view.post(nativeCamera::updateTransform);
+            });
+        }
+
+        @JavascriptInterface public void cameraCapture(String id) {
+            if (id == null || !id.matches("[A-Za-z0-9_-]{1,40}")) return;
+            nativeCamera.capture(id);
+        }
+
+        @JavascriptInterface public void setVolumeShutter(boolean on) { volumeShutter = on; }
 
         @JavascriptInterface public boolean hasLocationAccess() {
             return hasLocationPermission();
@@ -929,7 +1018,27 @@ public final class MainActivity extends Activity {
                 .show();
     }
 
+    /** Volume up/down take a photo while the camera is on screen (Settings > Volume buttons). */
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        int key = event.getKeyCode();
+        if (volumeShutter && nativeCamera != null && nativeCamera.isRunning()
+                && (key == KeyEvent.KEYCODE_VOLUME_UP || key == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                callPage("window.onHardwareShutter && window.onHardwareShutter()");
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    private void callPage(String script) {
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
+        });
+    }
+
     @Override protected void onPause() {
+        nativeCamera.pause();
         cameraView.onPause();
         super.onPause();
     }
@@ -937,6 +1046,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         cameraView.onResume();
+        nativeCamera.resume();
         runOtaCheck(false);
     }
 
@@ -947,6 +1057,7 @@ public final class MainActivity extends Activity {
         lookups.shutdownNow();
         updates.shutdownNow();
         if (reportView != null) reportView.destroy();
+        nativeCamera.release();
         cameraView.removeJavascriptInterface("AndroidHost");
         cameraView.destroy();
         super.onDestroy();
