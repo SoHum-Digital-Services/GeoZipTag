@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreLocation
 import Photos
 import UIKit
@@ -20,6 +21,11 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         applyUpdate: () => post({ type: 'applyUpdate' }),
         otaConfirm: () => post({ type: 'otaConfirm' }),
         hasLocationAccess: () => true,
+        cameraStart: (facing) => post({ type: 'cameraStart', facing: String(facing) }),
+        cameraStop: () => post({ type: 'cameraStop' }),
+        cameraSet: (json) => post({ type: 'cameraSet', settings: JSON.parse(json) }),
+        cameraFocus: (x, y) => post({ type: 'cameraFocus', x: Number(x), y: Number(y) }),
+        cameraCapture: (id) => post({ type: 'cameraCapture', id: String(id) }),
         exportPhoto: (action, filename, data) => post({ type: 'exportPhoto', action, filename, data }),
         deletePhoto: (filename) => post({ type: 'deletePhoto', filename }),
         reverseGeocode: (id, lat, lon) => post({ type: 'reverseGeocode', id, lat, lon }),
@@ -29,6 +35,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     """
 
     private var webView: WKWebView!
+    private let camera = NativeCamera()
     private var server: LocalServer?
     private var updater: OtaUpdater?
     private var lastUpdateCheck = Date.distantPast
@@ -54,11 +61,17 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         controller.add(WeakHandler(self), name: "host")
         configuration.userContentController = controller
 
+        // The camera preview sits behind the page; the page is transparent where the preview shows.
+        camera.previewView.frame = view.bounds
+        camera.previewView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        camera.previewView.isHidden = true
+        view.addSubview(camera.previewView)
+
         webView = WKWebView(frame: view.bounds, configuration: configuration)
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.isOpaque = false
-        webView.backgroundColor = .black
-        webView.scrollView.backgroundColor = .black
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.bounces = false
         webView.navigationDelegate = self
@@ -156,6 +169,23 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         view.addSubview(label)
     }
 
+    private func currentOrientation() -> AVCaptureVideoOrientation {
+        switch view.window?.windowScene?.interfaceOrientation {
+        case .landscapeLeft: return .landscapeLeft
+        case .landscapeRight: return .landscapeRight
+        case .portraitUpsideDown: return .portraitUpsideDown
+        default: return .portrait
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self else { return }
+            self.camera.setPreviewOrientation(self.currentOrientation())
+        }
+    }
+
     // MARK: Web view behaviour
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
@@ -209,6 +239,32 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                let lat = body["lat"] as? Double, let lon = body["lon"] as? Double,
                abs(lat) <= 90, abs(lon) <= 180 {
                 lookUp(id: id, lat: lat, lon: lon)
+            }
+        case "cameraStart":
+            let facing = (body["facing"] as? String) == "user" ? "user" : "environment"
+            camera.setPreviewOrientation(currentOrientation())
+            camera.start(facing: facing) { [weak self] result in
+                guard let self else { return }
+                self.camera.previewView.isHidden = result["ok"] as? Bool != true
+                let data = (try? JSONSerialization.data(withJSONObject: result)) ?? Data("{}".utf8)
+                self.callPage("window.onNativeCamera && window.onNativeCamera(\(String(decoding: data, as: UTF8.self)))")
+            }
+        case "cameraStop":
+            camera.stop()
+            camera.previewView.isHidden = true
+        case "cameraSet":
+            let settings = body["settings"] as? [String: Any] ?? [:]
+            camera.set(zoom: (settings["zoom"] as? NSNumber)?.doubleValue, torch: settings["torch"] as? Bool)
+        case "cameraFocus":
+            if let x = (body["x"] as? NSNumber)?.doubleValue, let y = (body["y"] as? NSNumber)?.doubleValue {
+                camera.focus(at: webView.convert(CGPoint(x: x, y: y), to: camera.previewView))
+            }
+        case "cameraCapture":
+            guard let id = body["id"] as? String, id.range(of: "^[A-Za-z0-9_-]{1,40}$", options: .regularExpression) != nil else { return }
+            camera.capture(orientation: currentOrientation()) { [weak self] data in
+                guard let self else { return }
+                if let data { self.server?.putPhoto(id, data) }
+                self.callPage("window.onNativePhoto && window.onNativePhoto(\(Self.js(id)), \(data != nil))")
             }
         case "checkForUpdates": checkForUpdates(manual: true)
         case "applyUpdate": applyUpdate()

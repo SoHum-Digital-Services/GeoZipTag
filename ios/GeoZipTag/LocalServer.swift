@@ -19,9 +19,18 @@ final class LocalServer {
     private var root: URL   // only touched on `queue`
     private let queue = DispatchQueue(label: "geoziptag.server")
     private var listener: NWListener?
+    private var photos: [(id: String, data: Data)] = []   // the last few native camera photos, only touched on `queue`
     private(set) var port: UInt16 = 0
 
     init(root: URL) { self.root = root.standardizedFileURL }
+
+    /// Makes a photo from the native camera available at /native-photo/<id>.jpg for the page to stamp.
+    func putPhoto(_ id: String, _ data: Data) {
+        queue.sync {
+            photos.append((id, data))
+            if photos.count > 3 { photos.removeFirst(photos.count - 3) }
+        }
+    }
 
     /// Serves another folder from now on (a wireless update that was just switched to).
     func setRoot(_ url: URL) {
@@ -77,6 +86,15 @@ final class LocalServer {
     private func respond(_ connection: NWConnection, target: String, headOnly: Bool) {
         var path = String(target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first ?? "/")
         if path == "/" { path = "/index.html" }
+        if path.hasPrefix("/native-photo/") {
+            let id = String(path.dropFirst("/native-photo/".count).dropLast(".jpg".count))
+            if path.hasSuffix(".jpg"), let photo = photos.last(where: { $0.id == id }) {
+                send(connection, status: "200 OK", type: "image/jpeg", body: photo.data, headOnly: headOnly)
+            } else {
+                send(connection, status: "404 Not Found", type: "text/plain", body: Data())
+            }
+            return
+        }
         guard path.range(of: "^/[A-Za-z0-9._/-]{1,200}$", options: .regularExpression) != nil, !path.contains(".."), !path.contains("/.") else {
             send(connection, status: "400 Bad Request", type: "text/plain", body: Data())
             return

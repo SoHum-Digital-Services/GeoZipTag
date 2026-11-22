@@ -124,12 +124,91 @@ function placeFor(snapshot) {
   return locate(snapshot)
 }
 
+// ---- Native camera (iPhone app): the phone's own photo camera, with its preview drawn by the app behind
+// the page. It is driven through stand-ins for a camera stream and track, so the rest of the page
+// (zoom buttons, torch, focus, pinch, flip) works the same as with the browser camera. ----
+const nativeHost = typeof android?.cameraStart === 'function' ? android : undefined
+let nativeOpen, nativeStopTimer, nativeEnded, nativePhotoCount = 0
+const nativePhotos = new Map()
+window.onNativeCamera = (state) => {
+  if (state?.ended) { nativeEnded?.(); return }
+  const done = nativeOpen
+  nativeOpen = undefined
+  done?.(state)
+}
+window.onNativePhoto = (id, ok) => nativePhotos.get(id)?.(ok)
+
+function openNativeCamera(nextFacing) {
+  return new Promise((resolve, reject) => {
+    clearTimeout(nativeStopTimer)   // flipping: stop and start become one switch
+    nativeOpen?.(undefined)
+    const timer = setTimeout(() => { nativeOpen = undefined; reject(new Error('timeout')) }, 60000)
+    nativeOpen = (state) => {
+      clearTimeout(timer)
+      if (state?.ok) resolve(nativeStream(state))
+      else reject(new Error(state?.error || 'unavailable'))
+    }
+    nativeHost.cameraStart(nextFacing)
+  })
+}
+
+function nativeStream(state) {
+  const settings = { facingMode: state.facing, zoom: state.zoom ?? 1, torch: false }
+  const track = {
+    native: true,
+    width: state.width,
+    height: state.height,
+    getCapabilities: () => ({
+      zoom: state.zoomMax > state.zoomMin ? { min: state.zoomMin, max: state.zoomMax, step: 0.01 } : undefined,
+      torch: !!state.hasTorch,
+      focusMode: state.canFocus ? ['single-shot'] : []
+    }),
+    getSettings: () => ({ ...settings }),
+    getConstraints: () => ({}),
+    async applyConstraints(constraints) {
+      const change = constraints?.advanced?.[0] || {}
+      if (Number.isFinite(change.zoom)) settings.zoom = change.zoom
+      if (typeof change.torch === 'boolean') settings.torch = change.torch
+      nativeHost.cameraSet(JSON.stringify({ zoom: settings.zoom, torch: settings.torch }))
+    },
+    focusAt: (x, y) => nativeHost.cameraFocus(x, y),
+    addEventListener: (type, listener) => { if (type === 'ended') nativeEnded = listener },
+    stop: () => {
+      clearTimeout(nativeStopTimer)
+      nativeStopTimer = setTimeout(() => nativeHost.cameraStop(), 0)
+    }
+  }
+  return { native: true, cameras: state.cameras || 1, getTracks: () => [track], getVideoTracks: () => [track] }
+}
+
+function takeNativePhoto() {
+  return new Promise((resolve, reject) => {
+    const id = `photo${Date.now()}x${++nativePhotoCount}`
+    const timer = setTimeout(() => { nativePhotos.delete(id); reject(new Error('timeout')) }, 20000)
+    nativePhotos.set(id, (ok) => {
+      clearTimeout(timer)
+      nativePhotos.delete(id)
+      if (!ok) { reject(new Error('capture failed')); return }
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error('photo unavailable'))
+      image.src = `native-photo/${id}.jpg`
+    })
+    nativeHost.cameraCapture(id)
+  })
+}
+
+// Size of the live picture, from the browser camera or the native one.
+const liveWidth = () => stream?.native ? stream.getVideoTracks()[0].width : video.videoWidth
+const liveHeight = () => stream?.native ? stream.getVideoTracks()[0].height : video.videoHeight
+
 function stopCamera() {
   cameraRequest++
   stream?.getTracks().forEach((track) => track.stop())
   stream = undefined
   video.srcObject = null
   video.hidden = true
+  document.documentElement.classList.remove('native-camera')
   $('shutter').hidden = true
   $('switchCamera').hidden = true
   resetLiveControls()
@@ -138,7 +217,7 @@ function stopCamera() {
 let switching = false
 function freezeFrame() {
   const frame = $('switchFrame')
-  if (video.hidden || !video.videoWidth || !video.videoHeight) return false
+  if (stream?.native || video.hidden || !video.videoWidth || !video.videoHeight) return false
   frame.width = video.videoWidth
   frame.height = video.videoHeight
   frame.getContext('2d').drawImage(video, 0, 0)
@@ -185,11 +264,20 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
   }
   message('')
   try {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
-    const next = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: nextFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      audio: false
-    })
+    let next
+    if (nativeHost) {
+      // The phone's own camera; the browser camera is only a fallback (never after a refused permission).
+      next = await openNativeCamera(nextFacing).catch(error => {
+        if (error.message === 'denied' || !navigator.mediaDevices?.getUserMedia) throw error
+      })
+    }
+    if (!next) {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
+      next = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      })
+    }
     if (cameraRequest !== request) {
       next.getTracks().forEach((track) => track.stop())
       return
@@ -197,11 +285,14 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
     stream = next
     const track = stream.getVideoTracks()[0]
     facing = track.getSettings().facingMode || nextFacing
-    video.srcObject = stream
+    document.documentElement.classList.toggle('native-camera', !!next.native)
     video.classList.toggle('mirror', facing === 'user')
-    await video.play()
-    if (cameraRequest !== request) return
-    if (!video.videoWidth) throw new Error('No camera frame')
+    if (!next.native) {
+      video.srcObject = stream
+      await video.play()
+      if (cameraRequest !== request) return
+      if (!video.videoWidth) throw new Error('No camera frame')
+    }
     $('start').hidden = true
     video.hidden = false
     $('shutter').hidden = false
@@ -212,7 +303,8 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
       $('start').hidden = false
       message('Camera stopped. Start it again or use your phone camera.')
     })
-    const cameras = await navigator.mediaDevices.enumerateDevices().catch(() => [])
+    const cameras = next.native ? Array.from({ length: next.cameras }, () => ({ kind: 'videoinput' }))
+      : await navigator.mediaDevices.enumerateDevices().catch(() => [])
     if (cameraRequest === request) {
       $('switchCamera').hidden = cameras.filter((device) => device.kind === 'videoinput').length < 2
     }
@@ -267,7 +359,7 @@ $('startWithoutLocation').addEventListener('click', () => {
 })
 $('switchCamera').addEventListener('click', () => {
   if (busy || switching) return
-  startCamera(facing === 'environment' ? 'user' : 'environment', { soft: freezeFrame() })
+  startCamera(facing === 'environment' ? 'user' : 'environment', { soft: !!stream?.native || freezeFrame() })
 })
 
 function openPicker(snapshot) {
@@ -996,7 +1088,7 @@ function resetLiveControls() {
 function coverVideo() {
   const area = video.parentElement.getBoundingClientRect()
   const cover = getComputedStyle(video).objectFit === 'cover'
-  if (!cover || video.hidden || !video.videoWidth || !video.videoHeight || !area.width || !area.height) {
+  if (!cover || stream?.native || video.hidden || !video.videoWidth || !video.videoHeight || !area.width || !area.height) {
     for (const property of ['width', 'height', 'left', 'top', 'right', 'bottom']) video.style.removeProperty(property)
     return
   }
@@ -1013,12 +1105,13 @@ if ('ResizeObserver' in window) new ResizeObserver(coverVideo).observe(video.par
 
 function videoFrame() {
   const box = video.getBoundingClientRect()
-  if (!video.videoWidth || !video.videoHeight || !box.width || !box.height) return undefined
+  const liveW = liveWidth(), liveH = liveHeight()
+  if (!liveW || !liveH || !box.width || !box.height) return undefined
   // The full-screen phone layout fills the screen (cover) and crops the edges; otherwise it fits (contain).
-  const fit = getComputedStyle(video).objectFit === 'cover' ? Math.max : Math.min
-  const scale = fit(box.width / video.videoWidth, box.height / video.videoHeight)
-  const width = video.videoWidth * scale
-  const height = video.videoHeight * scale
+  const fit = stream?.native || getComputedStyle(video).objectFit === 'cover' ? Math.max : Math.min
+  const scale = fit(box.width / liveW, box.height / liveH)
+  const width = liveW * scale
+  const height = liveH * scale
   return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, width, height }
 }
 
@@ -1097,7 +1190,7 @@ function showLiveControls(track) {
   const capabilities = track.getCapabilities?.() || {}
   const settings = track.getSettings()
   const focus = capabilities.focusMode?.includes('single-shot') &&
-    !!navigator.mediaDevices.getSupportedConstraints?.().pointsOfInterest
+    (!!track.native || !!navigator.mediaDevices.getSupportedConstraints?.().pointsOfInterest)
   cameraHardware = {
     track, focus, desired: {}, queue: Promise.resolve(), base: track.getConstraints?.() || {}
   }
@@ -1171,9 +1264,8 @@ video.addEventListener('click', async event => {
   const x = (event.clientX - frame.left) / frame.width
   const y = (event.clientY - frame.top) / frame.height
   if (x < 0 || x > 1 || y < 0 || y > 1) return
-  const applied = await applyHardwareSetting(camera, {
-    focusMode: 'single-shot', pointsOfInterest: [{ x: facing === 'user' ? 1 - x : x, y }]
-  })
+  const applied = camera.track.native ? (camera.track.focusAt(event.clientX, event.clientY), true)
+    : await applyHardwareSetting(camera, { focusMode: 'single-shot', pointsOfInterest: [{ x: facing === 'user' ? 1 - x : x, y }] })
   if (!applied) return
   const marker = $('focusPoint')
   const bounds = marker.parentElement.getBoundingClientRect()
@@ -1527,10 +1619,15 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
   $('fallback').disabled = true
   $('startCamera').disabled = true
   $('switchCamera').disabled = true
-  if (source === video) fireFlash()
-  if (source !== video) message('Stamping photo…')
+  const live = source === video
+  if (live) fireFlash()
+  if (!live) message('Stamping photo…')
   else if (snapshot && !placeReady(snapshot)) message('Adding address and satellite map…')
   try {
+    if (live && stream?.native) {
+      source = await takeNativePhoto()   // full-quality photo from the phone's camera
+      imageFile = true
+    }
     const canvas = document.createElement('canvas')
     canvas.width = imageFile ? source.naturalWidth : source.videoWidth
     canvas.height = imageFile ? source.naturalHeight : source.videoHeight
@@ -1557,7 +1654,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       entry.saved = true
       entry.saving = saveAutomatically(name, jpeg, original)
     }
-    if (source !== video && !stream) startLiveCamera()
+    if (!live && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
     if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
     else message(map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
@@ -2228,7 +2325,7 @@ for (const button of document.querySelectorAll('[data-open]')) {
 }
 
 function openViewfinderOnEntry() {
-  if (window.isSecureContext && window.self === window.top && navigator.mediaDevices?.getUserMedia && $('review').hidden) {
+  if (window.isSecureContext && window.self === window.top && (nativeHost || navigator.mediaDevices?.getUserMedia) && $('review').hidden) {
     startLiveCamera(!timestampOnly)
   }
 }
