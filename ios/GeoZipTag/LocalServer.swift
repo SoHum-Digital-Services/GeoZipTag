@@ -16,12 +16,18 @@ final class LocalServer {
         "woff2": "font/woff2", "webmanifest": "application/manifest+json", "txt": "text/plain; charset=utf-8",
     ]
 
-    private let root: URL
+    private var root: URL   // only touched on `queue`
     private let queue = DispatchQueue(label: "geoziptag.server")
     private var listener: NWListener?
     private(set) var port: UInt16 = 0
 
     init(root: URL) { self.root = root.standardizedFileURL }
+
+    /// Serves another folder from now on (a wireless update that was just switched to).
+    func setRoot(_ url: URL) {
+        let standardized = url.standardizedFileURL
+        queue.sync { root = standardized }
+    }
 
     /// Starts listening and returns the port, or nil if no port could be opened.
     func start() -> UInt16? {
@@ -71,7 +77,7 @@ final class LocalServer {
     private func respond(_ connection: NWConnection, target: String, headOnly: Bool) {
         var path = String(target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first ?? "/")
         if path == "/" { path = "/index.html" }
-        guard path.range(of: "^/[A-Za-z0-9._/-]{1,200}$", options: .regularExpression) != nil, !path.contains("..") else {
+        guard path.range(of: "^/[A-Za-z0-9._/-]{1,200}$", options: .regularExpression) != nil, !path.contains(".."), !path.contains("/.") else {
             send(connection, status: "400 Bad Request", type: "text/plain", body: Data())
             return
         }

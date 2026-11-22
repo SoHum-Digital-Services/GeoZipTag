@@ -8,6 +8,8 @@ on:
     paths:
       - "ios/**"
       - "android/app/src/main/assets/web/**"
+      - "android/app/src/main/assets/ota-public-key.b64"
+      - "tools/ota/**"
       - ".github/workflows/ios.yml"
   workflow_dispatch:
 
@@ -22,6 +24,14 @@ jobs:
 
       - name: Install XcodeGen
         run: brew install xcodegen
+
+      # Same update logic tests as Android's, for the Swift updater (signed lists, hashes, rollback).
+      - name: Test the iOS update logic
+        run: bash tools/ota/test/ios/run.sh
+
+      # The version of the web files built into the app, so it only accepts newer wireless updates.
+      - name: Stamp the built-in web version
+        run: printf '%s\n%s\n' "$(( $(date -u +%s) / 60 ))" "$(date -u +%y.%m.%d-%H%M)" > ios/GeoZipTag/ota-version.txt
 
       - name: Generate the Xcode project
         working-directory: ios

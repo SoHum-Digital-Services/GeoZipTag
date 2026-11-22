@@ -8,6 +8,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.10"
+    # Keep equal to the Android versionCode: update lists name one minimum build ("min-apk") for both.
     CURRENT_PROJECT_VERSION: "11"
 targets:
   GeoZipTag:
@@ -19,6 +20,9 @@ targets:
       # The same web app the Android build uses (one copy, no duplicate to keep in sync).
       - path: ../android/app/src/main/assets/web
         type: folder
+      # Public half of the update signing key (same as Android's).
+      - path: ../android/app/src/main/assets/ota-public-key.b64
+        buildPhase: resources
     info:
       path: GeoZipTag/Info.plist
       properties:

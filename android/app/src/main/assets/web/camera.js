@@ -2234,7 +2234,7 @@ setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
 stampFonts.then(renderLiveStamp)
 
-// ---- App updates (Android): the app downloads signed web updates in the background ----
+// ---- App updates (Android and iOS apps): the app downloads signed web updates in the background ----
 if (typeof android !== 'undefined' && android && typeof android.updateInfo === 'function') {
   let info = {}
   try { info = JSON.parse(android.updateInfo()) } catch {}
@@ -2246,6 +2246,7 @@ if (typeof android !== 'undefined' && android && typeof android.updateInfo === '
       current: () => 'You have the latest version.',
       ready: (label) => `Update ${label} is ready. Restart to apply it.`,
       'needs-apk': () => 'This update needs a newer app version. Install the latest APK.',
+      'needs-app': () => 'This update needs a newer version of the app. Install the latest build.',
       error: (text) => text || 'Could not check for updates. Try again later.'
     }
     window.onOtaStatus = (state, detail) => {

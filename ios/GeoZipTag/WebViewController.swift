@@ -13,7 +13,12 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private static let shim = """
     (() => {
       const post = (message) => window.webkit.messageHandlers.host.postMessage(message)
+      const info = window.__geoZipTagUpdateInfo || {}
       window.AndroidHost = {
+        updateInfo: () => JSON.stringify(info),
+        checkForUpdates: () => post({ type: 'checkForUpdates' }),
+        applyUpdate: () => post({ type: 'applyUpdate' }),
+        otaConfirm: () => post({ type: 'otaConfirm' }),
         hasLocationAccess: () => true,
         exportPhoto: (action, filename, data) => post({ type: 'exportPhoto', action, filename, data }),
         deletePhoto: (filename) => post({ type: 'deletePhoto', filename }),
@@ -25,6 +30,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     private var webView: WKWebView!
     private var server: LocalServer?
+    private var updater: OtaUpdater?
+    private var lastUpdateCheck = Date.distantPast
     private let locationManager = CLLocationManager()
     private let geocoder = CLGeocoder()
     private var savedAssets: [String: String] = [:]          // file name -> Photos asset id, this session only
@@ -45,7 +52,6 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         configuration.mediaTypesRequiringUserActionForPlayback = []
         let controller = WKUserContentController()
         controller.add(WeakHandler(self), name: "host")
-        controller.addUserScript(WKUserScript(source: Self.shim, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController = controller
 
         webView = WKWebView(frame: view.bounds, configuration: configuration)
@@ -61,6 +67,66 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
         locationManager.requestWhenInUseAuthorization()
         startServerAndLoad()
+        NotificationCenter.default.addObserver(self, selector: #selector(enteredForeground),
+                                               name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @objc private func enteredForeground() { checkForUpdates(manual: false) }
+
+    /// The page reads update details synchronously, so they are injected before each load.
+    private func installShim() {
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        var info: [String: Any] = ["app": "\(Self.bundleValue("CFBundleShortVersionString")) (iOS)", "updates": updater?.available == true]
+        info["web"] = updater?.activeLabel ?? ""
+        let pending = updater?.pendingLabel
+        info["pending"] = pending != nil
+        info["pendingLabel"] = pending ?? ""
+        let data = (try? JSONSerialization.data(withJSONObject: info)) ?? Data("{}".utf8)
+        let script = "window.__geoZipTagUpdateInfo = \(String(decoding: data, as: UTF8.self));\n" + Self.shim
+        controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    }
+
+    private static func bundleValue(_ key: String) -> String {
+        Bundle.main.object(forInfoDictionaryKey: key) as? String ?? ""
+    }
+
+    private static func bundleText(_ name: String) -> String? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: nil) else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func makeUpdater(web: URL) -> OtaUpdater? {
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        // ota-version.txt (written at build time): the version and label of the web files inside the app.
+        let stamp = (Self.bundleText("ota-version.txt") ?? "").split(separator: "\n").map(String.init)
+        return OtaUpdater(root: support.appendingPathComponent("ota", isDirectory: true), bundleWeb: web,
+                          publicKeyBase64: Self.bundleText("ota-public-key.b64"),
+                          appBuild: Int64(Self.bundleValue("CFBundleVersion")) ?? 0,
+                          bundledVersion: stamp.first.flatMap { Int64($0) } ?? 0,
+                          bundledLabel: stamp.count > 1 ? stamp[1] : "built in")
+    }
+
+    private func checkForUpdates(manual: Bool) {
+        guard let updater else {
+            if manual { callPage("window.onOtaStatus && window.onOtaStatus('error', 'Updates are not available in this build.')") }
+            return
+        }
+        if !manual && Date().timeIntervalSince(lastUpdateCheck) < 30 * 60 { return }
+        lastUpdateCheck = Date()
+        if manual { callPage("window.onOtaStatus && window.onOtaStatus('checking', '')") }
+        Task { [weak self] in
+            let status = await updater.check()
+            guard let self, manual || status.state == "ready" else { return }
+            self.callPage("window.onOtaStatus && window.onOtaStatus(\(Self.js(status.state)), \(Self.js(status.detail)))")
+        }
+    }
+
+    private func applyUpdate() {
+        guard let updater, let server else { return }
+        server.setRoot(updater.prepareForLaunch())
+        installShim()
+        webView.reload()
     }
 
     private func startServerAndLoad() {
@@ -68,13 +134,16 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             showStartupError("The app's web files are missing.")
             return
         }
-        let server = LocalServer(root: web)
+        updater = makeUpdater(web: web)
+        let server = LocalServer(root: updater?.prepareForLaunch() ?? web)
         guard let port = server.start() else {
             showStartupError("Could not start the app.")
             return
         }
         self.server = server
+        installShim()
         webView.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/index.html")!))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.checkForUpdates(manual: false) }
     }
 
     private func showStartupError(_ text: String) {
@@ -141,6 +210,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                abs(lat) <= 90, abs(lon) <= 180 {
                 lookUp(id: id, lat: lat, lon: lon)
             }
+        case "checkForUpdates": checkForUpdates(manual: true)
+        case "applyUpdate": applyUpdate()
+        case "otaConfirm": updater?.confirm()
         case "printReport":
             if let html = body["html"] as? String, html.count <= Self.maxPayload { printReport(html) }
             else { showToast("This report is too large. Use smaller photos.") }

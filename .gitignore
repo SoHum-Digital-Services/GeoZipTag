@@ -25,3 +25,6 @@ local.properties
 *.p12
 *.keystore
 _site/
+
+# Written at build time (iOS bundled web version)
+ios/GeoZipTag/ota-version.txt
