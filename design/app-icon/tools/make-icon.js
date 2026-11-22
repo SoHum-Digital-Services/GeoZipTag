@@ -5,6 +5,8 @@ const fs = require('fs'); const { chromium } = require('playwright');
 const [D, OUT] = process.argv.slice(2);
 // Vector globe (Natural Earth land + India's official outline), built by globe/build.mjs.
 const VG = JSON.parse(fs.readFileSync(`${D}/globe-vector.json`, 'utf8'))
+// Satellite globe (NASA Blue Marble render from tools/render-satellite.py) by default; GLOBE=vector draws the map style.
+const SAT = process.env.GLOBE !== 'vector' ? fs.readFileSync(`${D}/globe-sat.jpg`).toString('base64') : ''
 const C = { x: 54, y: 48 }, RING = 19.4, RING_W = 5.8, BEZEL = 1.6, GLASS = RING - RING_W / 2 - BEZEL;
 const pinPath = (cx, cy, r, L) => `M${cx} ${cy + L} C${cx - r * .38} ${cy + L - r * 1.15} ${cx - r} ${cy + r * .62} ${cx - r} ${cy} A${r} ${r} 0 1 1 ${cx + r} ${cy} C${cx + r} ${cy + r * .62} ${cx + r * .38} ${cy + L - r * 1.15} ${cx} ${cy + L} Z`;
 const PIN = { x: 61.5, y: 32.5, r: 6.6, L: 15 };
@@ -55,10 +57,13 @@ const heroWith = (card) => `
 </g>
 <path d="M${C.x - RING - RING_W / 2 + 1.2} ${C.y - 2} A${RING + RING_W / 2 - 1.2} ${RING + RING_W / 2 - 1.2} 0 0 1 ${C.x + 6} ${C.y - RING - RING_W / 2 + 1.4}" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="1" stroke-linecap="round"/>
 <g clip-path="url(#glass)">
+  ${SAT ? `<image href="data:image/jpeg;base64,${SAT}" x="${C.x - GLASS}" y="${C.y - GLASS}" width="${GLASS * 2}" height="${GLASS * 2}"/>
+  <path d="${VG.india}" fill="#F2634E" fill-opacity=".46" stroke="#FF7A5F" stroke-width=".45" stroke-linejoin="round"/>
+  <path d="${VG.india}" fill="none" stroke="#FFF4DA" stroke-opacity=".7" stroke-width=".14" stroke-linejoin="round"/>` : `
   <circle cx="${C.x}" cy="${C.y}" r="${GLASS}" fill="url(#ocean)"/>
   <path d="${VG.land}${VG.india}" fill="none" stroke="#8FC7FF" stroke-opacity=".5" stroke-width=".55" stroke-linejoin="round"/>
   <path d="${VG.land}" fill="url(#landFill)"/>
-  <path d="${VG.india}" fill="#F2634E" stroke="#FFF4DA" stroke-width=".22" stroke-linejoin="round"/>
+  <path d="${VG.india}" fill="#F2634E" stroke="#FFF4DA" stroke-width=".22" stroke-linejoin="round"/>`}
   <circle cx="${C.x}" cy="${C.y}" r="${GLASS}" fill="url(#lit)"/>
   <circle cx="${C.x}" cy="${C.y}" r="${GLASS}" fill="url(#limb)"/>
   <circle cx="${C.x}" cy="${C.y}" r="${GLASS}" fill="none" stroke="#000814" stroke-opacity=".35" stroke-width="1.6"/>

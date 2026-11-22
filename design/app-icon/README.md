@@ -19,7 +19,12 @@ PNG exports live in the app's `res/mipmap-*` and `assets/` folders.
 
 ## The globe
 
-The globe is vector map data from [Natural Earth](https://www.naturalearthdata.com/)
+The globe shows real satellite imagery: NASA's **Blue Marble** (public domain,
+credit NASA Visible Earth), taken from the `earth-blue-marble.jpg` texture bundled
+with the MIT-licensed `three-globe` npm package, colour-graded brighter. India's
+official outline is drawn on top in coral.
+
+India's outline, and the map-style fallback, use vector map data from [Natural Earth](https://www.naturalearthdata.com/)
 (public domain): the 1:50m land layer for the continents, and India's outline from
 Natural Earth's **India point-of-view** 1:10m countries file, which shows Jammu &
 Kashmir and Ladakh (including Gilgit-Baltistan and Aksai Chin) as part of India.
@@ -29,5 +34,6 @@ It is an orthographic projection rotated so the pin tip lands on New Delhi.
 
 `tools/build-globe.mjs` projects the map data (download `ne_50m_land.geojson` and
 `ne_10m_admin_0_countries_ind.geojson` from the natural-earth-vector repository into
-`data/`, and install `d3-geo`). `tools/make-icon.js` draws the icon SVGs and PNGs
-with Playwright.
+`data/`, and install `d3-geo`). `tools/render-satellite.py` wraps the Blue Marble texture onto the same view (numpy).
+`tools/make-icon.js` draws the icon SVGs and PNGs with Playwright (`GLOBE=vector`
+for the map style).
