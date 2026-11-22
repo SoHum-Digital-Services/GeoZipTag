@@ -747,7 +747,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const iconX = tabX + 7, iconY = tabTop + (tabHeight - iconSize) / 2
   ctx.save()
   rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.23)
-  ctx.fillStyle = '#0f5867'
+  ctx.fillStyle = '#3d97f2'
   ctx.fill()
   if (icon) {
     ctx.clip()
