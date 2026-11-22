@@ -20,13 +20,14 @@ let manualFix, originalUrl, lastPhoto
 let cameraHardware, countdownTimer, focusTimer
 let gridEnabled = false
 let timerSeconds = 0
-const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false }
+const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9' }
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
   if (['satellite', 'time', 'qr'].includes(saved.template)) preferences.template = saved.template
   if (saved.position === 'top') preferences.position = 'top'
   preferences.keepOriginal = saved.keepOriginal === true
   preferences.preferShare = saved.preferShare === true
+  if (['16:9', '4:3', '1:1'].includes(saved.aspect)) preferences.aspect = saved.aspect
 } catch {}
 
 // Dates and times are shown in the time zone of the photo's location (GPS or manual pin),
@@ -830,12 +831,14 @@ function formatCoordinates({ lat, lon }) {
   return `Lat ${part(lat, 'N', 'S')} · Long ${part(lon, 'E', 'W')}`
 }
 
-function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote }) {
+// `base` is the size the stamp scales with (normally the photo's short side). Returns the stamp's top and
+// bottom edges, tab included, in canvas pixels.
+function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base }) {
   const ctx = canvas.getContext('2d')
-  const unit = Math.min(canvas.width, canvas.height) / 460
+  const unit = (base || Math.min(canvas.width, canvas.height)) / 460
   const w = canvas.width / unit, h = canvas.height / unit
-  const inset = 10, padding = 10, radius = 12
-  const mapSize = map ? 104 : 0
+  const inset = 10, padding = 8, radius = 11
+  const mapSize = map ? 92 : 0
   const codeSize = template === 'qr' && snapshot ? 84 : 0
   const accentBar = map ? 0 : 3
   const width = Math.min(w - 2 * inset, map ? 540 : snapshot ? 450 : 310)
@@ -874,7 +877,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     }
     const shown = wrapped.slice(0, maxLines)
     shown.forEach((text, index) => lines.push({
-      text, font, color, tracking, height: Math.round(size * 1.28) + (index === shown.length - 1 ? gapAfter : 0)
+      text, font, color, tracking, height: Math.round(size * 1.2) + (index === shown.length - 1 ? gapAfter : 0)
     }))
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
   }
@@ -908,7 +911,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   // Card and GeoZipTag tab are one outline, filled once so the translucent
   // background stays even where they join. The tab rises from the card's
   // top-right corner (or hangs from the bottom-right when the stamp is at the top).
-  const tabHeight = 28, iconSize = 19, markHeight = 12.5, tabRadius = 9, joinRadius = 5
+  const tabHeight = 24, iconSize = 16, markHeight = 11, tabRadius = 8, joinRadius = 5
   const { wordmark, icon } = stampBrand
   const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
   ctx.font = `700 12px ${stampFace}`
@@ -1070,6 +1073,9 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
   }
   ctx.restore()
+  return position === 'top'
+    ? { top: top * unit, bottom: (top + panelHeight + tabHeight) * unit }
+    : { top: (top - tabHeight) * unit, bottom: (top + panelHeight) * unit }
 }
 
 function resetLiveControls() {
@@ -1629,13 +1635,17 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       source = await takeNativePhoto()   // full-quality photo from the phone's camera
       imageFile = true
     }
+    const sourceWidth = imageFile ? source.naturalWidth : source.videoWidth
+    const sourceHeight = imageFile ? source.naturalHeight : source.videoHeight
+    if (!sourceWidth || !sourceHeight) throw new Error('No image frame')
+    // Camera photos are cut to the chosen photo shape (the centre, as the live view shows it).
+    const crop = live ? cropToShape(sourceWidth, sourceHeight) : { x: 0, y: 0, width: sourceWidth, height: sourceHeight }
     canvas = document.createElement('canvas')
-    canvas.width = imageFile ? source.naturalWidth : source.videoWidth
-    canvas.height = imageFile ? source.naturalHeight : source.videoHeight
-    if (!canvas.width || !canvas.height) throw new Error('No image frame')
+    canvas.width = crop.width
+    canvas.height = crop.height
     const context = canvas.getContext('2d', { alpha: false })
     if (!context) throw new Error('out of memory')
-    context.drawImage(source, 0, 0)
+    context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await placeFor(snapshot)
     await stampFonts
@@ -1716,6 +1726,18 @@ if (android) {
     }
     return false
   }
+}
+
+// Photo shape: the long side over the short side; the photo keeps the camera's orientation.
+const shapeRatios = { '16:9': 16 / 9, '4:3': 4 / 3, '1:1': 1 }
+const shapeRatio = () => shapeRatios[preferences.aspect] || 16 / 9
+function cropToShape(width, height) {
+  const ratio = shapeRatio()
+  const target = height >= width ? 1 / ratio : ratio   // width / height
+  let cropWidth = width, cropHeight = height
+  if (width / height > target) cropWidth = Math.round(height * target)
+  else cropHeight = Math.round(width / target)
+  return { x: Math.round((width - cropWidth) / 2), y: Math.round((height - cropHeight) / 2), width: cropWidth, height: cropHeight }
 }
 
 function exportJpeg(canvas) {
@@ -1886,13 +1908,16 @@ for (const element of document.querySelectorAll('input[name="template"]')) {
 $('stampPosition').value = preferences.position
 $('keepOriginal').checked = preferences.keepOriginal
 $('preferShare').checked = preferences.preferShare
+$('photoShape').value = preferences.aspect
 
 $('settings').addEventListener('change', () => {
   setTimeout(renderLiveStamp)
   preferences.position = $('stampPosition').value
   preferences.keepOriginal = $('keepOriginal').checked
   preferences.preferShare = $('preferShare').checked
+  preferences.aspect = $('photoShape').value
   savePreferences()
+  layoutFrame()
   updateSharePreference()
 })
 
@@ -2349,16 +2374,49 @@ function renderLiveStamp() {
   liveStamp.hidden = !show
   if (!show) return
   const scale = Math.min(window.devicePixelRatio || 1, 3)
-  const width = Math.round(window.innerWidth * scale), height = Math.round(window.innerHeight * scale)
+  // The stamp preview sits in the camera area but above the bottom controls, at the photo's scale.
+  const frame = $('video').parentElement.getBoundingClientRect()
+  const controlsTop = window.innerHeight - ($('controls').offsetHeight || 0)
+  const visibleBottom = Math.max(frame.top + 120, Math.min(frame.bottom, controlsTop))
+  liveStamp.style.top = `${frame.top}px`
+  liveStamp.style.height = `${visibleBottom - frame.top}px`
+  const width = Math.round(frame.width * scale), height = Math.round((visibleBottom - frame.top) * scale)
   if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
   liveStamp.getContext('2d').clearRect(0, 0, width, height)
   let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   const place = snapshot && placeReady(snapshot) ? placeCache.result : undefined
-  drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map })
+  const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width })
+  // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
+  const stampTop = frame.top + edges.top / scale
+  document.documentElement.style.setProperty('--stamp-clearance',
+    preferences.position === 'top' ? '0px' : `${Math.max(0, frame.bottom - stampTop)}px`)
 }
 setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
+
+// Phones: the camera area takes the photo's shape, full width and centred, so the live view shows exactly
+// what the photo will contain (the camera image fills it, cropped at the centre like the photo).
+function layoutFrame() {
+  const root = document.documentElement.style
+  if (!phoneLayout.matches) {
+    for (const name of ['--frame-top', '--frame-height', '--frame-gap']) root.removeProperty(name)
+    return
+  }
+  const screenWidth = window.innerWidth, screenHeight = window.innerHeight
+  const height = Math.min(screenHeight, Math.round(screenWidth * shapeRatio()))
+  const top = Math.round((screenHeight - height) / 2)
+  root.setProperty('--frame-top', `${top}px`)
+  root.setProperty('--frame-height', `${height}px`)
+  root.setProperty('--frame-gap', `${screenHeight - top - height}px`)
+  try { nativeHost?.cameraLayout?.(0, top, screenWidth, height) } catch {}
+  coverVideo()
+  updateCameraGrid()
+  renderLiveStamp()
+}
+window.addEventListener('resize', layoutFrame)
+phoneLayout.addEventListener?.('change', layoutFrame)
+layoutFrame()
 stampFonts.then(renderLiveStamp)
 
 // ---- App updates (Android and iOS apps): the app downloads signed web updates in the background ----
@@ -2385,6 +2443,8 @@ if (typeof android !== 'undefined' && android && typeof android.updateInfo === '
     $('checkUpdates').addEventListener('click', () => android.checkForUpdates())
     $('updateReady').addEventListener('click', () => android.applyUpdate())
   }
+} else {
+  $('appVersion').textContent = 'GeoZipTag · web version'
 }
 // The page started properly: an update being served is good (otherwise it is rolled back).
 try { android?.otaConfirm?.() } catch {}

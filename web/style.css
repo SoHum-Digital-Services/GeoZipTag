@@ -862,3 +862,13 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
   body > main, body > dialog, .icon-sprite { display: none !important; }
   /* The report layout itself lives in camera.js (reportCss), shared with Android. */
 }
+
+/* Photo frame (phones): the camera area has the photo's shape (9:16, 3:4 or 1:1), full width and centred,
+   so the live view shows exactly what the photo will contain. The page sets --frame-top/height/gap. */
+@media (max-width: 759px) {
+  .viewfinder:not(.photo-review) { top: var(--frame-top, 0px); bottom: auto; height: var(--frame-height, 100%); }
+  .live-camera-tools { top: max(.5rem, calc(env(safe-area-inset-top) + 64px - var(--frame-top, 0px))); }
+  .camera-zoom { bottom: max(calc(var(--stamp-clearance, 0px) + .5rem), calc(var(--bottom-bar, 200px) + .5rem - var(--frame-gap, 0px))); }
+  #status { bottom: max(.5rem, calc(var(--bottom-bar, 200px) + 4rem - var(--frame-gap, 0px))); }
+  .viewfinder:has(.start:not([hidden])) #status { bottom: max(.5rem, calc(var(--bottom-bar, 200px) + 1rem - var(--frame-gap, 0px))); }
+}

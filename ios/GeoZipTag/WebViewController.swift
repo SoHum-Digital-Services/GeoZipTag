@@ -25,6 +25,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         cameraStop: () => post({ type: 'cameraStop' }),
         cameraSet: (json) => post({ type: 'cameraSet', settings: JSON.parse(json) }),
         cameraFocus: (x, y) => post({ type: 'cameraFocus', x: Number(x), y: Number(y) }),
+        cameraLayout: (x, y, w, h) => post({ type: 'cameraLayout', x: Number(x), y: Number(y), w: Number(w), h: Number(h) }),
         cameraCapture: (id) => post({ type: 'cameraCapture', id: String(id) }),
         exportPhoto: (action, filename, data) => post({ type: 'exportPhoto', action, filename, data }),
         deletePhoto: (filename) => post({ type: 'deletePhoto', filename }),
@@ -257,7 +258,14 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             camera.set(zoom: (settings["zoom"] as? NSNumber)?.doubleValue, torch: settings["torch"] as? Bool)
         case "cameraFocus":
             if let x = (body["x"] as? NSNumber)?.doubleValue, let y = (body["y"] as? NSNumber)?.doubleValue {
-                camera.focus(at: webView.convert(CGPoint(x: x, y: y), to: camera.previewView))
+                camera.focus(at: webView.convert(CGPoint(x: x, y: y), to: camera.previewView))   // preview-local point
+            }
+        case "cameraLayout":
+            // The page's camera area (CSS pixels = points): the preview fills exactly the photo's frame.
+            if let x = (body["x"] as? NSNumber)?.doubleValue, let y = (body["y"] as? NSNumber)?.doubleValue,
+               let w = (body["w"] as? NSNumber)?.doubleValue, let h = (body["h"] as? NSNumber)?.doubleValue, w > 0, h > 0 {
+                camera.previewView.autoresizingMask = []
+                camera.previewView.frame = webView.convert(CGRect(x: x, y: y, width: w, height: h), to: view)
             }
         case "cameraCapture":
             guard let id = body["id"] as? String, id.range(of: "^[A-Za-z0-9_-]{1,40}$", options: .regularExpression) != nil else { return }

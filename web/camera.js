@@ -4,6 +4,9 @@ const $ = (id) => document.getElementById(id)
 const video = $('video')
 const file = $('file')
 const status = $('status')
+const android = window.AndroidHost
+const hasPhoneCamera = typeof android?.preparePhoneCamera === 'function'
+let phoneRequest, phoneMetadata, lastPhoneMode
 let placeLabel = ''
 let stampNote = ''
 let stream, photoUrl, watchId, fix
@@ -17,13 +20,14 @@ let manualFix, originalUrl, lastPhoto
 let cameraHardware, countdownTimer, focusTimer
 let gridEnabled = false
 let timerSeconds = 0
-const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false }
+const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9' }
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
   if (['satellite', 'time', 'qr'].includes(saved.template)) preferences.template = saved.template
   if (saved.position === 'top') preferences.position = 'top'
   preferences.keepOriginal = saved.keepOriginal === true
   preferences.preferShare = saved.preferShare === true
+  if (['16:9', '4:3', '1:1'].includes(saved.aspect)) preferences.aspect = saved.aspect
 } catch {}
 
 // Dates and times are shown in the time zone of the photo's location (GPS or manual pin),
@@ -121,12 +125,91 @@ function placeFor(snapshot) {
   return locate(snapshot)
 }
 
+// ---- Native camera (iPhone app): the phone's own photo camera, with its preview drawn by the app behind
+// the page. It is driven through stand-ins for a camera stream and track, so the rest of the page
+// (zoom buttons, torch, focus, pinch, flip) works the same as with the browser camera. ----
+const nativeHost = typeof android?.cameraStart === 'function' ? android : undefined
+let nativeOpen, nativeStopTimer, nativeEnded, nativePhotoCount = 0
+const nativePhotos = new Map()
+window.onNativeCamera = (state) => {
+  if (state?.ended) { nativeEnded?.(); return }
+  const done = nativeOpen
+  nativeOpen = undefined
+  done?.(state)
+}
+window.onNativePhoto = (id, ok) => nativePhotos.get(id)?.(ok)
+
+function openNativeCamera(nextFacing) {
+  return new Promise((resolve, reject) => {
+    clearTimeout(nativeStopTimer)   // flipping: stop and start become one switch
+    nativeOpen?.(undefined)
+    const timer = setTimeout(() => { nativeOpen = undefined; reject(new Error('timeout')) }, 60000)
+    nativeOpen = (state) => {
+      clearTimeout(timer)
+      if (state?.ok) resolve(nativeStream(state))
+      else reject(new Error(state?.error || 'unavailable'))
+    }
+    nativeHost.cameraStart(nextFacing)
+  })
+}
+
+function nativeStream(state) {
+  const settings = { facingMode: state.facing, zoom: state.zoom ?? 1, torch: false }
+  const track = {
+    native: true,
+    width: state.width,
+    height: state.height,
+    getCapabilities: () => ({
+      zoom: state.zoomMax > state.zoomMin ? { min: state.zoomMin, max: state.zoomMax, step: 0.01 } : undefined,
+      torch: !!state.hasTorch,
+      focusMode: state.canFocus ? ['single-shot'] : []
+    }),
+    getSettings: () => ({ ...settings }),
+    getConstraints: () => ({}),
+    async applyConstraints(constraints) {
+      const change = constraints?.advanced?.[0] || {}
+      if (Number.isFinite(change.zoom)) settings.zoom = change.zoom
+      if (typeof change.torch === 'boolean') settings.torch = change.torch
+      nativeHost.cameraSet(JSON.stringify({ zoom: settings.zoom, torch: settings.torch }))
+    },
+    focusAt: (x, y) => nativeHost.cameraFocus(x, y),
+    addEventListener: (type, listener) => { if (type === 'ended') nativeEnded = listener },
+    stop: () => {
+      clearTimeout(nativeStopTimer)
+      nativeStopTimer = setTimeout(() => nativeHost.cameraStop(), 0)
+    }
+  }
+  return { native: true, cameras: state.cameras || 1, getTracks: () => [track], getVideoTracks: () => [track] }
+}
+
+function takeNativePhoto() {
+  return new Promise((resolve, reject) => {
+    const id = `photo${Date.now()}x${++nativePhotoCount}`
+    const timer = setTimeout(() => { nativePhotos.delete(id); reject(new Error('timeout')) }, 20000)
+    nativePhotos.set(id, (ok) => {
+      clearTimeout(timer)
+      nativePhotos.delete(id)
+      if (!ok) { reject(new Error('capture failed')); return }
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error('photo unavailable'))
+      image.src = `native-photo/${id}.jpg`
+    })
+    nativeHost.cameraCapture(id)
+  })
+}
+
+// Size of the live picture, from the browser camera or the native one.
+const liveWidth = () => stream?.native ? stream.getVideoTracks()[0].width : video.videoWidth
+const liveHeight = () => stream?.native ? stream.getVideoTracks()[0].height : video.videoHeight
+
 function stopCamera() {
   cameraRequest++
   stream?.getTracks().forEach((track) => track.stop())
   stream = undefined
   video.srcObject = null
   video.hidden = true
+  document.documentElement.classList.remove('native-camera')
   $('shutter').hidden = true
   $('switchCamera').hidden = true
   resetLiveControls()
@@ -135,7 +218,7 @@ function stopCamera() {
 let switching = false
 function freezeFrame() {
   const frame = $('switchFrame')
-  if (video.hidden || !video.videoWidth || !video.videoHeight) return false
+  if (stream?.native || video.hidden || !video.videoWidth || !video.videoHeight) return false
   frame.width = video.videoWidth
   frame.height = video.videoHeight
   frame.getContext('2d').drawImage(video, 0, 0)
@@ -182,11 +265,20 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
   }
   message('')
   try {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
-    const next = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: nextFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      audio: false
-    })
+    let next
+    if (nativeHost) {
+      // The phone's own camera; the browser camera is only a fallback (never after a refused permission).
+      next = await openNativeCamera(nextFacing).catch(error => {
+        if (error.message === 'denied' || !navigator.mediaDevices?.getUserMedia) throw error
+      })
+    }
+    if (!next) {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
+      next = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      })
+    }
     if (cameraRequest !== request) {
       next.getTracks().forEach((track) => track.stop())
       return
@@ -194,11 +286,14 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
     stream = next
     const track = stream.getVideoTracks()[0]
     facing = track.getSettings().facingMode || nextFacing
-    video.srcObject = stream
+    document.documentElement.classList.toggle('native-camera', !!next.native)
     video.classList.toggle('mirror', facing === 'user')
-    await video.play()
-    if (cameraRequest !== request) return
-    if (!video.videoWidth) throw new Error('No camera frame')
+    if (!next.native) {
+      video.srcObject = stream
+      await video.play()
+      if (cameraRequest !== request) return
+      if (!video.videoWidth) throw new Error('No camera frame')
+    }
     $('start').hidden = true
     video.hidden = false
     $('shutter').hidden = false
@@ -209,7 +304,8 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
       $('start').hidden = false
       message('Camera stopped. Start it again or use your phone camera.')
     })
-    const cameras = await navigator.mediaDevices.enumerateDevices().catch(() => [])
+    const cameras = next.native ? Array.from({ length: next.cameras }, () => ({ kind: 'videoinput' }))
+      : await navigator.mediaDevices.enumerateDevices().catch(() => [])
     if (cameraRequest === request) {
       $('switchCamera').hidden = cameras.filter((device) => device.kind === 'videoinput').length < 2
     }
@@ -234,7 +330,7 @@ function resetStart() {
 async function startLiveCamera(requestLocation = false) {
   await startCamera()
   if (!stream || manualFix || preferences.template === 'time' || watchId !== undefined) return
-  if (requestLocation) {
+  if (requestLocation || (!timestampOnly && android?.hasLocationAccess?.())) {
     enableLocation()
     return
   }
@@ -264,7 +360,7 @@ $('startWithoutLocation').addEventListener('click', () => {
 })
 $('switchCamera').addEventListener('click', () => {
   if (busy || switching) return
-  startCamera(facing === 'environment' ? 'user' : 'environment', { soft: freezeFrame() })
+  startCamera(facing === 'environment' ? 'user' : 'environment', { soft: !!stream?.native || freezeFrame() })
 })
 
 function openPicker(snapshot) {
@@ -274,7 +370,35 @@ function openPicker(snapshot) {
   resetStart()
   file.click()
 }
-$('fallback').addEventListener('click', () => requestCapture(openPicker))
+if (hasPhoneCamera) {
+  window.setPhoneCameraMetadata = (metadata) => {
+    phoneMetadata = metadata
+    if (!metadata) {
+      const resume = phoneRequest?.resume
+      phoneRequest = undefined
+      message('')
+      if (resume) startLiveCamera()
+    }
+  }
+}
+
+function openPhoneCamera(withLocation) {
+  if (busy || phoneRequest) return
+  const snapshot = withLocation ? manualFix || currentFix() : undefined
+  phoneRequest = { withLocation, snapshot, resume: !video.hidden }
+  phoneMetadata = undefined
+  stopCamera()
+  $('start').hidden = false
+  resetStart()
+  message('Opening phone camera…')
+  android.preparePhoneCamera(withLocation && !snapshot?.manual)
+  file.click()
+}
+
+$('fallback').addEventListener('click', () => {
+  if (hasPhoneCamera) openPhoneCamera(preferences.template !== 'time' && !timestampOnly)
+  else requestCapture(openPicker)
+})
 
 function currentFix() {
   return freshFix(fix)
@@ -543,6 +667,54 @@ function addressLines(address, snapshot) {
 
 const addressText = (address, snapshot) => addressLines(address, snapshot).map(([text]) => text).join(', ')
 
+// The phone's built-in geocoder (Android only, free, no key). Answers arrive through
+// window.onPhoneAddress; a slow or missing answer never holds up the stamp.
+const pendingPhoneAddresses = new Map()
+let phoneAddressRequest = 0
+window.onPhoneAddress = (id, value) => {
+  const done = pendingPhoneAddresses.get(id)
+  if (done) done(value && typeof value === 'object' ? value : undefined)
+}
+
+function phoneAddress(snapshot) {
+  if (typeof android?.reverseGeocode !== 'function') return Promise.resolve(undefined)
+  return new Promise(resolve => {
+    const id = `address${++phoneAddressRequest}`
+    const finish = (value) => {
+      clearTimeout(timer)
+      pendingPhoneAddresses.delete(id)
+      resolve(value)
+    }
+    const timer = setTimeout(() => finish(undefined), 5000)
+    pendingPhoneAddresses.set(id, finish)
+    try { android.reverseGeocode(id, snapshot.lat, snapshot.lon) } catch { finish(undefined) }
+  })
+}
+
+// Photon stays the base; the phone fills what Photon is missing, including the district.
+function mergeAddresses(photon, phone) {
+  const named = (value) => typeof value === 'string' && value.trim() && !/^unnamed\b/i.test(value) ? value.trim() : undefined
+  const fromPhone = phone && {
+    street: named(phone.thoroughfare), housenumber: named(phone.subThoroughfare),
+    locality: named(phone.subLocality), city: named(phone.locality), region: named(phone.subAdminArea),
+    state: named(phone.adminArea), postcode: named(phone.postalCode),
+    country: named(phone.countryName), countrycode: named(phone.countryCode)
+  }
+  if (!fromPhone) return photon
+  if (!photon) return Object.fromEntries(Object.entries(fromPhone).filter(([, value]) => value))
+  const merged = { ...photon }
+  if (!merged.street && !merged.name && fromPhone.street) {
+    merged.street = fromPhone.street
+    merged.housenumber = fromPhone.housenumber
+  }
+  for (const key of ['locality', 'city', 'state', 'postcode', 'country', 'countrycode']) {
+    if (!merged[key] && fromPhone[key]) merged[key] = fromPhone[key]
+  }
+  const known = [merged.locality, merged.district, merged.city, merged.county].filter(Boolean).map(value => value.toLowerCase())
+  if (fromPhone.region && !known.includes(fromPhone.region.toLowerCase())) merged.region = fromPhone.region
+  return merged
+}
+
 async function locate(snapshot) {
   if (!snapshot) return {}
   const abort = new AbortController()
@@ -553,12 +725,13 @@ async function locate(snapshot) {
   nominatim.search = new URLSearchParams({ format: 'jsonv2', lat: snapshot.lat, lon: snapshot.lon, zoom: 18, addressdetails: 1, 'accept-language': 'en' })
   const request = (url) => lookup(url, abort.signal)
   try {
-    const [address, map, osm] = await Promise.allSettled([
+    const [address, map, phone, osm] = await Promise.allSettled([
       request(reverse).then((response) => response.json()).then((data) => photonAddress(data.features?.[0], snapshot)),
       loadSatelliteMap(snapshot, request, abort.signal),
+      phoneAddress(snapshot),
       request(nominatim).then((response) => response.json()).then(nominatimAddress)
     ])
-    return { address: fillAddress(osm.value, address.value), map: map.value?.image, complete: !!(osm.value && map.value) }
+    return { address: mergeAddresses(fillAddress(osm.value, address.value), phone.value), map: map.value?.image, complete: !!(osm.value && map.value) }
   } finally {
     clearTimeout(timer)
   }
@@ -658,12 +831,14 @@ function formatCoordinates({ lat, lon }) {
   return `Lat ${part(lat, 'N', 'S')} · Long ${part(lon, 'E', 'W')}`
 }
 
-function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote }) {
+// `base` is the size the stamp scales with (normally the photo's short side). Returns the stamp's top and
+// bottom edges, tab included, in canvas pixels.
+function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base }) {
   const ctx = canvas.getContext('2d')
-  const unit = Math.min(canvas.width, canvas.height) / 460
+  const unit = (base || Math.min(canvas.width, canvas.height)) / 460
   const w = canvas.width / unit, h = canvas.height / unit
-  const inset = 10, padding = 10, radius = 12
-  const mapSize = map ? 104 : 0
+  const inset = 10, padding = 8, radius = 11
+  const mapSize = map ? 92 : 0
   const codeSize = template === 'qr' && snapshot ? 84 : 0
   const accentBar = map ? 0 : 3
   const width = Math.min(w - 2 * inset, map ? 540 : snapshot ? 450 : 310)
@@ -702,7 +877,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     }
     const shown = wrapped.slice(0, maxLines)
     shown.forEach((text, index) => lines.push({
-      text, font, color, tracking, height: Math.round(size * 1.28) + (index === shown.length - 1 ? gapAfter : 0)
+      text, font, color, tracking, height: Math.round(size * 1.2) + (index === shown.length - 1 ? gapAfter : 0)
     }))
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
   }
@@ -736,7 +911,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   // Card and GeoZipTag tab are one outline, filled once so the translucent
   // background stays even where they join. The tab rises from the card's
   // top-right corner (or hangs from the bottom-right when the stamp is at the top).
-  const tabHeight = 28, iconSize = 19, markHeight = 12.5, tabRadius = 9, joinRadius = 5
+  const tabHeight = 24, iconSize = 16, markHeight = 11, tabRadius = 8, joinRadius = 5
   const { wordmark, icon } = stampBrand
   const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
   ctx.font = `700 12px ${stampFace}`
@@ -898,6 +1073,9 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
   }
   ctx.restore()
+  return position === 'top'
+    ? { top: top * unit, bottom: (top + panelHeight + tabHeight) * unit }
+    : { top: (top - tabHeight) * unit, bottom: (top + panelHeight) * unit }
 }
 
 function resetLiveControls() {
@@ -916,7 +1094,7 @@ function resetLiveControls() {
 function coverVideo() {
   const area = video.parentElement.getBoundingClientRect()
   const cover = getComputedStyle(video).objectFit === 'cover'
-  if (!cover || video.hidden || !video.videoWidth || !video.videoHeight || !area.width || !area.height) {
+  if (!cover || stream?.native || video.hidden || !video.videoWidth || !video.videoHeight || !area.width || !area.height) {
     for (const property of ['width', 'height', 'left', 'top', 'right', 'bottom']) video.style.removeProperty(property)
     return
   }
@@ -933,12 +1111,13 @@ if ('ResizeObserver' in window) new ResizeObserver(coverVideo).observe(video.par
 
 function videoFrame() {
   const box = video.getBoundingClientRect()
-  if (!video.videoWidth || !video.videoHeight || !box.width || !box.height) return undefined
+  const liveW = liveWidth(), liveH = liveHeight()
+  if (!liveW || !liveH || !box.width || !box.height) return undefined
   // The full-screen phone layout fills the screen (cover) and crops the edges; otherwise it fits (contain).
-  const fit = getComputedStyle(video).objectFit === 'cover' ? Math.max : Math.min
-  const scale = fit(box.width / video.videoWidth, box.height / video.videoHeight)
-  const width = video.videoWidth * scale
-  const height = video.videoHeight * scale
+  const fit = stream?.native || getComputedStyle(video).objectFit === 'cover' ? Math.max : Math.min
+  const scale = fit(box.width / liveW, box.height / liveH)
+  const width = liveW * scale
+  const height = liveH * scale
   return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, width, height }
 }
 
@@ -1017,7 +1196,7 @@ function showLiveControls(track) {
   const capabilities = track.getCapabilities?.() || {}
   const settings = track.getSettings()
   const focus = capabilities.focusMode?.includes('single-shot') &&
-    !!navigator.mediaDevices.getSupportedConstraints?.().pointsOfInterest
+    (!!track.native || !!navigator.mediaDevices.getSupportedConstraints?.().pointsOfInterest)
   cameraHardware = {
     track, focus, desired: {}, queue: Promise.resolve(), base: track.getConstraints?.() || {}
   }
@@ -1091,9 +1270,8 @@ video.addEventListener('click', async event => {
   const x = (event.clientX - frame.left) / frame.width
   const y = (event.clientY - frame.top) / frame.height
   if (x < 0 || x > 1 || y < 0 || y > 1) return
-  const applied = await applyHardwareSetting(camera, {
-    focusMode: 'single-shot', pointsOfInterest: [{ x: facing === 'user' ? 1 - x : x, y }]
-  })
+  const applied = camera.track.native ? (camera.track.focusAt(event.clientX, event.clientY), true)
+    : await applyHardwareSetting(camera, { focusMode: 'single-shot', pointsOfInterest: [{ x: facing === 'user' ? 1 - x : x, y }] })
   if (!applied) return
   const marker = $('focusPoint')
   const bounds = marker.parentElement.getBoundingClientRect()
@@ -1439,24 +1617,35 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) cancelCountdown()
 })
 
-async function capture(source, picked, snapshot) {
+async function capture(source, picked, snapshot, { date = new Date(), imageFile = picked, phoneMode } = {}) {
   if (busy) return
   busy = true
-  const date = new Date()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   $('shutter').disabled = true
   $('fallback').disabled = true
   $('startCamera').disabled = true
   $('switchCamera').disabled = true
-  if (source === video) fireFlash()
-  if (source !== video) message('Stamping photo…')
+  const live = source === video
+  if (live) fireFlash()
+  if (!live) message('Stamping photo…')
   else if (snapshot && !placeReady(snapshot)) message('Adding address and satellite map…')
+  let canvas
   try {
-    const canvas = document.createElement('canvas')
-    canvas.width = picked ? source.naturalWidth : source.videoWidth
-    canvas.height = picked ? source.naturalHeight : source.videoHeight
-    if (!canvas.width || !canvas.height) throw new Error('No image frame')
-    canvas.getContext('2d', { alpha: false }).drawImage(source, 0, 0)
+    if (live && stream?.native) {
+      source = await takeNativePhoto()   // full-quality photo from the phone's camera
+      imageFile = true
+    }
+    const sourceWidth = imageFile ? source.naturalWidth : source.videoWidth
+    const sourceHeight = imageFile ? source.naturalHeight : source.videoHeight
+    if (!sourceWidth || !sourceHeight) throw new Error('No image frame')
+    // Camera photos are cut to the chosen photo shape (the centre, as the live view shows it).
+    const crop = live ? cropToShape(sourceWidth, sourceHeight) : { x: 0, y: 0, width: sourceWidth, height: sourceHeight }
+    canvas = document.createElement('canvas')
+    canvas.width = crop.width
+    canvas.height = crop.height
+    const context = canvas.getContext('2d', { alpha: false })
+    if (!context) throw new Error('out of memory')
+    context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await placeFor(snapshot)
     await stampFonts
@@ -1466,6 +1655,7 @@ async function capture(source, picked, snapshot) {
     const name = `GeoZipTag-${date.toISOString().replace(/[:.]/g, '-')}.jpg`
     const shareFile = new File([jpeg], name, { type: 'image/jpeg' })
     fromPicker = picked
+    lastPhoneMode = phoneMode
     const entry = {
       jpeg, date, snapshot, address, note: stampNote, name, shareFile, saved: false,
       url: URL.createObjectURL(jpeg), originalUrl: original ? URL.createObjectURL(original) : undefined
@@ -1477,20 +1667,77 @@ async function capture(source, picked, snapshot) {
       entry.saved = true
       entry.saving = saveAutomatically(name, jpeg, original)
     }
-    if (source !== video && !stream) startLiveCamera()
+    if (!live && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
     if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
     else message(map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
       'Timestamp and coordinates added · map and address unavailable', 6000)
-  } catch {
-    message('Could not create the photo. Take another photo or try the phone camera.')
+  } catch (error) {
+    message(`Could not create the photo (${error?.message || 'unknown error'}). Take another photo or try the phone camera.`)
   } finally {
+    // Full-resolution canvases hold about 50 MB each; free this one now (the browser caps the total).
+    if (canvas) canvas.width = canvas.height = 0
     busy = false
     $('shutter').disabled = false
     $('fallback').disabled = false
     $('switchCamera').disabled = false
     resetStart()
   }
+}
+
+function readPhotoData(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function exportToAndroid(action, filename, jpeg) {
+  const data = await readPhotoData(jpeg)
+  android.exportPhoto(action, filename, data.slice(data.indexOf(',') + 1))
+}
+
+if (android) {
+  for (const id of ['save', 'saveOriginal']) {
+    $(id).addEventListener('click', async (event) => {
+      event.preventDefault()
+      const { href, download } = event.currentTarget
+      try {
+        const response = await fetch(href)
+        await exportToAndroid('save', download, await response.blob())
+      } catch {
+        message('Could not prepare the photo for saving.')
+      }
+    })
+  }
+  // Called by the native back handler: close a sheet, or leave the photo view; false means "ask to exit".
+  window.closeGeoStampDialog = () => {
+    const dialog = document.querySelector('dialog[open]')
+    if (dialog) {
+      if (dialog.close) dialog.close()
+      else dialog.removeAttribute('open')
+      return true
+    }
+    if (!$('review').hidden) {
+      closePhotoView()
+      return true
+    }
+    return false
+  }
+}
+
+// Photo shape: the long side over the short side; the photo keeps the camera's orientation.
+const shapeRatios = { '16:9': 16 / 9, '4:3': 4 / 3, '1:1': 1 }
+const shapeRatio = () => shapeRatios[preferences.aspect] || 16 / 9
+function cropToShape(width, height) {
+  const ratio = shapeRatio()
+  const target = height >= width ? 1 / ratio : ratio   // width / height
+  let cropWidth = width, cropHeight = height
+  if (width / height > target) cropWidth = Math.round(height * target)
+  else cropHeight = Math.round(width / target)
+  return { x: Math.round((width - cropWidth) / 2), y: Math.round((height - cropHeight) / 2), width: cropWidth, height: cropHeight }
 }
 
 function exportJpeg(canvas) {
@@ -1504,12 +1751,31 @@ $('shutter').addEventListener('click', () => {
 file.addEventListener('change', async () => {
   const image = file.files?.[0]
   file.value = ''
-  const snapshot = freshFix(pickerFix)
-  pickerFix = undefined
+  const request = phoneRequest
+  const metadata = phoneMetadata
+  const savedPickerFix = pickerFix
+  phoneRequest = phoneMetadata = pickerFix = undefined
   if (!image) return
+
+  const cameraPhoto = metadata?.camera && Number.isFinite(metadata.takenAt)
+  const date = cameraPhoto ? new Date(metadata.takenAt) : new Date()
+  let snapshot = request ? undefined : freshFix(savedPickerFix)
+  if (request?.withLocation) {
+    if (request.snapshot?.manual) snapshot = request.snapshot
+    else if (cameraPhoto) {
+      if (Number.isFinite(metadata.lat) && Number.isFinite(metadata.lon)) {
+        snapshot = { lat: metadata.lat, lon: metadata.lon }
+      } else if (request.snapshot && Math.abs(date.getTime() - request.snapshot.timestamp) <= 60000) {
+        snapshot = request.snapshot
+      }
+    }
+  }
   const url = URL.createObjectURL(image)
-  try { await capture(await loadImage(url), true, snapshot) }
-  catch { message('This image could not be opened. Try a JPEG or PNG photo.') }
+  try {
+    await capture(await loadImage(url), !cameraPhoto, snapshot, {
+      date, imageFile: true, phoneMode: request?.withLocation
+    })
+  } catch { message('This image could not be opened. Try a JPEG or PNG photo.') }
   finally { URL.revokeObjectURL(url) }
 })
 $('retake').addEventListener('click', closePhotoView)
@@ -1546,7 +1812,8 @@ updateTemplateLabel()
 
 $('settingsPhoneCamera').addEventListener('click', () => {
   $('settings').close()
-  $('fallback').click()
+  if (hasPhoneCamera) openPhoneCamera(preferences.template !== 'time' && !timestampOnly)
+  else $('fallback').click()
 })
 
 function savePreferences() {
@@ -1641,13 +1908,16 @@ for (const element of document.querySelectorAll('input[name="template"]')) {
 $('stampPosition').value = preferences.position
 $('keepOriginal').checked = preferences.keepOriginal
 $('preferShare').checked = preferences.preferShare
+$('photoShape').value = preferences.aspect
 
 $('settings').addEventListener('change', () => {
   setTimeout(renderLiveStamp)
   preferences.position = $('stampPosition').value
   preferences.keepOriginal = $('keepOriginal').checked
   preferences.preferShare = $('preferShare').checked
+  preferences.aspect = $('photoShape').value
   savePreferences()
+  layoutFrame()
   updateSharePreference()
 })
 
@@ -2085,7 +2355,7 @@ for (const button of document.querySelectorAll('[data-open]')) {
 }
 
 function openViewfinderOnEntry() {
-  if (window.isSecureContext && window.self === window.top && navigator.mediaDevices?.getUserMedia && $('review').hidden) {
+  if (window.isSecureContext && window.self === window.top && (nativeHost || navigator.mediaDevices?.getUserMedia) && $('review').hidden) {
     startLiveCamera(!timestampOnly)
   }
 }
@@ -2104,16 +2374,77 @@ function renderLiveStamp() {
   liveStamp.hidden = !show
   if (!show) return
   const scale = Math.min(window.devicePixelRatio || 1, 3)
-  const width = Math.round(window.innerWidth * scale), height = Math.round(window.innerHeight * scale)
+  // The stamp preview sits in the camera area but above the bottom controls, at the photo's scale.
+  const frame = $('video').parentElement.getBoundingClientRect()
+  const controlsTop = window.innerHeight - ($('controls').offsetHeight || 0)
+  const visibleBottom = Math.max(frame.top + 120, Math.min(frame.bottom, controlsTop))
+  liveStamp.style.top = `${frame.top}px`
+  liveStamp.style.height = `${visibleBottom - frame.top}px`
+  const width = Math.round(frame.width * scale), height = Math.round((visibleBottom - frame.top) * scale)
   if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
   liveStamp.getContext('2d').clearRect(0, 0, width, height)
   let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   const place = snapshot && placeReady(snapshot) ? placeCache.result : undefined
-  drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map })
+  const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width })
+  // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
+  const stampTop = frame.top + edges.top / scale
+  document.documentElement.style.setProperty('--stamp-clearance',
+    preferences.position === 'top' ? '0px' : `${Math.max(0, frame.bottom - stampTop)}px`)
 }
 setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
+
+// Phones: the camera area takes the photo's shape, full width and centred, so the live view shows exactly
+// what the photo will contain (the camera image fills it, cropped at the centre like the photo).
+function layoutFrame() {
+  const root = document.documentElement.style
+  if (!phoneLayout.matches) {
+    for (const name of ['--frame-top', '--frame-height', '--frame-gap']) root.removeProperty(name)
+    return
+  }
+  const screenWidth = window.innerWidth, screenHeight = window.innerHeight
+  const height = Math.min(screenHeight, Math.round(screenWidth * shapeRatio()))
+  const top = Math.round((screenHeight - height) / 2)
+  root.setProperty('--frame-top', `${top}px`)
+  root.setProperty('--frame-height', `${height}px`)
+  root.setProperty('--frame-gap', `${screenHeight - top - height}px`)
+  try { nativeHost?.cameraLayout?.(0, top, screenWidth, height) } catch {}
+  coverVideo()
+  updateCameraGrid()
+  renderLiveStamp()
+}
+window.addEventListener('resize', layoutFrame)
+phoneLayout.addEventListener?.('change', layoutFrame)
+layoutFrame()
 stampFonts.then(renderLiveStamp)
 
-$('appVersion').textContent = 'GeoZipTag · web version'
+// ---- App updates (Android and iOS apps): the app downloads signed web updates in the background ----
+if (typeof android !== 'undefined' && android && typeof android.updateInfo === 'function') {
+  let info = {}
+  try { info = JSON.parse(android.updateInfo()) } catch {}
+  $('appVersion').textContent = `GeoZipTag · v${info.app || '?'} · web ${info.web || ''}`.trim()
+  if (info.updates) {
+    $('updatesGroup').hidden = false
+    const messages = {
+      checking: () => 'Checking…',
+      current: () => 'You have the latest version.',
+      ready: (label) => `Update ${label} is ready. Restart to apply it.`,
+      'needs-apk': () => 'This update needs a newer app version. Install the latest APK.',
+      'needs-app': () => 'This update needs a newer version of the app. Install the latest build.',
+      error: (text) => text || 'Could not check for updates. Try again later.'
+    }
+    window.onOtaStatus = (state, detail) => {
+      $('updateStatus').textContent = (messages[state] || (() => ''))(detail)
+      $('checkUpdates').disabled = state === 'checking'
+      $('updateReady').hidden = state !== 'ready'
+    }
+    if (info.pending) window.onOtaStatus('ready', info.pendingLabel)
+    $('checkUpdates').addEventListener('click', () => android.checkForUpdates())
+    $('updateReady').addEventListener('click', () => android.applyUpdate())
+  }
+} else {
+  $('appVersion').textContent = 'GeoZipTag · web version'
+}
+// The page started properly: an update being served is good (otherwise it is rolled back).
+try { android?.otaConfirm?.() } catch {}
