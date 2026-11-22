@@ -528,17 +528,57 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, textHeight + 2 * padding + 2)
   const top = position === 'top' ? inset : h - inset - panelHeight
 
+  // Card and GeoZipTag tab are one outline, filled once so the translucent
+  // background stays even where they join. The tab rises from the card's
+  // top-right corner (or hangs from the bottom-right when the stamp is at the top).
+  const tabHeight = 28, iconSize = 19, markHeight = 12.5, tabRadius = 9, joinRadius = 5
+  const { wordmark, globe } = stampBrand
+  const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
+  ctx.font = `700 12px ${stampFace}`
+  const tabWidth = 7 + iconSize + 7 + (markWidth || ctx.measureText('GeoZipTag').width) + 11
+  const x0 = inset, x1 = inset + width, y0 = top, y1 = top + panelHeight, tabX = x1 - tabWidth
+  function cardWithTab(grow = 0) {
+    const a = x0 + grow, b = x1 - grow, c = y0 + grow, d = y1 - grow, t = y0 - tabHeight + grow, tx = tabX + grow
+    ctx.beginPath()
+    ctx.moveTo(a + radius, c)
+    ctx.lineTo(tx - joinRadius, c)
+    ctx.arcTo(tx, c, tx, c - joinRadius, joinRadius)
+    ctx.lineTo(tx, t + tabRadius)
+    ctx.arcTo(tx, t, tx + tabRadius, t, tabRadius)
+    ctx.lineTo(b - tabRadius, t)
+    ctx.arcTo(b, t, b, t + tabRadius, tabRadius)
+    ctx.lineTo(b, d - radius)
+    ctx.arcTo(b, d, b - radius, d, radius)
+    ctx.lineTo(a + radius, d)
+    ctx.arcTo(a, d, a, d - radius, radius)
+    ctx.lineTo(a, c + radius)
+    ctx.arcTo(a, c, a + radius, c, radius)
+    ctx.closePath()
+  }
+  ctx.save()
+  if (position === 'top') {
+    // Mirror the outline about the card's middle so the tab hangs below it.
+    ctx.translate(0, y0 + y1)
+    ctx.scale(1, -1)
+  }
   ctx.shadowColor = 'rgba(0, 0, 0, 0.35)'
   ctx.shadowBlur = 12
-  ctx.shadowOffsetY = 2
+  ctx.shadowOffsetY = position === 'top' ? -2 : 2
   ctx.fillStyle = colors.card
-  rounded(inset, top, width, panelHeight)
+  cardWithTab()
   ctx.fill()
   ctx.shadowColor = 'transparent'
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
   ctx.lineWidth = 0.75
-  rounded(inset + 0.375, top + 0.375, width - 0.75, panelHeight - 0.75)
+  cardWithTab(0.375)
   ctx.stroke()
+  // Faint seam where the tab meets the card, as on printed tab labels.
+  ctx.beginPath()
+  ctx.moveTo(tabX + 0.75, y0)
+  ctx.lineTo(x1 - 0.75, y0)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)'
+  ctx.stroke()
+  ctx.restore()
 
   if (accentBar) {
     ctx.fillStyle = colors.accent
@@ -622,37 +662,16 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   }
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
 
-  // GeoZipTag badge: a separate pill on the card's right edge, outside the card
-  // (above it, or below it when the stamp sits at the top of the photo).
-  const badgeHeight = 24, badgeGap = 5, iconSize = 17, markHeight = 12
-  const { wordmark, globe } = stampBrand
-  const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
-  ctx.font = `700 11px ${stampFace}`
-  const fallbackWidth = wordmark ? 0 : ctx.measureText('GeoZipTag').width
-  const badgeWidth = 4 + iconSize + 6 + (markWidth || fallbackWidth) + 9
-  const badgeX = inset + width - badgeWidth
-  const badgeY = position === 'top' ? top + panelHeight + badgeGap : top - badgeGap - badgeHeight
+  // Tab contents: the app icon (teal tile, globe, cream ring) and the wordmark.
+  const tabTop = position === 'top' ? y1 : y0 - tabHeight
+  const iconX = tabX + 7, iconY = tabTop + (tabHeight - iconSize) / 2
   ctx.save()
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)'
-  ctx.shadowBlur = 8
-  ctx.shadowOffsetY = 1
-  ctx.fillStyle = colors.card
-  rounded(badgeX, badgeY, badgeWidth, badgeHeight, badgeHeight / 2)
-  ctx.fill()
-  ctx.restore()
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
-  ctx.lineWidth = 0.75
-  rounded(badgeX + 0.375, badgeY + 0.375, badgeWidth - 0.75, badgeHeight - 0.75, badgeHeight / 2)
-  ctx.stroke()
-  // Globe mark: teal disc, globe artwork, thin cream ring (same as the app icon).
-  const cx = badgeX + 4 + iconSize / 2, cy = badgeY + badgeHeight / 2, r = iconSize / 2
-  ctx.save()
-  ctx.beginPath()
-  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.24)
   ctx.fillStyle = '#0d4d5c'
   ctx.fill()
+  const cx = iconX + iconSize / 2, cy = iconY + iconSize / 2, ringRadius = iconSize * 0.375
   if (globe) {
-    const globeRadius = r - 2.3, size = globeRadius * 2 * 108 / 70
+    const globeRadius = ringRadius - 1.2, size = globeRadius * 2 * 108 / 70
     ctx.beginPath()
     ctx.arc(cx, cy, globeRadius, 0, Math.PI * 2)
     ctx.clip()
@@ -660,16 +679,17 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   }
   ctx.restore()
   ctx.beginPath()
-  ctx.arc(cx, cy, r - 1.4, 0, Math.PI * 2)
+  ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2)
   ctx.strokeStyle = '#fdeac4'
   ctx.lineWidth = 0.9
   ctx.stroke()
-  const markX = badgeX + 4 + iconSize + 6
-  if (wordmark) ctx.drawImage(wordmark, markX, badgeY + (badgeHeight - markHeight) / 2, markWidth, markHeight)
+  const markX = iconX + iconSize + 7
+  if (wordmark) ctx.drawImage(wordmark, markX, tabTop + (tabHeight - markHeight) / 2, markWidth, markHeight)
   else {
     ctx.fillStyle = colors.text
     ctx.textBaseline = 'middle'
-    ctx.fillText('GeoZipTag', markX, cy)
+    ctx.font = `700 12px ${stampFace}`
+    ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
   }
   ctx.restore()
 }
