@@ -1150,6 +1150,7 @@ window.addEventListener('resize', updateCameraGrid)
 function syncBottomBar() {
   const bar = $('review').hidden ? $('controls') : $('review')
   document.documentElement.style.setProperty('--bottom-bar', `${bar.offsetHeight}px`)
+  if (typeof layoutFrame === 'function' && $('review').hidden) setTimeout(layoutFrame)
 }
 if ('ResizeObserver' in window) {
   const observer = new ResizeObserver(syncBottomBar)
@@ -1164,40 +1165,34 @@ $('gridToggle').addEventListener('click', () => {
   updateCameraGrid()
 })
 
-// Zoom: 0.5×, 1× and 2× buttons (those the camera supports); pinching zooms in between.
-const zoomStops = [0.5, 1, 2]
+// Zoom: small out/in arrows step through the lenses and a few zoom levels; pinching zooms in between.
+const zoomStops = [1, 2, 3, 5, 10]
+let zoomSteps = []
 const zoomText = (value) => `${Number(value.toFixed(1))}`.replace(/^0\./, '.')
 function setZoomLabel(value) {
-  const buttons = [...$('zoomControl').querySelectorAll('button')]
-  const active = buttons.filter(button => Number(button.dataset.zoom) <= value + 0.05).pop() || buttons[0]
-  for (const button of buttons) {
-    const selected = button === active
-    button.setAttribute('aria-pressed', String(selected))
-    button.textContent = selected ? `${zoomText(value)}×` : zoomText(Number(button.dataset.zoom))
-  }
+  $('zoomValue').textContent = `${zoomText(value)}×`
+  $('zoomOut').disabled = !zoomSteps.length || value <= zoomSteps[0] + 0.01
+  $('zoomIn').disabled = !zoomSteps.length || value >= zoomSteps[zoomSteps.length - 1] - 0.01
 }
 function buildZoomButtons(min, max) {
-  const control = $('zoomControl')
-  control.querySelectorAll('button').forEach(button => button.remove())
-  // The widest button is the camera's own ultra-wide (.5 on iPhones, often .6 or .7 on Android).
+  // The widest step is the camera's own ultra-wide (.5 on iPhones, often .6 or .7 on Android).
   const widest = min < 0.95 ? Math.max(0.5, Math.round(min * 10) / 10) : undefined
-  const stops = [widest, ...zoomStops.filter(stop => stop >= 1)].filter(stop => stop && stop >= min - 0.01 && stop <= max + 0.01)
-  for (const stop of stops) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.dataset.zoom = stop
-    button.setAttribute('aria-label', `Zoom ${stop}×`)
-    button.addEventListener('click', () => {
-      const camera = cameraHardware
-      if (!camera) return
-      $('zoomSlider').value = stop
-      setZoomLabel(stop)
-      requestZoom(camera, stop)
-    })
-    control.append(button)
-  }
-  return stops.length
+  zoomSteps = [widest, ...zoomStops].filter(stop => stop && stop >= min - 0.01 && stop <= max + 0.01)
+  return zoomSteps.length
 }
+function stepZoom(direction) {
+  const camera = cameraHardware
+  if (!camera || !zoomSteps.length) return
+  const current = $('zoomSlider').valueAsNumber
+  const next = direction > 0 ? zoomSteps.find(stop => stop > current + 0.05)
+    : [...zoomSteps].reverse().find(stop => stop < current - 0.05)
+  if (next === undefined) return
+  $('zoomSlider').value = next
+  setZoomLabel(next)
+  requestZoom(camera, next)
+}
+$('zoomIn').addEventListener('click', () => stepZoom(1))
+$('zoomOut').addEventListener('click', () => stepZoom(-1))
 
 function showLiveControls(track) {
   const capabilities = track.getCapabilities?.() || {}
@@ -2389,6 +2384,51 @@ for (const button of document.querySelectorAll('[data-open]')) {
     }
     document.querySelector('dialog[open]')?.close()
     $(panel).showModal()
+    requestAnimationFrame(() => { $(panel).scrollTop = 0 })   // focusing the first control can scroll it
+  })
+}
+
+// Sheets close by pulling them down (from the top of their content), like system sheets.
+for (const sheet of document.querySelectorAll('dialog')) {
+  let startY, startTime, drag = 0, dragging = false
+  const reset = () => { sheet.style.transition = ''; sheet.style.transform = ''; sheet.style.opacity = ''; sheet.scrollTop = 0 }
+  sheet.addEventListener('close', reset)
+  sheet.addEventListener('touchstart', event => {
+    startY = undefined
+    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range]')) return
+    if (sheet.scrollTop > 0 && !event.target.closest('.sheet-head')) return
+    startY = event.touches[0].clientY
+    startTime = performance.now()
+    drag = 0
+    dragging = false
+  }, { passive: true })
+  sheet.addEventListener('touchmove', event => {
+    if (startY === undefined) return
+    const distance = event.touches[0].clientY - startY
+    if (!dragging) {
+      if (distance < -6) { startY = undefined; return }   // scrolling up: leave it to the sheet
+      if (distance < 8) return
+      dragging = true
+      sheet.style.transition = 'none'
+    }
+    drag = Math.max(0, distance - 8)
+    sheet.style.transform = `translateY(${drag}px)`
+    event.preventDefault()
+  }, { passive: false })
+  sheet.addEventListener('touchend', () => {
+    if (!dragging) { startY = undefined; return }
+    const fast = drag / Math.max(1, performance.now() - startTime) > 0.5
+    startY = undefined
+    dragging = false
+    if (drag > 110 || (drag > 40 && fast)) {
+      sheet.style.transition = 'transform .18s ease-in, opacity .18s'
+      sheet.style.transform = `translateY(${Math.max(drag, sheet.offsetHeight)}px)`
+      sheet.style.opacity = '0'
+      setTimeout(() => { sheet.close(); reset() }, 170)
+    } else {
+      sheet.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1)'
+      sheet.style.transform = ''
+    }
   })
 }
 
@@ -2441,7 +2481,9 @@ function layoutFrame() {
   }
   const screenWidth = window.innerWidth, screenHeight = window.innerHeight
   const height = Math.min(screenHeight, Math.round(screenWidth * shapeRatio()))
-  const top = Math.round((screenHeight - height) / 2)
+  // The frame rests on the shutter tray (its bottom edge is where the stamp sits).
+  const trayTop = screenHeight - ($('controls').offsetHeight || 0)
+  const top = Math.max(0, Math.round(Math.min(trayTop, screenHeight) - height))
   root.setProperty('--frame-top', `${top}px`)
   root.setProperty('--frame-height', `${height}px`)
   root.setProperty('--frame-gap', `${screenHeight - top - height}px`)
