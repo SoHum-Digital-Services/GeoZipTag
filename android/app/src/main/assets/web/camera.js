@@ -1623,16 +1623,19 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
   if (live) fireFlash()
   if (!live) message('Stamping photo…')
   else if (snapshot && !placeReady(snapshot)) message('Adding address and satellite map…')
+  let canvas
   try {
     if (live && stream?.native) {
       source = await takeNativePhoto()   // full-quality photo from the phone's camera
       imageFile = true
     }
-    const canvas = document.createElement('canvas')
+    canvas = document.createElement('canvas')
     canvas.width = imageFile ? source.naturalWidth : source.videoWidth
     canvas.height = imageFile ? source.naturalHeight : source.videoHeight
     if (!canvas.width || !canvas.height) throw new Error('No image frame')
-    canvas.getContext('2d', { alpha: false }).drawImage(source, 0, 0)
+    const context = canvas.getContext('2d', { alpha: false })
+    if (!context) throw new Error('out of memory')
+    context.drawImage(source, 0, 0)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await placeFor(snapshot)
     await stampFonts
@@ -1659,9 +1662,11 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
     else message(map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
       'Timestamp and coordinates added · map and address unavailable', 6000)
-  } catch {
-    message('Could not create the photo. Take another photo or try the phone camera.')
+  } catch (error) {
+    message(`Could not create the photo (${error?.message || 'unknown error'}). Take another photo or try the phone camera.`)
   } finally {
+    // Full-resolution canvases hold about 50 MB each; free this one now (the browser caps the total).
+    if (canvas) canvas.width = canvas.height = 0
     busy = false
     $('shutter').disabled = false
     $('fallback').disabled = false
