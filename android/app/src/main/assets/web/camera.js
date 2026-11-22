@@ -521,10 +521,15 @@ function fullAddress(address) {
 
 const stampFace = 'Inter, system-ui, sans-serif'
 let stampFontsReady = false
-const stampFonts = (document.fonts
-  ? Promise.all(['700 18px', '600 12px', '500 13px'].map(spec => document.fonts.load(`${spec} Inter`)))
-  : Promise.resolve()
-).catch(() => {}).then(() => { stampFontsReady = true })
+// Brand badge artwork (vector wordmark and globe), drawn above the stamp card.
+let stampBrand = {}
+const stampFonts = Promise.all([
+  (document.fonts
+    ? Promise.all(['700 18px', '600 12px', '500 13px'].map(spec => document.fonts.load(`${spec} Inter`)))
+    : Promise.resolve()).catch(() => {}),
+  Promise.all(['assets/geoziptag-wordmark.svg', 'assets/geoziptag-icon.svg'].map(src => loadImage(src).catch(() => undefined)))
+    .then(([wordmark, globe]) => { stampBrand = { wordmark, globe } })
+]).then(() => { stampFontsReady = true })
 
 function formatCoordinates({ lat, lon }) {
   const part = (value, positive, negative) => `${Math.abs(value).toFixed(6)}° ${value >= 0 ? positive : negative}`
@@ -588,7 +593,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
 
   const dateLabel = `${picked ? 'Stamped ' : ''}${stampDate.format(date)}`
   const time = stampTime.format(date)
-  add(snapshot?.manual ? 'GEOZIPTAG · MANUAL LOCATION' : 'GEOZIPTAG', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
+  if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
   if (snapshot) {
     add(placeHeading(snapshot, address) || 'GPS location', 18, colors.text, 700, { gapAfter: 1 })
     add(street, 12.5, colors.muted, 500, { gapAfter: 4 })
@@ -696,6 +701,56 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     y += item.height
   }
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
+
+  // GeoZipTag badge: a separate pill on the card's right edge, outside the card
+  // (above it, or below it when the stamp sits at the top of the photo).
+  const badgeHeight = 24, badgeGap = 5, iconSize = 17, markHeight = 12
+  const { wordmark, globe } = stampBrand
+  const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
+  ctx.font = `700 11px ${stampFace}`
+  const fallbackWidth = wordmark ? 0 : ctx.measureText('GeoZipTag').width
+  const badgeWidth = 4 + iconSize + 6 + (markWidth || fallbackWidth) + 9
+  const badgeX = inset + width - badgeWidth
+  const badgeY = position === 'top' ? top + panelHeight + badgeGap : top - badgeGap - badgeHeight
+  ctx.save()
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)'
+  ctx.shadowBlur = 8
+  ctx.shadowOffsetY = 1
+  ctx.fillStyle = colors.card
+  rounded(badgeX, badgeY, badgeWidth, badgeHeight, badgeHeight / 2)
+  ctx.fill()
+  ctx.restore()
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
+  ctx.lineWidth = 0.75
+  rounded(badgeX + 0.375, badgeY + 0.375, badgeWidth - 0.75, badgeHeight - 0.75, badgeHeight / 2)
+  ctx.stroke()
+  // Globe mark: teal disc, globe artwork, thin cream ring (same as the app icon).
+  const cx = badgeX + 4 + iconSize / 2, cy = badgeY + badgeHeight / 2, r = iconSize / 2
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fillStyle = '#0d4d5c'
+  ctx.fill()
+  if (globe) {
+    const globeRadius = r - 2.3, size = globeRadius * 2 * 108 / 70
+    ctx.beginPath()
+    ctx.arc(cx, cy, globeRadius, 0, Math.PI * 2)
+    ctx.clip()
+    ctx.drawImage(globe, cx - size / 2, cy - size / 2, size, size)
+  }
+  ctx.restore()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r - 1.4, 0, Math.PI * 2)
+  ctx.strokeStyle = '#fdeac4'
+  ctx.lineWidth = 0.9
+  ctx.stroke()
+  const markX = badgeX + 4 + iconSize + 6
+  if (wordmark) ctx.drawImage(wordmark, markX, badgeY + (badgeHeight - markHeight) / 2, markWidth, markHeight)
+  else {
+    ctx.fillStyle = colors.text
+    ctx.textBaseline = 'middle'
+    ctx.fillText('GeoZipTag', markX, cy)
+  }
   ctx.restore()
 }
 
