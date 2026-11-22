@@ -151,6 +151,7 @@ dialog:focus, dialog:focus-visible { outline: none; }
 }
 .viewfinder.photo-review { background: #000; }
 video.mirror { transform: scaleX(-1); }
+.viewfinder video { touch-action: none; }
 video.can-focus { cursor: crosshair; }
 
 .start {
@@ -378,6 +379,21 @@ video.can-focus { cursor: crosshair; }
 .dock-tool:hover { background: var(--surface-3); }
 .dock-tool .icon { width: 1.4rem; height: 1.4rem; }
 .camera-switch-slot { display: contents; }
+.thumb-slot { display: grid; width: 52px; height: 52px; place-items: center; }
+.last-photo {
+  width: 52px;
+  min-height: 52px;
+  height: 52px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 2px var(--cream);
+}
+.last-photo:hover { background: var(--surface-2); }
+.last-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.last-photo.fresh { animation: thumb-in .45s var(--ease); }
+@keyframes thumb-in { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.08); opacity: 1; } }
 #switchCamera:not([hidden]) + #fallback { display: none; }
 .shutter-slot { display: grid; width: 78px; height: 78px; place-items: center; }
 .shutter {
@@ -448,7 +464,7 @@ dialog::backdrop { background: #000000a6; animation: fade-in .25s ease; }
 @keyframes sheet-in { from { transform: translateY(40px); opacity: 0; } }
 @keyframes fade-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  dialog[open], dialog::backdrop, #status, .gps-choice, .focus-point { animation: none; }
+  dialog[open], dialog::backdrop, #status, .gps-choice, .focus-point, .last-photo.fresh { animation: none; }
 }
 .sheet-head {
   position: sticky;

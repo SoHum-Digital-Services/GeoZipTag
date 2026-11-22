@@ -688,6 +688,7 @@ $('zoomSlider').addEventListener('change', async event => {
 })
 
 video.addEventListener('click', async event => {
+  if (pinch || Date.now() - pinchEndedAt < 400) return
   const camera = cameraHardware
   const frame = videoFrame()
   if (!camera?.focus || !frame) return
@@ -705,6 +706,106 @@ video.addEventListener('click', async event => {
   marker.hidden = false
   clearTimeout(focusTimer)
   focusTimer = setTimeout(() => { marker.hidden = true }, 950)
+})
+
+// Pinch-to-zoom drives the same hardware zoom as the slider.
+const touchPoints = new Map()
+let pinch, pinchEndedAt = 0, zoomPending, zoomApplying
+
+function pinchDistance() {
+  const [a, b] = touchPoints.values()
+  return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+function requestZoom(camera, value) {
+  zoomPending = { camera, value }
+  if (zoomApplying) return
+  zoomApplying = true
+  ;(async () => {
+    while (zoomPending) {
+      const next = zoomPending
+      zoomPending = undefined
+      if (cameraHardware !== next.camera) break
+      await applyHardwareSetting(next.camera, { zoom: next.value })
+    }
+    zoomApplying = false
+    const camera = cameraHardware
+    if (!pinch && camera) {
+      const actual = camera.track.getSettings().zoom
+      if (Number.isFinite(actual)) {
+        $('zoomSlider').value = actual
+        setZoomLabel($('zoomSlider').valueAsNumber)
+      }
+    }
+  })()
+}
+
+video.addEventListener('pointerdown', event => {
+  if (event.pointerType !== 'touch') return
+  touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY })
+  if (touchPoints.size === 2 && cameraHardware && !$('zoomControl').hidden) {
+    pinch = { camera: cameraHardware, distance: pinchDistance(), zoom: $('zoomSlider').valueAsNumber }
+  }
+})
+video.addEventListener('pointermove', event => {
+  if (!touchPoints.has(event.pointerId)) return
+  touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY })
+  if (!pinch || touchPoints.size < 2 || cameraHardware !== pinch.camera) return
+  event.preventDefault()
+  const slider = $('zoomSlider')
+  const target = pinch.zoom * pinchDistance() / Math.max(pinch.distance, 1)
+  const before = slider.valueAsNumber
+  slider.value = Math.min(Number(slider.max), Math.max(Number(slider.min), target))
+  if (slider.valueAsNumber === before) return
+  setZoomLabel(slider.valueAsNumber)
+  requestZoom(pinch.camera, slider.valueAsNumber)
+})
+function endTouch(event) {
+  touchPoints.delete(event.pointerId)
+  if (pinch && touchPoints.size < 2) {
+    pinch = undefined
+    pinchEndedAt = Date.now()
+    if (!zoomApplying && cameraHardware) requestZoom(cameraHardware, $('zoomSlider').valueAsNumber)
+  }
+}
+for (const type of ['pointerup', 'pointercancel', 'pointerleave']) video.addEventListener(type, endTouch)
+
+// The last photo stays available from a thumbnail beside the shutter.
+let thumbUrl
+function updateThumbnail(canvas) {
+  const size = 144
+  const thumb = document.createElement('canvas')
+  thumb.width = thumb.height = size
+  const scale = Math.max(size / canvas.width, size / canvas.height)
+  const width = canvas.width * scale, height = canvas.height * scale
+  thumb.getContext('2d').drawImage(canvas, (size - width) / 2, (size - height) / 2, width, height)
+  thumb.toBlob(blob => {
+    if (!blob) return
+    if (thumbUrl) URL.revokeObjectURL(thumbUrl)
+    thumbUrl = URL.createObjectURL(blob)
+    $('lastPhotoImage').src = thumbUrl
+    const button = $('lastPhotoButton')
+    button.hidden = false
+    button.classList.remove('fresh')
+    void button.offsetWidth
+    button.classList.add('fresh')
+  }, 'image/jpeg', 0.82)
+}
+
+$('lastPhotoButton').addEventListener('click', () => {
+  if (busy || !photoUrl) return
+  cancelCountdown()
+  clearGpsChoice()
+  stopCamera()
+  $('start').hidden = true
+  $('controls').hidden = true
+  $('result').src = photoUrl
+  $('result').hidden = false
+  $('result').parentElement.classList.add('photo-review')
+  $('retakeLabel').textContent = 'Camera'
+  $('review').hidden = false
+  message('')
+  $('save').focus()
 })
 
 function cancelCountdown() {
@@ -793,7 +894,9 @@ async function capture(source, picked, snapshot) {
     $('result').parentElement.classList.add('photo-review')
     $('save').href = photoUrl
     $('save').download = name
+    $('retakeLabel').textContent = 'Retake'
     $('review').hidden = false
+    updateThumbnail(canvas)
     let canShare = false
     try { canShare = !!navigator.canShare?.({ files: [shareFile] }) } catch {}
     $('share').hidden = !canShare
@@ -842,14 +945,8 @@ file.addEventListener('change', async () => {
 $('retake').addEventListener('click', () => {
   $('result').hidden = true
   $('result').parentElement.classList.remove('photo-review')
+  // Keep the photo URLs so the thumbnail can reopen it; the next capture replaces them.
   $('result').removeAttribute('src')
-  $('save').removeAttribute('href')
-  $('share').onclick = null
-  URL.revokeObjectURL(photoUrl)
-  photoUrl = undefined
-  if (originalUrl) URL.revokeObjectURL(originalUrl)
-  originalUrl = undefined
-  $('saveOriginal').removeAttribute('href')
   $('review').hidden = true
   $('controls').hidden = false
   $('start').hidden = false

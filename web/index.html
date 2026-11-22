@@ -42,6 +42,7 @@
       <span class="brand-name">GeoZip<span>Tag</span></span>
     </h1>
     <nav aria-label="App tools">
+      <button class="icon-button" type="button" data-open="templates" aria-label="Stamp style"><svg class="icon"><use href="#i-layers"/></svg><span class="visually-hidden" id="chosenTemplate">Satellite</span></button>
       <button class="icon-button" type="button" aria-label="Reports" data-open="reports"><svg class="icon"><use href="#i-report"/></svg></button>
       <button class="icon-button" type="button" aria-label="Settings" data-open="settings"><svg class="icon"><use href="#i-settings"/></svg></button>
     </nav>
@@ -98,9 +99,9 @@
       <button type="button" data-template="qr" aria-pressed="false">QR</button>
     </div>
     <div class="capture-dock" aria-label="Capture controls">
-      <button type="button" class="dock-tool" data-open="templates" aria-label="Stamp preview and style">
-        <svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span class="visually-hidden" id="chosenTemplate">Satellite</span>
-      </button>
+      <div class="thumb-slot">
+        <button id="lastPhotoButton" class="last-photo" type="button" aria-label="Open last photo" hidden><img id="lastPhotoImage" alt=""></button>
+      </div>
       <div class="shutter-slot"><button id="shutter" class="shutter" type="button" aria-label="Take photo" hidden></button></div>
       <div class="camera-switch-slot">
         <button id="switchCamera" class="dock-tool" type="button" aria-label="Flip camera" hidden><svg class="icon" aria-hidden="true"><use href="#i-flip"/></svg></button>
@@ -111,7 +112,7 @@
   </div>
 
   <div id="review" class="review" aria-label="Photo actions" hidden>
-    <button id="retake" type="button"><svg class="icon" aria-hidden="true"><use href="#i-retake"/></svg>Retake</button>
+    <button id="retake" type="button"><svg class="icon" aria-hidden="true"><use href="#i-retake"/></svg><span id="retakeLabel">Retake</span></button>
     <a id="save" class="primary" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Save photo</a>
     <button id="share" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Share</button>
     <a id="saveOriginal" class="secondary" download hidden>Also save the original, without stamp</a>
