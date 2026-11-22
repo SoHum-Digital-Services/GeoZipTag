@@ -7,6 +7,10 @@
   <meta name="description" content="Take a photo and save it with a timestamp and optional GPS map.">
   <title>GeoZipTag</title>
   <link rel="icon" type="image/svg+xml" href="assets/geoziptag-icon.svg">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="GeoZipTag">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="camera.js"></script>
 </head>
@@ -132,6 +136,9 @@
   <label for="placeLabel">Place label <small>Optional</small></label>
   <input id="placeLabel" type="text" maxlength="90" placeholder="e.g. Site entrance, Block B">
   <p class="hint">Shown as the heading on photos taken in this session. GPS coordinates are still recorded.</p>
+  <label for="stampNote">Note <small>Optional</small></label>
+  <input id="stampNote" type="text" maxlength="80" placeholder="e.g. Foundation inspection, Block B">
+  <p class="hint">Added as the last line of the stamp on photos taken in this session.</p>
   <details class="disclosure">
     <summary><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>How location is used</summary>
     <p class="privacy">Your coordinates are sent to Photon to look up the address and to Esri for satellite imagery. Photos stay on this device until you save or share them. Address data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.</p>

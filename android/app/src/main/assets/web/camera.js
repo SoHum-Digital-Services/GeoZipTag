@@ -8,6 +8,7 @@ const android = window.AndroidHost
 const hasPhoneCamera = typeof android?.preparePhoneCamera === 'function'
 let phoneRequest, phoneMetadata, lastPhoneMode
 let placeLabel = ''
+let stampNote = ''
 let stream, photoUrl, watchId, fix
 let facing = 'environment'
 let cameraRequest = 0
@@ -398,26 +399,71 @@ async function locate(snapshot) {
   }
 }
 
-// Nalgonda district records identify Cheruvugattu as a village within Narketpally mandal.
-const cheruvugattuLandmarks = [
-  { lat: 17.1740101, lon: 79.2121757 }, // Cheruvugattu temple (OSM node 10101107918)
-  { lat: 17.1743625, lon: 79.2142737 }  // Cheruvugattu-II (OSM node 11984988986)
+// Villages that OpenStreetMap does not yet map as places. Near these points the
+// geocoder only returns the parent town or mandal, so the stamp names the village
+// instead. Once a village is mapped as place=village in OpenStreetMap, its entry
+// can be removed. Cheruvugattu is a village in Narketpally mandal, Nalgonda.
+const unmappedVillages = [
+  {
+    name: 'Cheruvugattu',
+    parentArea: /^(?:narkatpalli|narketpalli|narketpally)(?: mandal)?$|^nalgonda(?: district)?$/i,
+    radius: 225,
+    points: [
+      { lat: 17.1740101, lon: 79.2121757 }, // Cheruvugattu temple (OSM node 10101107918)
+      { lat: 17.1743625, lon: 79.2142737 }  // Cheruvugattu-II (OSM node 11984988986)
+    ]
+  }
 ]
 
+function metresBetween(a, b) {
+  const north = (a.lat - b.lat) * 111195
+  const east = (a.lon - b.lon) * 111195 * Math.cos(b.lat * Math.PI / 180)
+  return Math.hypot(north, east)
+}
+
+// Ward numbers ("Ward 78 Gunfoundry") are administrative codes, not place names people use.
+const isWard = (value) => /^ward\b/i.test(value || '')
+
+function localAreaName(snapshot, address) {
+  const local = address?.locality || (isWard(address?.district) ? '' : address?.district) ||
+    (address?.osm_key === 'place' ? address.name : '') || address?.city || address?.county || ''
+  if (snapshot) {
+    const village = unmappedVillages.find(entry => (!local || entry.parentArea.test(local)) &&
+      entry.points.some(point => metresBetween(snapshot, point) <= entry.radius))
+    if (village) return village.name
+  }
+  return local
+}
+
+// Heading: the most specific area, then the full state name and country.
 function placeHeading(snapshot, address) {
   if (snapshot?.name) return snapshot.name
-  const localName = address?.locality || address?.district ||
-    (address?.osm_key === 'place' ? address.name : '') || address?.city || address?.county
-  // Prefer the village near its mapped landmarks when the geocoder only supplies the parent area.
-  const parentArea = !localName || /^(?:narkatpalli|narketpalli|narketpally)(?: mandal)?$|^nalgonda(?: district)?$/i.test(localName)
-  if (snapshot && parentArea && cheruvugattuLandmarks.some(({ lat, lon }) => {
-    const north = (snapshot.lat - lat) * 111195
-    const east = (snapshot.lon - lon) * 111195 * Math.cos(lat * Math.PI / 180)
-    return Math.hypot(north, east) <= 225
-  })) return 'Cheruvugattu, TG, India'
+  const parts = [localAreaName(snapshot, address), address?.state, address?.country].filter(Boolean)
+  return [...new Map(parts.map(part => [part.toLowerCase(), part])).values()].join(', ')
+}
 
-  const region = address?.state === 'Telangana' ? 'TG' : address?.state
-  return [...new Set([localName, region, address?.country].filter(Boolean))].join(', ')
+// Full postal address: street, area, town, mandal or county, "State PIN", country.
+function fullAddress(address) {
+  if (!address) return ''
+  const isStreetResult = address.osm_key === 'highway' || address.osm_key === 'place'
+  const street = address.street ? [address.housenumber, address.street].filter(Boolean).join(' ')
+    : isStreetResult ? address.name : ''
+  const statePin = [address.state, address.postcode].filter(Boolean).join(' ')
+  const tail = new Set([address.state, address.postcode, statePin, address.country]
+    .filter(Boolean).map(value => value.toLowerCase()))
+  const seen = new Set()
+  const parts = []
+  // Some streets carry their own "Village, State PIN" suffix; split it so nothing repeats.
+  for (const value of [street, address.locality, address.district, address.city, address.county]) {
+    for (const piece of (value || '').split(',')) {
+      const part = piece.trim()
+      const key = part.toLowerCase()
+      if (!part || seen.has(key) || tail.has(key)) continue
+      seen.add(key)
+      parts.push(part)
+    }
+  }
+  return [...parts, statePin, address.country].filter(Boolean).join(', ')
 }
 
 const stampFace = 'Inter, system-ui, sans-serif'
@@ -429,10 +475,10 @@ const stampFonts = (document.fonts
 
 function formatCoordinates({ lat, lon }) {
   const part = (value, positive, negative) => `${Math.abs(value).toFixed(6)}° ${value >= 0 ? positive : negative}`
-  return `${part(lat, 'N', 'S')} · ${part(lon, 'E', 'W')}`
+  return `Lat ${part(lat, 'N', 'S')} · Long ${part(lon, 'E', 'W')}`
 }
 
-function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false }) {
+function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote }) {
   const ctx = canvas.getContext('2d')
   const unit = Math.min(canvas.width, canvas.height) / 460
   const w = canvas.width / unit, h = canvas.height / unit
@@ -485,10 +531,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     if (ctx.roundRect) ctx.roundRect(x, y, width, height, r)
     else ctx.rect(x, y, width, height)
   }
-  const street = address && [
-    address.street ? [address.housenumber, address.street].filter(Boolean).join(' ') : address.name,
-    address.postcode
-  ].filter(Boolean).join(', ')
+  const street = fullAddress(address)
 
   const dateLabel = `${picked ? 'Stamped ' : ''}${stampDate.format(date)}`
   const time = stampTime.format(date)
@@ -502,6 +545,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     add(time, 21, colors.text, 700, { maxLines: 1, gapAfter: 1 })
     add(dateLabel, 13, colors.muted, 500, { maxLines: 1 })
   }
+  if (note) add(`Note: ${note}`, 11.5, colors.muted, 500, { maxLines: 2 })
   const textHeight = lines.reduce((sum, item) => sum + item.height, 0) - 2
   const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, textHeight + 2 * padding + 2)
   const top = position === 'top' ? inset : h - inset - panelHeight
@@ -1056,6 +1100,10 @@ window.addEventListener('pagehide', () => {
   clearGpsChoice()
 })
 
+$('stampNote').addEventListener('input', (event) => {
+  stampNote = event.target.value.trim()
+})
+
 $('placeLabel').addEventListener('input', (event) => {
   placeLabel = event.target.value.trim()
   $('placeLabelPreview').textContent = placeLabel
@@ -1140,7 +1188,8 @@ function renderTemplatePreview() {
   grid.stroke()
   drawStamp(canvas, {
     snapshot: isTime ? undefined : { lat: 17.2, lon: 79.2 },
-    address: isTime ? undefined : { city: 'Example site', state: 'Telangana', street: 'Site access road' },
+    address: isTime ? undefined : { street: 'Site access road', locality: 'Example village', county: 'Example mandal', state: 'Telangana', postcode: '500001', country: 'India' },
+    note: stampNote || 'Foundation inspection, Block B',
     map: isTime ? undefined : map, date: new Date(), example: true
   })
   const y = preferences.position === 'top' ? 0 : canvas.height - preview.height
