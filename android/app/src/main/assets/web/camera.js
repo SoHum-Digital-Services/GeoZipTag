@@ -87,6 +87,8 @@ function prefetchPlace(snapshot) {
     entry.done = true
     entry.failed = !result.address && !result.map
     entry.partial = !result.complete   // e.g. Nominatim busy: retried shortly instead of kept
+    entry.result = result
+    setTimeout(renderLiveStamp)
     return result
   }, () => { entry.done = true; entry.failed = true; return {} })
   placeCache = entry
@@ -306,7 +308,11 @@ function setLocationStatus(message, ready = false) {
   indicator.textContent = message
   indicator.dataset.ready = ready
   $('locationSheetStatus').textContent = message
+  $('locationButton').dataset.state = ready ? 'ready'
+    : watchId !== undefined || /finding|waiting|approximate/i.test(message) ? 'pending' : 'off'
+  $('locationButton').setAttribute('aria-label', `Location: ${message}`)
   updateLocationMapAction()
+  if (typeof renderLiveStamp === 'function') setTimeout(renderLiveStamp)
 }
 
 function stopLocation(status = 'Timestamp only') {
@@ -1371,6 +1377,7 @@ $('placeLabel').addEventListener('input', (event) => {
 })
 
 function updateTemplateLabel() {
+  setTimeout(renderLiveStamp)
   prefetchPlace(manualFix || currentFix())
   $('chosenTemplate').textContent = { satellite: 'Satellite', time: 'Date & Time', qr: 'QR Location' }[preferences.template]
   for (const tab of document.querySelectorAll('[data-template]')) {
@@ -1482,6 +1489,7 @@ $('keepOriginal').checked = preferences.keepOriginal
 $('preferShare').checked = preferences.preferShare
 
 $('settings').addEventListener('change', () => {
+  setTimeout(renderLiveStamp)
   preferences.position = $('stampPosition').value
   preferences.keepOriginal = $('keepOriginal').checked
   preferences.preferShare = $('preferShare').checked
@@ -1932,3 +1940,24 @@ openViewfinderOnEntry()
 window.addEventListener('pageshow', event => {
   if (event.persisted) openViewfinderOnEntry()
 })
+
+// Live stamp preview (phones): the stamp as it will appear, drawn over the camera
+// preview and under the controls. Refreshed every second and whenever data changes.
+const liveStamp = $('liveStamp')
+const phoneLayout = window.matchMedia('(max-width: 759px)')
+function renderLiveStamp() {
+  const show = phoneLayout.matches && !video.hidden && $('review').hidden
+  liveStamp.hidden = !show
+  if (!show) return
+  const scale = Math.min(window.devicePixelRatio || 1, 3)
+  const width = Math.round(window.innerWidth * scale), height = Math.round(window.innerHeight * scale)
+  if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
+  liveStamp.getContext('2d').clearRect(0, 0, width, height)
+  let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
+  if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
+  const place = snapshot && placeReady(snapshot) ? placeCache.result : undefined
+  drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map })
+}
+setInterval(renderLiveStamp, 1000)
+window.addEventListener('resize', renderLiveStamp)
+stampFonts.then(renderLiveStamp)

@@ -48,6 +48,7 @@
     </h1>
     <nav aria-label="App tools">
       <button class="icon-button" type="button" data-open="templates" aria-label="Stamp style"><svg class="icon"><use href="#i-layers"/></svg><span class="visually-hidden" id="chosenTemplate">Satellite</span></button>
+      <button id="locationButton" class="icon-button location-button" type="button" aria-label="Location" data-open="locationTools" data-state="off"><svg class="icon"><use href="#i-pin"/></svg></button>
       <button class="icon-button" type="button" aria-label="Reports" data-open="reports"><svg class="icon"><use href="#i-report"/></svg></button>
       <button class="icon-button" type="button" aria-label="Settings" data-open="settings"><svg class="icon"><use href="#i-settings"/></svg></button>
     </nav>
@@ -81,6 +82,7 @@
     <div id="cameraCountdown" class="camera-countdown" role="status" hidden></div>
     <p id="status" role="status" hidden></p>
   </section>
+  <canvas id="liveStamp" class="live-stamp" aria-hidden="true" hidden></canvas>
 
   <div id="controls" class="controls">
     <div class="location-bar">
