@@ -389,28 +389,43 @@ function placeHeading(snapshot, address) {
   return [...new Set([localName, region, address?.country].filter(Boolean))].join(', ')
 }
 
+const stampFace = 'Inter, system-ui, sans-serif'
+let stampFontsReady = false
+const stampFonts = (document.fonts
+  ? Promise.all(['700 18px', '600 12px', '500 13px'].map(spec => document.fonts.load(`${spec} Inter`)))
+  : Promise.resolve()
+).catch(() => {}).then(() => { stampFontsReady = true })
+
+function formatCoordinates({ lat, lon }) {
+  const part = (value, positive, negative) => `${Math.abs(value).toFixed(6)}° ${value >= 0 ? positive : negative}`
+  return `${part(lat, 'N', 'S')} · ${part(lon, 'E', 'W')}`
+}
+
 function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false }) {
   const ctx = canvas.getContext('2d')
   const unit = Math.min(canvas.width, canvas.height) / 460
   const w = canvas.width / unit, h = canvas.height / unit
-  const inset = 8, padding = 8, gap = map ? 6 : 0
-  const mapSize = map ? 100 : 0
-  const codeSize = template === 'qr' && snapshot ? 82 : 0
-  const width = Math.min(w - 2 * inset, map ? 540 : snapshot ? 440 : 285)
-  const panelX = inset + mapSize + gap
-  const panelWidth = width - (mapSize + gap)
-  const textWidth = panelWidth - 2 * padding - (codeSize ? codeSize + padding : 0)
-  const white = '#f6f8fc', muted = '#e1e6ef'
-  const background = '#11151dec'
+  const inset = 10, padding = 10, radius = 12
+  const mapSize = map ? 104 : 0
+  const codeSize = template === 'qr' && snapshot ? 84 : 0
+  const accentBar = map ? 0 : 3
+  const width = Math.min(w - 2 * inset, map ? 540 : snapshot ? 450 : 300)
+  const textX = inset + padding + (map ? mapSize + padding + 2 : accentBar + padding)
+  const textWidth = inset + width - padding - (codeSize ? codeSize + padding : 0) - textX
+  const colors = {
+    text: '#fbf8f2', muted: '#c9cfd1', coordinate: '#8fdcd8', brand: '#f47a67',
+    card: 'rgba(9, 13, 14, 0.88)', accent: '#f2634e'
+  }
   const lines = []
 
   ctx.save()
   ctx.scale(unit, unit)
   ctx.textBaseline = 'top'
-  function add(text, size, color, weight = 500, maxLines = 2) {
+  function add(text, size, color, weight = 500, { maxLines = 2, tracking = 0, gapAfter = 0 } = {}) {
     if (!text) return
-    const font = `${weight} ${size}px system-ui, sans-serif`
+    const font = `${weight} ${size}px ${stampFace}`
     ctx.font = font
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${tracking}px`
     const wrapped = []
     let line = ''
     for (const word of text.split(/\s+/)) {
@@ -428,11 +443,15 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
       while (chars.length && ctx.measureText(chars.join('') + '…').width > textWidth) chars.pop()
       wrapped[maxLines - 1] = chars.join('').trimEnd() + '…'
     }
-    for (const text of wrapped.slice(0, maxLines)) lines.push({ text, font, color, height: size + 2 })
+    const shown = wrapped.slice(0, maxLines)
+    shown.forEach((text, index) => lines.push({
+      text, font, color, tracking, height: Math.round(size * 1.28) + (index === shown.length - 1 ? gapAfter : 0)
+    }))
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
   }
-  function rounded(x, y, width, height) {
+  function rounded(x, y, width, height, r = radius) {
     ctx.beginPath()
-    if (ctx.roundRect) ctx.roundRect(x, y, width, height, 5)
+    if (ctx.roundRect) ctx.roundRect(x, y, width, height, r)
     else ctx.rect(x, y, width, height)
   }
   const street = address && [
@@ -440,58 +459,76 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     address.postcode
   ].filter(Boolean).join(', ')
 
-  if (snapshot) {
-    add(placeHeading(snapshot, address) || 'GPS location', 18, white, 700)
-    add(street, 13, muted)
-    add(`Lat ${snapshot.lat.toFixed(6)}° · Long ${snapshot.lon.toFixed(6)}°`, 12, '#d2dfff', 650)
-    if (snapshot.manual) add('Manual location', 11, muted, 650)
-  }
-  const dateLabel = `${picked ? 'Stamped at ' : ''}${stampDate.format(date)}`
+  const dateLabel = `${picked ? 'Stamped ' : ''}${stampDate.format(date)}`
   const time = stampTime.format(date)
+  add(snapshot?.manual ? 'GEOZIPTAG · MANUAL LOCATION' : 'GEOZIPTAG', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
   if (snapshot) {
-    add(`${dateLabel} · ${time}`, 12, white, 600)
+    add(placeHeading(snapshot, address) || 'GPS location', 18, colors.text, 700, { gapAfter: 1 })
+    add(street, 12.5, colors.muted, 500, { gapAfter: 4 })
+    add(formatCoordinates(snapshot), 11.5, colors.coordinate, 600, { maxLines: 1 })
+    add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
   } else {
-    add(dateLabel, 17, white, 700)
-    add(time, 14, muted)
+    add(time, 21, colors.text, 700, { maxLines: 1, gapAfter: 1 })
+    add(dateLabel, 13, colors.muted, 500, { maxLines: 1 })
   }
-  const panelHeight = Math.max(mapSize, codeSize + 2 * padding, lines.reduce((sum, item) => sum + item.height, 2 * padding))
+  const textHeight = lines.reduce((sum, item) => sum + item.height, 0) - 2
+  const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, textHeight + 2 * padding + 2)
   const top = position === 'top' ? inset : h - inset - panelHeight
-  const bottom = top + panelHeight
 
-  ctx.fillStyle = background
-  rounded(panelX, top, panelWidth, panelHeight)
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)'
+  ctx.shadowBlur = 12
+  ctx.shadowOffsetY = 2
+  ctx.fillStyle = colors.card
+  rounded(inset, top, width, panelHeight)
   ctx.fill()
+  ctx.shadowColor = 'transparent'
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
+  ctx.lineWidth = 0.75
+  rounded(inset + 0.375, top + 0.375, width - 0.75, panelHeight - 0.75)
+  ctx.stroke()
+
+  if (accentBar) {
+    ctx.fillStyle = colors.accent
+    rounded(inset + padding, top + padding + 1, accentBar, panelHeight - 2 * padding - 2, 1.5)
+    ctx.fill()
+  }
+
   if (map) {
-    const mapTop = position === 'top' ? top : bottom - mapSize
+    const mapX = inset + padding
+    const mapTop = top + (panelHeight - mapSize) / 2
     ctx.save()
-    rounded(inset, mapTop, mapSize, mapSize)
+    rounded(mapX, mapTop, mapSize, mapSize, 8)
     ctx.clip()
-    ctx.drawImage(map, inset, mapTop, mapSize, mapSize)
+    ctx.drawImage(map, mapX, mapTop, mapSize, mapSize)
     if (!example) {
       const credit = ['Esri, Vantor', 'Earthstar Geographics', 'GIS User Community']
-      const creditTop = mapTop + mapSize - 24
-      ctx.font = '550 7px system-ui, sans-serif'
-      const creditWidth = Math.max(...credit.map(text => ctx.measureText(text).width)) + 6
-      ctx.fillStyle = '#101817df'
-      ctx.fillRect(inset, creditTop, creditWidth, 24)
-      ctx.fillStyle = white
-      credit.forEach((text, index) => ctx.fillText(text, inset + 3, creditTop + 1 + index * 7.5))
+      const creditTop = mapTop + mapSize - 23
+      ctx.font = `500 6.5px ${stampFace}`
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.62)'
+      ctx.fillRect(mapX, creditTop, mapSize, 23)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+      credit.forEach((text, index) => ctx.fillText(text, mapX + 4, creditTop + 1.5 + index * 7))
     }
     ctx.restore()
 
-    const x = inset + mapSize / 2, y = mapTop + mapSize / 2
+    const x = mapX + mapSize / 2, y = mapTop + mapSize / 2
+    ctx.save()
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)'
+    ctx.shadowBlur = 4
+    ctx.shadowOffsetY = 1
     ctx.beginPath()
     ctx.moveTo(x, y)
     ctx.bezierCurveTo(x - 4, y - 6, x - 9, y - 10, x - 9, y - 15)
     ctx.arc(x, y - 15, 9, Math.PI, 0)
     ctx.bezierCurveTo(x + 9, y - 10, x + 4, y - 6, x, y)
-    ctx.fillStyle = '#d43743'
+    ctx.fillStyle = colors.accent
     ctx.fill()
-    ctx.lineWidth = 1.25
+    ctx.restore()
+    ctx.lineWidth = 1.5
     ctx.strokeStyle = '#ffffff'
     ctx.stroke()
     ctx.beginPath()
-    ctx.arc(x, y - 15, 2.5, 0, Math.PI * 2)
+    ctx.arc(x, y - 15, 3, 0, Math.PI * 2)
     ctx.fillStyle = '#ffffff'
     ctx.fill()
   }
@@ -504,10 +541,11 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     qr.make()
     const modules = qr.getModuleCount()
     const step = codeSize / (modules + 8)
-    const x = panelX + panelWidth - padding - codeSize
-    const y = top + padding
+    const x = inset + width - padding - codeSize
+    const y = top + (panelHeight - codeSize) / 2
     ctx.fillStyle = '#ffffff'
-    ctx.fillRect(x, y, codeSize, codeSize)
+    rounded(x, y, codeSize, codeSize, 6)
+    ctx.fill()
     ctx.fillStyle = '#000000'
     for (let row = 0; row < modules; row++) {
       for (let column = 0; column < modules; column++) {
@@ -521,13 +559,15 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     }
   }
 
-  let y = top + padding
+  let y = top + (panelHeight - textHeight) / 2
   for (const item of lines) {
     ctx.font = item.font
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${item.tracking}px`
     ctx.fillStyle = item.color
-    ctx.fillText(item.text, panelX + padding, y, textWidth)
+    ctx.fillText(item.text, textX, y, textWidth)
     y += item.height
   }
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
   ctx.restore()
 }
 
@@ -679,8 +719,9 @@ $('timerToggle').addEventListener('click', () => {
   cancelCountdown()
   timerSeconds = ({ 0: 3, 3: 10, 10: 0 })[timerSeconds]
   const label = timerSeconds ? `Timer ${timerSeconds}s` : 'Timer off'
-  $('timerLabel').textContent = label
+  $('timerLabel').textContent = timerSeconds ? `${timerSeconds}s` : 'Off'
   $('timerToggle').setAttribute('aria-label', label)
+  $('timerToggle').setAttribute('aria-pressed', String(timerSeconds > 0))
 })
 
 function takeLivePhoto(snapshot) {
@@ -727,6 +768,7 @@ async function capture(source, picked, snapshot) {
     canvas.getContext('2d', { alpha: false }).drawImage(source, 0, 0)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await locate(snapshot)
+    await stampFonts
     drawStamp(canvas, { snapshot, date, picked, address, map })
     const jpeg = await exportJpeg(canvas)
     if (!jpeg) throw new Error('Export unavailable')
@@ -831,6 +873,9 @@ $('placeLabel').addEventListener('input', (event) => {
 
 function updateTemplateLabel() {
   $('chosenTemplate').textContent = { satellite: 'Satellite', time: 'Date & Time', qr: 'QR Location' }[preferences.template]
+  for (const tab of document.querySelectorAll('[data-template]')) {
+    tab.setAttribute('aria-pressed', String(tab.dataset.template === preferences.template))
+  }
   $('startWithoutLocation').hidden = preferences.template === 'time'
   updateLocationMapAction()
   if (!busy) resetStart()
@@ -886,6 +931,7 @@ function renderTemplatePreview() {
       ctx.drawImage(templateExample, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height)
     }
   }
+  if (!stampFontsReady) stampFonts.then(() => { if ($('templates').open) renderTemplatePreview() })
   const isTime = preferences.template === 'time'
   const map = document.createElement('canvas')
   map.width = map.height = 128
@@ -907,6 +953,15 @@ function renderTemplatePreview() {
   })
   const y = preferences.position === 'top' ? 0 : canvas.height - preview.height
   preview.getContext('2d').drawImage(canvas, 0, y, preview.width, preview.height, 0, 0, preview.width, preview.height)
+}
+
+for (const tab of document.querySelectorAll('[data-template]')) {
+  tab.addEventListener('click', () => {
+    const radio = document.querySelector(`input[name="template"][value="${tab.dataset.template}"]`)
+    if (busy || radio.checked) return
+    radio.checked = true
+    radio.dispatchEvent(new Event('change'))
+  })
 }
 
 for (const element of document.querySelectorAll('input[name="template"]')) {
@@ -1075,6 +1130,16 @@ function updateReportFields() {
   $('reportPhotoFields').hidden = comparison
   $('reportLocation').placeholder = comparison || $('reportPhoto').files[0] ? 'Site or address' : locationLabel(lastPhoto) || 'Site or address'
   $('reportStatus').textContent = ''
+}
+for (const input of document.querySelectorAll('.file-input')) {
+  const drop = document.querySelector(`label.file-drop[for="${input.id}"]`)
+  const hint = drop?.querySelector('small')
+  const empty = hint?.textContent
+  input.addEventListener('change', () => {
+    const chosen = input.files?.[0]
+    drop?.classList.toggle('has-file', !!chosen)
+    if (hint) hint.textContent = chosen ? chosen.name : empty
+  })
 }
 $('reportType').addEventListener('change', updateReportFields)
 $('reportPhoto').addEventListener('change', updateReportFields)
