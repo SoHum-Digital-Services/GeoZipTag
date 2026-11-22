@@ -953,6 +953,26 @@ function resetLiveControls() {
   video.classList.remove('can-focus')
 }
 
+// Phones fill the screen with the camera (cropping the edges). The iOS web view can ignore object-fit on a
+// live camera, so the video element itself is sized to cover the preview area instead of relying on CSS.
+function coverVideo() {
+  const area = video.parentElement.getBoundingClientRect()
+  const cover = getComputedStyle(video).objectFit === 'cover'
+  if (!cover || video.hidden || !video.videoWidth || !video.videoHeight || !area.width || !area.height) {
+    for (const property of ['width', 'height', 'left', 'top', 'right', 'bottom']) video.style.removeProperty(property)
+    return
+  }
+  const scale = Math.max(area.width / video.videoWidth, area.height / video.videoHeight)
+  const width = Math.ceil(video.videoWidth * scale), height = Math.ceil(video.videoHeight * scale)
+  Object.assign(video.style, {
+    width: `${width}px`, height: `${height}px`, right: 'auto', bottom: 'auto',
+    left: `${Math.round((area.width - width) / 2)}px`, top: `${Math.round((area.height - height) / 2)}px`,
+  })
+}
+for (const type of ['loadedmetadata', 'resize', 'playing']) video.addEventListener(type, coverVideo)
+window.addEventListener('resize', coverVideo)
+if ('ResizeObserver' in window) new ResizeObserver(coverVideo).observe(video.parentElement)
+
 function videoFrame() {
   const box = video.getBoundingClientRect()
   if (!video.videoWidth || !video.videoHeight || !box.width || !box.height) return undefined
