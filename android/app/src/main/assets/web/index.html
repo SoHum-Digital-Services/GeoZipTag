@@ -208,6 +208,9 @@
 <dialog id="reports" aria-labelledby="reportsTitle" autofocus>
   <div class="sheet-head"><h2 id="reportsTitle">Create report</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
   <form id="reportForm">
+    <label class="file-drop logo-drop" for="reportLogo"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span><strong>Company logo</strong><small id="reportLogoHint">Optional · PNG, JPG or SVG</small></span><img id="reportLogoPreview" alt="Company logo preview" hidden></label>
+    <input id="reportLogo" class="logo-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml">
+    <button id="removeReportLogo" class="text-button remove-logo" type="button" hidden>Remove logo</button>
     <label for="reportType">Report type</label>
     <select id="reportType"><option value="photo">Single photo</option><option value="comparison">Before and after</option></select>
     <div id="reportPhotoFields">

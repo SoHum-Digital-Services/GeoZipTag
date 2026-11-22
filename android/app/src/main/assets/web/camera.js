@@ -1451,6 +1451,7 @@ const reportCss = `
 .gz-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 8mm;
   padding-bottom: 3.5mm; border-bottom: 0.6mm solid #c3422b; }
 .gz-logo { display: block; height: 8.5mm; width: auto; }
+.gz-company-logo { height: auto; max-height: 15mm; max-width: 62mm; object-fit: contain; }
 .gz-head-meta { display: grid; justify-items: end; gap: 0.6mm; color: #5b6669; font-size: 8pt; text-align: right; }
 .gz-kicker { color: #123f49; font-size: 7.5pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .gz-title { margin: 7mm 0 5mm; }
@@ -1519,6 +1520,52 @@ function reportElement(tag, text, parent, className) {
   return element
 }
 
+// Company logo for reports: chosen once, kept on this device as a clean PNG.
+const reportLogoKey = 'geoziptagReportLogo'
+let reportLogo = ''
+try { reportLogo = localStorage.getItem(reportLogoKey) || '' } catch {}
+
+function showReportLogo() {
+  $('reportLogoPreview').src = reportLogo || ''
+  $('reportLogoPreview').hidden = !reportLogo
+  $('removeReportLogo').hidden = !reportLogo
+  $('reportLogoHint').textContent = reportLogo ? 'Shown on every report' : 'Optional · PNG, JPG or SVG'
+  document.querySelector('label.logo-drop').classList.toggle('has-file', !!reportLogo)
+}
+showReportLogo()
+
+$('reportLogo').addEventListener('change', async () => {
+  const chosen = $('reportLogo').files?.[0]
+  $('reportLogo').value = ''
+  if (!chosen) return
+  const url = URL.createObjectURL(chosen)
+  try {
+    const image = await loadImage(url)
+    // Redraw into a bounded PNG: strips anything but pixels and keeps transparency.
+    const width = image.naturalWidth || 600, height = image.naturalHeight || 200
+    const scale = Math.min(1, 1200 / width, 400 / height)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(width * scale))
+    canvas.height = Math.max(1, Math.round(height * scale))
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height)
+    reportLogo = canvas.toDataURL('image/png')
+    let kept = true
+    try { localStorage.setItem(reportLogoKey, reportLogo) } catch { kept = false }
+    showReportLogo()
+    $('reportStatus').textContent = kept ? '' : 'Logo added for now, but it could not be saved for next time.'
+  } catch {
+    $('reportStatus').textContent = 'This logo could not be opened. Try a PNG or JPG image.'
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+})
+
+$('removeReportLogo').addEventListener('click', () => {
+  reportLogo = ''
+  try { localStorage.removeItem(reportLogoKey) } catch {}
+  showReportLogo()
+})
+
 let reportUrls = []
 function clearReportImages() {
   reportUrls.forEach(url => URL.revokeObjectURL(url))
@@ -1555,10 +1602,10 @@ $('reportForm').addEventListener('submit', async (event) => {
     const kind = comparison ? 'Before and after' : 'Photo report'
 
     const head = reportElement('header', '', report, 'gz-head')
-    if (logo) {
-      const image = reportElement('img', '', head, 'gz-logo')
-      image.src = logo
-      image.alt = 'GeoZipTag'
+    if (reportLogo || logo) {
+      const image = reportElement('img', '', head, reportLogo ? 'gz-logo gz-company-logo' : 'gz-logo')
+      image.src = reportLogo || logo
+      image.alt = reportLogo ? (company || 'Company logo') : 'GeoZipTag'
     } else reportElement('strong', 'GeoZipTag', head)
     const meta = reportElement('div', '', head, 'gz-head-meta')
     reportElement('span', kind, meta, 'gz-kicker')

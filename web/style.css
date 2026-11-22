@@ -680,7 +680,12 @@ dialog .setting-row select { width: auto; min-width: 7.5rem; min-height: 40px; p
 .app-version { margin: 1.25rem 0 0; color: var(--text-3); font-size: .78rem; text-align: center; }
 
 /* Reports */
-.file-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file-input, .logo-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+dialog label.logo-drop { margin-top: .25rem; }
+.logo-drop img { flex: 0 0 auto; max-width: 7.5rem; max-height: 2.75rem; margin-left: auto; padding: .3rem; border-radius: 8px; background: #fff; object-fit: contain; }
+.logo-drop:has(+ .logo-input:focus-visible) { outline: 2px solid var(--cream); outline-offset: 2px; }
+.remove-logo { min-height: 36px; margin: .2rem 0 0 auto; padding: .3rem .6rem; font-size: .82rem; }
+#reportForm > .remove-logo { display: flex; }
 dialog label.file-drop {
   display: flex;
   align-items: center;
