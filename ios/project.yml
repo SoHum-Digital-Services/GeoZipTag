@@ -27,6 +27,8 @@ targets:
       path: GeoZipTag/Info.plist
       properties:
         CFBundleDisplayName: GeoZipTag
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
