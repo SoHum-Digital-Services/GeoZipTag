@@ -253,28 +253,29 @@ video.can-focus { cursor: crosshair; }
   bottom: .75rem;
   display: flex;
   align-items: center;
-  gap: .6rem;
-  width: min(calc(100% - 1.5rem), 17rem);
-  min-height: 40px;
-  padding: 0 .9rem 0 .5rem;
+  gap: .25rem;
+  padding: .25rem;
   transform: translateX(-50%);
   border-radius: 999px;
-  background: #00000066;
+  background: #00000059;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  font-size: .8rem;
 }
-.camera-zoom label {
+.camera-zoom button {
   display: grid;
-  min-width: 2.6rem;
-  height: 30px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
   place-items: center;
+  border: 0;
   border-radius: 999px;
-  background: #ffffff1f;
-  font-weight: 600;
+  background: #ffffff1a;
+  color: #fff;
+  font: 600 .72rem/1 inherit;
+  font-variant-numeric: tabular-nums;
+  transition: transform .15s, background .15s;
 }
-.camera-zoom output { color: var(--cream); font-variant-numeric: tabular-nums; }
-.camera-zoom input { flex: 1; min-width: 0; height: 36px; accent-color: var(--cream); }
+.camera-zoom button[aria-pressed=true] { background: #00000080; color: #f5c94c; font-size: .8rem; transform: scale(1.08); }
 .camera-countdown {
   z-index: 1;
   grid-area: 1 / 1;

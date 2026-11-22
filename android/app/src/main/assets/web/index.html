@@ -77,9 +77,8 @@
       <button id="timerToggle" type="button" aria-label="Timer off"><svg class="icon"><use href="#i-timer"/></svg><span id="timerLabel">Off</span></button>
       <button id="torchToggle" type="button" aria-pressed="false" aria-label="Torch" hidden><svg class="icon"><use href="#i-flash"/></svg></button>
     </div>
-    <div id="zoomControl" class="camera-zoom" hidden>
-      <label for="zoomSlider"><output id="zoomValue" for="zoomSlider"></output></label>
-      <input id="zoomSlider" type="range" aria-label="Camera zoom">
+    <div id="zoomControl" class="camera-zoom" role="group" aria-label="Zoom" hidden>
+      <input id="zoomSlider" type="range" aria-label="Camera zoom" hidden disabled>
     </div>
     <div id="cameraCountdown" class="camera-countdown" role="status" hidden></div>
     <button id="deletePhoto" class="delete-photo" type="button" aria-label="Delete photo" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>

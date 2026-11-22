@@ -36,7 +36,11 @@ function formatsFor(timeZone) {
     timeFormats.set(key, {
       full: new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'longOffset', ...zone }),
       date: new Intl.DateTimeFormat(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', ...zone }),
-      time: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'longOffset', ...zone })
+      time: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'longOffset', ...zone }),
+      clock: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit', ...zone }),
+      longDate: new Intl.DateTimeFormat(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', ...zone }),
+      zoneName: new Intl.DateTimeFormat(undefined, { timeZoneName: 'long', ...zone }),
+      offset: new Intl.DateTimeFormat(undefined, { timeZoneName: 'longOffset', ...zone })
     })
   }
   return timeFormats.get(key)
@@ -54,6 +58,13 @@ function placeTimeZone(snapshot) {
 }
 
 const timeAt = (snapshot) => formatsFor(placeTimeZone(snapshot))
+
+// "India Standard Time · GMT+05:30"
+function zoneLabel(formats, date) {
+  const part = (format) => format.formatToParts(date).find(item => item.type === 'timeZoneName')?.value || ''
+  const name = part(formats.zoneName), offset = part(formats.offset)
+  return [...new Set([name, offset].filter(Boolean))].join(' · ')
+}
 
 function expireLocationFix() {
   if (manualFix || !fix || currentFix()) return
@@ -299,7 +310,7 @@ $('captureWithoutLocation').addEventListener('click', () => {
 })
 
 function updateLocationMapAction() {
-  $('addLocationMap').hidden = preferences.template !== 'time' && !!(manualFix || currentFix())
+  $('addLocationMap').hidden = preferences.template === 'time' || !!(manualFix || currentFix())
 }
 
 function addLocationMap() {
@@ -640,7 +651,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const mapSize = map ? 104 : 0
   const codeSize = template === 'qr' && snapshot ? 84 : 0
   const accentBar = map ? 0 : 3
-  const width = Math.min(w - 2 * inset, map ? 540 : snapshot ? 450 : 300)
+  const width = Math.min(w - 2 * inset, map ? 540 : snapshot ? 450 : 310)
   const textX = inset + padding + (map ? mapSize + padding + 2 : accentBar + padding)
   const textWidth = inset + width - padding - (codeSize ? codeSize + padding : 0) - textX
   const colors = {
@@ -697,8 +708,10 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     add(formatCoordinates(snapshot), 11.5, colors.coordinate, 600, { maxLines: 1 })
     add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
   } else {
-    add(time, 21, colors.text, 700, { maxLines: 1, gapAfter: 1 })
-    add(dateLabel, 13, colors.muted, 500, { maxLines: 1 })
+    add(picked ? 'STAMPED' : 'TIMESTAMP', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 4 })
+    add(zoned.clock.format(date), 27, colors.text, 700, { maxLines: 1, gapAfter: 3 })
+    add(zoned.longDate.format(date), 13.5, colors.text, 500, { maxLines: 1, gapAfter: 2 })
+    add(zoneLabel(zoned, date), 11.5, colors.coordinate, 600, { maxLines: 1 })
   }
   if (note) add(`Note: ${note}`, 11.5, colors.muted, 500, { maxLines: 2 })
   const textHeight = lines.reduce((sum, item) => sum + item.height, 0) - 2
@@ -942,8 +955,37 @@ $('gridToggle').addEventListener('click', () => {
   updateCameraGrid()
 })
 
+// Zoom: 0.5×, 1× and 2× buttons (those the camera supports); pinching zooms in between.
+const zoomStops = [0.5, 1, 2]
+const zoomText = (value) => `${Number(value.toFixed(1))}`.replace(/^0\./, '.')
 function setZoomLabel(value) {
-  $('zoomValue').textContent = `${Number(value.toFixed(2))}×`
+  const buttons = [...$('zoomControl').querySelectorAll('button')]
+  const active = buttons.filter(button => Number(button.dataset.zoom) <= value + 0.05).pop() || buttons[0]
+  for (const button of buttons) {
+    const selected = button === active
+    button.setAttribute('aria-pressed', String(selected))
+    button.textContent = selected ? `${zoomText(value)}×` : zoomText(Number(button.dataset.zoom))
+  }
+}
+function buildZoomButtons(min, max) {
+  const control = $('zoomControl')
+  control.querySelectorAll('button').forEach(button => button.remove())
+  const stops = zoomStops.filter(stop => stop >= min - 0.01 && stop <= max + 0.01)
+  for (const stop of stops) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.dataset.zoom = stop
+    button.setAttribute('aria-label', `Zoom ${stop}×`)
+    button.addEventListener('click', () => {
+      const camera = cameraHardware
+      if (!camera) return
+      $('zoomSlider').value = stop
+      setZoomLabel(stop)
+      requestZoom(camera, stop)
+    })
+    control.append(button)
+  }
+  return stops.length
 }
 
 function showLiveControls(track) {
@@ -960,9 +1002,10 @@ function showLiveControls(track) {
   $('torchToggle').disabled = false
   const zoom = capabilities.zoom
   const hasZoom = Number.isFinite(zoom?.min) && Number.isFinite(zoom?.max) && zoom.max > zoom.min
-  $('zoomControl').hidden = !hasZoom
+  const slider = $('zoomSlider')   // hidden; holds the zoom range and value for the buttons and pinch
+  slider.disabled = !hasZoom
+  $('zoomControl').hidden = !hasZoom || buildZoomButtons(zoom.min, zoom.max) < 2
   if (hasZoom) {
-    const slider = $('zoomSlider')
     slider.min = zoom.min
     slider.max = zoom.max
     slider.step = zoom.step > 0 ? zoom.step : 'any'
@@ -1071,7 +1114,7 @@ function requestZoom(camera, value) {
 video.addEventListener('pointerdown', event => {
   if (event.pointerType !== 'touch') return
   touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY })
-  if (touchPoints.size === 2 && cameraHardware && !$('zoomControl').hidden) {
+  if (touchPoints.size === 2 && cameraHardware && !$('zoomSlider').disabled) {
     pinch = { camera: cameraHardware, distance: pinchDistance(), zoom: $('zoomSlider').valueAsNumber }
   }
 })
