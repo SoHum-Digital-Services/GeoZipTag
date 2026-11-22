@@ -16,8 +16,8 @@ share sheet, addresses also come from Apple's geocoder, and reports print or sav
 
 ## Building
 The workflow `.github/workflows/ios.yml` builds on a Mac runner on every change, starts the app in the
-simulator and checks it serves its files. It produces an **unsigned** `GeoZipTag-unsigned.ipa` (artifact
-`GeoZipTag-ios-unsigned`). On a Mac: `brew install xcodegen && cd ios && xcodegen generate && open GeoZipTag.xcodeproj`.
+simulator and checks it serves its files. It produces an **unsigned** `GeoZipTag-unsigned.ipa`, published at
+https://github.com/SoHum-Digital-Services/GeoZipTag/releases/download/ios-latest/GeoZipTag-unsigned.ipa On a Mac: `brew install xcodegen && cd ios && xcodegen generate && open GeoZipTag.xcodeproj`.
 
 ## Installing on an iPhone
 Apple only runs signed apps, so the unsigned .ipa must be signed with an Apple ID:

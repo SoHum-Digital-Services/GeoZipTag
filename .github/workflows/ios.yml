@@ -11,6 +11,9 @@ on:
       - ".github/workflows/ios.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -39,6 +42,17 @@ jobs:
         with:
           name: GeoZipTag-ios-unsigned
           path: ios/GeoZipTag-unsigned.ipa
+
+      # A stable download link for sideloading (Sideloadly / AltStore):
+      # https://github.com/SoHum-Digital-Services/GeoZipTag/releases/download/ios-latest/GeoZipTag-unsigned.ipa
+      - name: Publish the unsigned .ipa as a download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ios-latest --yes --cleanup-tag || true
+          gh release create ios-latest ios/GeoZipTag-unsigned.ipa --prerelease --target "${{ github.sha }}" \
+            --title "iOS app (unsigned, latest build)" \
+            --notes "Unsigned build of ${{ github.sha }}. Sign it with your Apple ID using Sideloadly or AltStore (see ios/README.md)."
 
       - name: Build for the simulator and start the app
         working-directory: ios
