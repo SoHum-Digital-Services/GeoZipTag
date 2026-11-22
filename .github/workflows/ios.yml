@@ -1,0 +1,67 @@
+# Builds the iOS app on a Mac runner and checks that it starts and serves its web files.
+# The result is an UNSIGNED .ipa (artifact "GeoZipTag-ios-unsigned"); see ios/README.md for installing it.
+name: Build iOS app
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "ios/**"
+      - "android/app/src/main/assets/web/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build for a real iPhone (unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild -project GeoZipTag.xcodeproj -scheme GeoZipTag -configuration Release \
+            -sdk iphoneos -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -40
+          mkdir -p Payload
+          cp -R build/device/Build/Products/Release-iphoneos/GeoZipTag.app Payload/
+          zip -qr GeoZipTag-unsigned.ipa Payload
+          ls -la GeoZipTag-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoZipTag-ios-unsigned
+          path: ios/GeoZipTag-unsigned.ipa
+
+      - name: Build for the simulator and start the app
+        working-directory: ios
+        run: |
+          xcodebuild -project GeoZipTag.xcodeproj -scheme GeoZipTag -configuration Debug \
+            -sdk iphonesimulator -derivedDataPath build/sim \
+            CODE_SIGNING_ALLOWED=NO build | tail -20
+          DEVICE=$(xcrun simctl list devices available | grep -m1 "iPhone" | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+          echo "Simulator: $DEVICE"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE"
+          xcrun simctl install "$DEVICE" build/sim/Build/Products/Debug-iphonesimulator/GeoZipTag.app
+          xcrun simctl launch "$DEVICE" com.geostampcam.mobile
+          sleep 8
+          curl -sf -o /dev/null -w "index.html: %{http_code}\n" http://127.0.0.1:47653/index.html
+          curl -sf -o /dev/null -w "camera.js: %{http_code}\n" http://127.0.0.1:47653/camera.js
+          curl -s -o /dev/null -w "missing file: %{http_code}\n" http://127.0.0.1:47653/nope.js
+          curl -s -o /dev/null -w "traversal: %{http_code}\n" --path-as-is http://127.0.0.1:47653/../Info.plist
+          xcrun simctl io "$DEVICE" screenshot sim.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-screenshot
+          path: ios/sim.png
+          if-no-files-found: ignore

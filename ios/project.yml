@@ -1,0 +1,45 @@
+# Generate the Xcode project with:  xcodegen generate   (see ios/README.md)
+name: GeoZipTag
+options:
+  bundleIdPrefix: com.geostampcam
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.10"
+    CURRENT_PROJECT_VERSION: "11"
+targets:
+  GeoZipTag:
+    type: application
+    platform: iOS
+    sources:
+      - path: GeoZipTag
+        excludes: ["Info.plist"]
+      # The same web app the Android build uses (one copy, no duplicate to keep in sync).
+      - path: ../android/app/src/main/assets/web
+        type: folder
+    info:
+      path: GeoZipTag/Info.plist
+      properties:
+        CFBundleDisplayName: GeoZipTag
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: true
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: GeoZipTag uses the camera to take photos that get a location and time stamp.
+        NSLocationWhenInUseUsageDescription: GeoZipTag uses your location to stamp the address and coordinates onto your photos.
+        NSPhotoLibraryAddUsageDescription: GeoZipTag saves your stamped photos to your Photos library.
+        NSPhotoLibraryUsageDescription: GeoZipTag keeps its photos in a GeoZipTag album and lets you delete them from there.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.geostampcam.mobile
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
