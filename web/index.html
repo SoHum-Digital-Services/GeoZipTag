@@ -61,8 +61,8 @@
       <span id="liveCameraTools" class="live-camera-tools" role="group" aria-label="Camera controls" hidden>
         <button id="gridToggle" type="button" aria-pressed="false" aria-label="Grid"><svg class="icon"><use href="#i-grid"/></svg></button>
         <button id="timerToggle" type="button" aria-label="Timer off"><svg class="icon"><use href="#i-timer"/></svg><span id="timerLabel">Off</span></button>
-        <button id="torchToggle" type="button" aria-pressed="false" aria-label="Torch" hidden><svg class="icon"><use href="#i-flash"/></svg></button>
       </span>
+      <button class="icon-button" type="button" aria-label="Reports" data-open="reports"><svg class="icon"><use href="#i-report"/></svg></button>
     </nav>
   </header>
 
@@ -117,13 +117,13 @@
       <div class="thumb-slot">
         <button id="lastPhotoButton" class="last-photo" type="button" aria-label="Last photo. None yet" disabled><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><img id="lastPhotoImage" alt="" hidden></button>
       </div>
-      <div class="dock-slot"><button class="dock-tool" type="button" aria-label="Reports" data-open="reports"><svg class="icon" aria-hidden="true"><use href="#i-report"/></svg></button></div>
+      <div class="dock-slot"><button id="torchToggle" class="dock-tool" type="button" aria-pressed="false" aria-label="Torch" hidden><svg class="icon" aria-hidden="true"><use href="#i-flash"/></svg></button></div>
       <div class="shutter-slot"><button id="shutter" class="shutter" type="button" aria-label="Take photo" hidden></button></div>
+      <div class="dock-slot"><button class="dock-tool" type="button" aria-label="Settings" data-open="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button></div>
       <div class="camera-switch-slot">
         <button id="switchCamera" class="dock-tool" type="button" aria-label="Flip camera" hidden><svg class="icon" aria-hidden="true"><use href="#i-flip"/></svg></button>
         <button id="fallback" class="dock-tool" type="button" aria-label="Phone camera"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg></button>
       </div>
-      <div class="dock-slot"><button class="dock-tool" type="button" aria-label="Settings" data-open="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button></div>
     </div>
     <div class="mode-tabs" role="group" aria-label="Stamp style">
       <button type="button" data-template="satellite" aria-pressed="false">Satellite</button>

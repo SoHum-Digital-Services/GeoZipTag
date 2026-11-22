@@ -893,7 +893,11 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 @media (max-width: 759px) {
   .camera-header { padding: env(safe-area-inset-top) .5rem .35rem; background: rgba(0, 0, 0, .42); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
   .camera-header .wordmark { display: none; }
-  .camera-header nav { display: flex; flex: 1; justify-content: space-around; align-items: center; min-height: 46px; }
+  /* Five equal slots, so the tools are evenly spaced whatever their labels. */
+  .camera-header nav { display: flex; flex: 1; align-items: center; min-height: 46px; }
+  .camera-header nav > .icon-button, .live-camera-tools > button { flex: 1 1 0; min-width: 0; }
+  .live-camera-tools > button[hidden] { display: none; }
+  .dock-tool[aria-pressed=true] { background: var(--cream); color: #111; }
   .camera-header nav .icon-button, .live-camera-tools button { min-width: 44px; min-height: 40px; padding: 0 .4rem; gap: .2rem; border-radius: 999px; background: transparent; color: #fff; font-size: .7rem; }
   .live-camera-tools button[aria-pressed=true] { background: rgba(255, 255, 255, .16); color: var(--cream); }
   .live-camera-tools .icon { width: 1.25rem; height: 1.25rem; }
