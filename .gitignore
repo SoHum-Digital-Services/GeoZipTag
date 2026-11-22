@@ -1,0 +1,21 @@
+# Local tools and generated builds
+.DS_Store
+.idea/
+.vscode/
+node_modules/
+.gradle/
+**/build/
+local.properties
+
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.p12
+*.keystore
+*.pem
+*.key
+*.apk
+*.aab
+.openai/
