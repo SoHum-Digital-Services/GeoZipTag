@@ -7,6 +7,6 @@
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:colorAccent">#F2634E</item>
         <item name="android:windowSplashScreenBackground">#000000</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">#0D4D5C</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/geoziptag_launcher_background</item>
     </style>
 </resources>

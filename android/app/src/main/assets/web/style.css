@@ -119,17 +119,7 @@ dialog:focus, dialog:focus-visible { outline: none; }
   padding: 0 .4rem 0 1rem;
 }
 .wordmark { display: flex; align-items: center; gap: .55rem; margin: 0; font-size: 1.06rem; font-weight: 700; letter-spacing: -.02em; }
-.brand-mark {
-  position: relative;
-  width: 30px;
-  height: 30px;
-  overflow: hidden;
-  border-radius: 50%;
-  background: var(--teal);
-}
-/* Same treatment as the launcher icon: globe inside a thin cream ring on teal. */
-.brand-mark img { position: absolute; top: -2px; left: -2px; width: 34px; height: 34px; clip-path: circle(11px); }
-.brand-mark::after { position: absolute; inset: 3px; border: 1.5px solid var(--cream); border-radius: 50%; content: ""; }
+.brand-mark { display: block; width: 30px; height: 30px; border-radius: 8px; box-shadow: 0 0 0 1px #ffffff1a; }
 .brand-name { display: block; width: auto; height: 21px; }
 .camera-header nav { display: flex; gap: .15rem; }
 

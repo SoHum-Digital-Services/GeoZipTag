@@ -527,8 +527,8 @@ const stampFonts = Promise.all([
   (document.fonts
     ? Promise.all(['700 18px', '600 12px', '500 13px'].map(spec => document.fonts.load(`${spec} Inter`)))
     : Promise.resolve()).catch(() => {}),
-  Promise.all(['assets/geoziptag-wordmark.svg', 'assets/geoziptag-icon.svg'].map(src => loadImage(src).catch(() => undefined)))
-    .then(([wordmark, globe]) => { stampBrand = { wordmark, globe } })
+  Promise.all(['assets/geoziptag-wordmark.svg', 'assets/app-icon.png'].map(src => loadImage(src).catch(() => undefined)))
+    .then(([wordmark, icon]) => { stampBrand = { wordmark, icon } })
 ]).then(() => { stampFontsReady = true })
 
 function formatCoordinates({ lat, lon }) {
@@ -612,7 +612,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   // background stays even where they join. The tab rises from the card's
   // top-right corner (or hangs from the bottom-right when the stamp is at the top).
   const tabHeight = 28, iconSize = 19, markHeight = 12.5, tabRadius = 9, joinRadius = 5
-  const { wordmark, globe } = stampBrand
+  const { wordmark, icon } = stampBrand
   const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
   ctx.font = `700 12px ${stampFace}`
   const tabWidth = 7 + iconSize + 7 + (markWidth || ctx.measureText('GeoZipTag').width) + 11
@@ -742,27 +742,18 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   }
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
 
-  // Tab contents: the app icon (teal tile, globe, cream ring) and the wordmark.
+  // Tab contents: the app icon and the wordmark.
   const tabTop = position === 'top' ? y1 : y0 - tabHeight
   const iconX = tabX + 7, iconY = tabTop + (tabHeight - iconSize) / 2
   ctx.save()
-  rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.24)
-  ctx.fillStyle = '#0d4d5c'
+  rounded(iconX, iconY, iconSize, iconSize, iconSize * 0.23)
+  ctx.fillStyle = '#0f5867'
   ctx.fill()
-  const cx = iconX + iconSize / 2, cy = iconY + iconSize / 2, ringRadius = iconSize * 0.375
-  if (globe) {
-    const globeRadius = ringRadius - 1.2, size = globeRadius * 2 * 108 / 70
-    ctx.beginPath()
-    ctx.arc(cx, cy, globeRadius, 0, Math.PI * 2)
+  if (icon) {
     ctx.clip()
-    ctx.drawImage(globe, cx - size / 2, cy - size / 2, size, size)
+    ctx.drawImage(icon, iconX, iconY, iconSize, iconSize)
   }
   ctx.restore()
-  ctx.beginPath()
-  ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2)
-  ctx.strokeStyle = '#fdeac4'
-  ctx.lineWidth = 0.9
-  ctx.stroke()
   const markX = iconX + iconSize + 7
   if (wordmark) ctx.drawImage(wordmark, markX, tabTop + (tabHeight - markHeight) / 2, markWidth, markHeight)
   else {
