@@ -13,7 +13,7 @@ import java.io.FileNotFoundException;
 import java.util.List;
 
 public final class CacheImageProvider extends ContentProvider {
-    private static final String AUTHORITY = "com.geostampcam.mobile.images";
+    private static final String AUTHORITY = "cc.sohum.geoziptag.images";
 
     static Uri uriFor(String folder, String name) {
         return new Uri.Builder().scheme("content").authority(AUTHORITY)
