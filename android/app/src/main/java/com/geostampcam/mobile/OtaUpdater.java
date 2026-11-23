@@ -51,6 +51,7 @@ final class OtaUpdater {
     private static final Pattern WEB_PATH = Pattern.compile(
             "/(index\\.html|style\\.css|camera\\.js|manifest\\.webmanifest"
             + "|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt|vendor/tz-lookup\\.js|vendor/tz-lookup-LICENSE\\.txt"
+            + "|vendor/pdf\\.(min|worker\\.min)\\.js|vendor/pdf-LICENSE\\.txt"
             + "|assets/[a-z0-9-]{1,60}\\.(svg|woff2|jpg|png|txt))");
     private static final Pattern LABEL = Pattern.compile("[0-9A-Za-z._-]{1,32}");
     private static final Pattern HEX64 = Pattern.compile("[0-9a-f]{64}");

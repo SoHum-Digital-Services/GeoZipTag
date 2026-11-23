@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.geostampcam.mobile" android:versionCode="14" android:versionName="1.13">
+    package="com.geostampcam.mobile" android:versionCode="15" android:versionName="1.14">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />

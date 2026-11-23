@@ -28,6 +28,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         cameraFocus: (x, y) => post({ type: 'cameraFocus', x: Number(x), y: Number(y) }),
         cameraLayout: (x, y, w, h) => post({ type: 'cameraLayout', x: Number(x), y: Number(y), w: Number(w), h: Number(h) }),
         cameraCapture: (id) => post({ type: 'cameraCapture', id: String(id) }),
+        exportText: (action, name, text) => post({ type: 'exportText', action: String(action), name: String(name), text: String(text) }),
         videoBegin: (id, name) => post({ type: 'videoBegin', id: String(id), name: String(name) }),
         videoChunk: (id, data) => post({ type: 'videoChunk', id: String(id), data: String(data) }),
         videoEnd: (id, action) => post({ type: 'videoEnd', id: String(id), action: String(action || 'save') }),
@@ -312,6 +313,15 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                 if let data { self.server?.putPhoto(id, data) }
                 self.callPage("window.onNativePhoto && window.onNativePhoto(\(Self.js(id)), \(data != nil))")
             }
+        case "exportText":
+            guard body["action"] as? String == "share", let name = body["name"] as? String, let text = body["text"] as? String,
+                  name.range(of: "^GeoZipTag-[A-Za-z0-9_-]{1,95}\\.csv$", options: .regularExpression) != nil,
+                  text.count <= Self.maxPayload else { return }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            do { try Data(text.utf8).write(to: url, options: .atomic) } catch { showToast("Could not export the register."); return }
+            let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            sheet.popoverPresentationController?.sourceView = view
+            present(sheet, animated: true)
         case "videoBegin":
             guard let id = body["id"] as? String, id.range(of: "^[A-Za-z0-9_-]{1,40}$", options: .regularExpression) != nil,
                   let name = body["name"] as? String, Self.validName(name), !name.hasSuffix(".jpg") else { return }

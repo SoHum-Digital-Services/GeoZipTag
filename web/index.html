@@ -52,6 +52,8 @@
   <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M12 3v18" stroke-dasharray="2 2.5"/><path d="M9 6 4 18h5ZM15 6l5 12h-5Z"/></symbol>
   <symbol id="i-level" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="8" rx="4"/><path d="M9.5 8v8M14.5 8v8"/></symbol>
   <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 7V4.5h14V7M12 4.5v15M9 19.5h6"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9.5" cy="10.5" r="2.3"/><path d="M5.8 16.5c.6-1.8 2-2.7 3.7-2.7s3.1.9 3.7 2.7M14.5 9.5h3.5M14.5 12.5h3.5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.8" cy="6.5" r="1"/><circle cx="4.8" cy="12" r="1"/><circle cx="4.8" cy="17.5" r="1"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5M14 11v5"/></symbol>
 </svg>
 
@@ -64,6 +66,7 @@
     <nav aria-label="App tools">
       <button class="icon-button" type="button" data-open="templates" aria-label="Stamp style"><svg class="icon"><use href="#i-layers"/></svg><span class="visually-hidden" id="chosenTemplate">Satellite</span></button>
       <button id="locationButton" class="icon-button location-button" type="button" aria-label="Location" data-open="locationTools" data-state="off"><svg class="icon"><use href="#i-pin"/></svg></button>
+      <button id="employeeButton" class="icon-button employee-button" type="button" aria-label="Employee" data-open="employeePicker"><svg class="icon"><use href="#i-person"/></svg></button>
       <button class="icon-button" type="button" aria-label="Reports" data-open="reports"><svg class="icon"><use href="#i-report"/></svg></button>
       <button class="icon-button" type="button" aria-label="Settings" data-open="settings"><svg class="icon"><use href="#i-settings"/></svg></button>
     </nav>
@@ -218,6 +221,21 @@
 
 <dialog id="settings" aria-labelledby="settingsTitle" autofocus>
   <div class="sheet-head"><h2 id="settingsTitle">Settings</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <section class="settings-group" aria-labelledby="settingsAttendance">
+    <h3 id="settingsAttendance">Attendance</h3>
+    <div class="settings-list">
+      <button class="setting-row setting-link" type="button" data-open="employeesSheet">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-person"/></svg>
+        <span class="row-text"><strong>Employee IDs</strong><small id="employeeSummary">Add your ID and your team's</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+      <button class="setting-row setting-link" type="button" data-open="registerSheet">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-list"/></svg>
+        <span class="row-text"><strong>Attendance register</strong><small id="registerCount">Log in / log out records</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+    </div>
+  </section>
   <section class="settings-group" aria-labelledby="settingsCamera">
     <h3 id="settingsCamera">Camera</h3>
     <div class="settings-list">
@@ -306,6 +324,43 @@
   <p id="appVersion" class="app-version">GeoZipTag</p>
 </dialog>
 
+<dialog id="employeePicker" class="wheel-sheet" aria-labelledby="employeeTitle">
+  <div class="sheet-head"><h2 id="employeeTitle">Employee</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <div class="wheel-wrap"><div id="employeeWheel" class="wheel" role="listbox" aria-label="Employee ID" tabindex="0"></div></div>
+  <div class="segmented" role="group" aria-label="Attendance">
+    <button type="button" data-log="in" aria-pressed="true">Log in</button>
+    <button type="button" data-log="out" aria-pressed="false">Log out</button>
+  </div>
+  <p id="logHint" class="hint wheel-hint"></p>
+  <button type="button" class="text-button wheel-manage" data-open="employeesSheet">Add or import IDs</button>
+</dialog>
+
+<dialog id="employeesSheet" aria-labelledby="employeesTitle">
+  <div class="sheet-head"><h2 id="employeesTitle">Employee IDs</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <label for="myEmployeeId">My employee ID</label>
+  <input id="myEmployeeId" type="text" maxlength="40" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. ENDWEMP20153">
+  <p class="hint">Shown on every photo, unless you pick someone else with the ID button.</p>
+  <label for="employeeList">All IDs <small id="employeeCount"></small></label>
+  <textarea id="employeeList" rows="8" autocapitalize="characters" spellcheck="false" placeholder="ENDWEMP20153, Siddhartha&#10;ENDWEMP20154"></textarea>
+  <p class="hint">One per line: the ID, then the name if you like. Or import a text, CSV or PDF file that lists them.</p>
+  <div class="sheet-actions">
+    <label class="file-button" for="employeeFile">Import file</label>
+    <input id="employeeFile" class="logo-input" type="file" accept=".txt,.csv,.pdf,text/plain,text/csv,application/pdf">
+    <button id="saveEmployees" class="primary" type="button">Save</button>
+  </div>
+  <p id="employeeStatus" class="hint" role="status"></p>
+</dialog>
+
+<dialog id="registerSheet" aria-labelledby="registerTitle">
+  <div class="sheet-head"><h2 id="registerTitle">Attendance register</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <p id="registerSummary" class="hint"></p>
+  <div id="registerList" class="register-list"></div>
+  <div class="sheet-actions">
+    <button id="exportRegister" class="primary" type="button">Export CSV</button>
+    <button id="clearRegister" class="text-button" type="button">Clear</button>
+  </div>
+</dialog>
+
 <dialog id="helpSheet" class="info-sheet" aria-labelledby="helpTitle" autofocus>
   <div class="sheet-head"><h2 id="helpTitle">How to use</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
   <div class="info-text">
@@ -319,6 +374,8 @@
     <p>Tap the screen to focus, pinch or use .5 / 1 / 2 to zoom, and use the buttons at the top for the grid, timer and torch. Photo size and quality are in Settings.</p>
     <h3>Your photos</h3>
     <p>Tap the thumbnail beside the shutter to open the last photo, share it, or delete it. Swipe down to go back to the camera.</p>
+    <h3>Attendance</h3>
+    <p>Add your employee ID (and your team's) in Settings &gt; Employee IDs, by typing them or importing a text, CSV or PDF list. Every photo then shows the ID with Log in or Log out. Tap the ID button at the top to roll to someone else's ID or switch between Log in and Log out. Settings &gt; Attendance register lists every entry and exports a CSV for Excel.</p>
     <h3>Reports</h3>
     <p>The report button at the top turns a photo, or a before-and-after pair, into a PDF with your company logo and notes.</p>
   </div>

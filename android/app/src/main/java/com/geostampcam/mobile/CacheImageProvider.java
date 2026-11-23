@@ -29,7 +29,7 @@ public final class CacheImageProvider extends ContentProvider {
     private File fileFor(Uri uri) {
         List<String> parts = uri.getPathSegments();
         if (parts.size() != 2 || !parts.get(0).matches("captured|shared")
-                || !parts.get(1).matches("[A-Za-z0-9_-]{1,110}\\.(jpg|mp4|webm)")) {
+                || !parts.get(1).matches("[A-Za-z0-9_-]{1,110}\\.(jpg|mp4|webm|csv)")) {
             throw new IllegalArgumentException("Invalid image URI");
         }
         return new File(folder(getContext(), parts.get(0)), parts.get(1));
@@ -38,7 +38,8 @@ public final class CacheImageProvider extends ContentProvider {
     @Override public boolean onCreate() { return true; }
     @Override public String getType(Uri uri) {
         String path = uri.getPath() == null ? "" : uri.getPath();
-        return path.endsWith(".mp4") ? "video/mp4" : path.endsWith(".webm") ? "video/webm" : "image/jpeg";
+        return path.endsWith(".mp4") ? "video/mp4" : path.endsWith(".webm") ? "video/webm"
+                : path.endsWith(".csv") ? "text/csv" : "image/jpeg";
     }
 
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {

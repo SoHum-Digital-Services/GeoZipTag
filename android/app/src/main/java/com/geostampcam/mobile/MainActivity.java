@@ -776,6 +776,21 @@ public final class MainActivity extends Activity {
             });
         }
 
+        /** The attendance register as a CSV file, handed to the share sheet (Drive, WhatsApp, email, Files…). */
+        @JavascriptInterface public void exportText(String action, String filename, String text) {
+            if (!"share".equals(action) || filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.csv")
+                    || text == null || text.length() > MAX_PAYLOAD) return;
+            storage.execute(() -> {
+                File file = new File(CacheImageProvider.folder(MainActivity.this, "shared"), filename);
+                try (OutputStream out = new FileOutputStream(file)) {
+                    out.write(text.getBytes(StandardCharsets.UTF_8));
+                    shareFile(CacheImageProvider.uriFor("shared", filename));
+                } catch (IOException error) {
+                    notifyUser("Could not export the register.");
+                }
+            });
+        }
+
         /** action: "save" puts the video in the gallery, "share" opens the share sheet. */
         @JavascriptInterface public void videoEnd(String id, String action) {
             if (id == null) return;
@@ -1101,7 +1116,7 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> {
             String path = uri.getPath() == null ? "" : uri.getPath();
             Intent share = new Intent(Intent.ACTION_SEND).setType(path.endsWith(".mp4") ? "video/mp4"
-                    : path.endsWith(".webm") ? "video/webm" : "image/jpeg");
+                    : path.endsWith(".webm") ? "video/webm" : path.endsWith(".csv") ? "text/csv" : "image/jpeg");
             share.putExtra(Intent.EXTRA_STREAM, uri);
             share.setClipData(ClipData.newRawUri("Photo", uri));
             share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);

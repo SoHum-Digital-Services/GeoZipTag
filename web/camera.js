@@ -55,7 +55,9 @@ function formatsFor(timeZone) {
       longDate: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', ...zone }),
       zoneName: new Intl.DateTimeFormat(undefined, { timeZoneName: 'long', ...zone }),
       offset: new Intl.DateTimeFormat(undefined, { timeZoneName: 'longOffset', ...zone }),
-      calendar: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', weekday: 'long', ...zone })
+      calendar: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', weekday: 'long', ...zone }),
+      csvDate: new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', ...zone }),
+      csvTime: new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, ...zone })
     })
   }
   return timeFormats.get(key)
@@ -851,7 +853,7 @@ function formatCoordinates({ lat, lon }) {
 
 // `base` is the size the stamp scales with (normally the photo's short side). Returns the stamp's top and
 // bottom edges, tab included, in canvas pixels.
-function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base }) {
+function drawStamp(canvas, { snapshot, date, picked, address, map, template = preferences.template, position = preferences.position, example = false, note = stampNote, base, attendance }) {
   const ctx = canvas.getContext('2d')
   const unit = (base || Math.min(canvas.width, canvas.height)) / 460
   const w = canvas.width / unit, h = canvas.height / unit
@@ -911,6 +913,11 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const zoned = timeAt(snapshot)
   const dateLabel = `${picked ? 'Stamped ' : ''}${zoned.date.format(date)}`
   const time = zoned.time.format(date)
+  // Attendance: "ENDWEMP20153 · Name · LOG IN" in green, or LOG OUT in orange.
+  if (attendance?.id) {
+    const who = [attendance.id, attendance.name, attendance.action === 'out' ? 'LOG OUT' : 'LOG IN'].filter(Boolean).join(' · ')
+    add(who, 11, attendance.action === 'out' ? '#ffb067' : '#6fe0a0', 700, { maxLines: 1, tracking: 0.3, gapAfter: 3 })
+  }
   if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
   if (snapshot) {
     add(placeHeading(snapshot, address) || 'GPS location', 18, colors.text, 700, { gapAfter: 1 })
@@ -918,7 +925,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     add(formatCoordinates(snapshot), 11.5, colors.coordinate, 600, { maxLines: 1 })
     add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
   } else {
-    add(picked ? 'STAMPED' : 'TIMESTAMP', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 4 })
+    if (!attendance?.id) add(picked ? 'STAMPED' : 'TIMESTAMP', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 4 })
     add(zoned.clock.format(date), 25, colors.text, 700, { maxLines: 1, gapAfter: 3 })
     add(zoned.longDate.format(date), 13.5, colors.text, 500, { maxLines: 1, gapAfter: 2 })
     add(zoneLabel(zoned, date), 11.5, colors.coordinate, 600, { maxLines: 1 })
@@ -1882,7 +1889,8 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await placeFor(snapshot)
     await stampFonts
-    drawStamp(canvas, { snapshot, date, picked, address, map })
+    const attendance = live || phoneMode ? currentAttendance() : undefined
+    drawStamp(canvas, { snapshot, date, picked, address, map, attendance })
     const jpeg = await exportJpeg(canvas)
     if (!jpeg) throw new Error('Export unavailable')
     const name = `GeoZipTag-${date.toISOString().replace(/[:.]/g, '-')}.jpg`
@@ -1894,6 +1902,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       url: URL.createObjectURL(jpeg), originalUrl: original ? URL.createObjectURL(original) : undefined
     }
     rememberPhoto(entry)
+    if (attendance) recordAttendance(attendance, { date, snapshot, address, file: name })
     // The photo is ready: the thumbnail updates at once and the viewfinder stays on screen.
     updateThumbnail(canvas, entry)
     if (hostSaves) {
@@ -1963,6 +1972,305 @@ if (android) {
   }
 }
 
+// ---- Attendance: employee IDs, Log in / Log out on the stamp, and a register exported as CSV ----
+const employeeKey = 'geoziptagEmployees', registerKey = 'geoziptagAttendance'
+function loadJson(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback } catch { return fallback }
+}
+let employees = loadJson(employeeKey, { me: 'ENDWEMP20153', list: [] })
+if (!Array.isArray(employees.list)) employees.list = []
+let register = loadJson(registerKey, [])
+if (!Array.isArray(register)) register = []
+let selectedEmployeeId = employees.me || ''   // each launch starts with your own ID
+let logOverride                                 // 'in' or 'out' chosen in the picker for the next photo
+
+function employeeById(id) {
+  return employees.list.find(entry => entry.id === id) || (id ? { id, name: '' } : undefined)
+}
+function allEmployees() {
+  const list = [...employees.list]
+  if (employees.me && !list.some(entry => entry.id === employees.me)) list.unshift({ id: employees.me, name: '' })
+  return list
+}
+function saveEmployees() {
+  try { localStorage.setItem(employeeKey, JSON.stringify(employees)) } catch {}
+  updateEmployeeSummary()
+}
+// The next action for an ID: Log in unless their last entry today was a Log in.
+function suggestedLog(id) {
+  const today = new Date().toDateString()
+  const last = [...register].reverse().find(row => row.id === id)
+  return last && new Date(last.time).toDateString() === today && last.action === 'in' ? 'out' : 'in'
+}
+function currentAttendance() {
+  if (!selectedEmployeeId) return undefined
+  const person = employeeById(selectedEmployeeId)
+  return { id: person.id, name: person.name || '', action: logOverride || suggestedLog(person.id) }
+}
+function recordAttendance(attendance, { date, snapshot, address, file }) {
+  const zoned = timeAt(snapshot)
+  register.push({
+    id: attendance.id, name: attendance.name, action: attendance.action, time: date.toISOString(),
+    date: zoned.csvDate.format(date), clock: zoned.csvTime.format(date),
+    place: snapshot ? placeHeading(snapshot, address) : '', address: address ? fullAddress(address) : '',
+    lat: snapshot?.lat, lon: snapshot?.lon, file
+  })
+  if (register.length > 5000) register = register.slice(-5000)
+  try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
+  logOverride = undefined   // the next photo for this ID suggests the opposite action
+  updateEmployeeSummary()
+  setTimeout(renderLiveStamp)
+}
+function updateEmployeeSummary() {
+  const count = allEmployees().length
+  $('employeeSummary').textContent = count ? `${count} ID${count === 1 ? '' : 's'}${employees.me ? ` · mine: ${employees.me}` : ''}` : "Add your ID and your team's"
+  $('registerCount').textContent = register.length ? `${register.length} entr${register.length === 1 ? 'y' : 'ies'}` : 'Log in / log out records'
+  $('employeeButton').classList.toggle('chosen', !!selectedEmployeeId)
+  $('employeeButton').setAttribute('aria-label', selectedEmployeeId ? `Employee ${selectedEmployeeId}` : 'Employee: none')
+}
+updateEmployeeSummary()
+
+// The picker: a rolling wheel (like the iPhone clock) and Log in / Log out.
+const wheelItem = 44
+let wheelEntries = [], wheelTimer
+function prepareEmployeePicker() {
+  wheelEntries = [{ id: '', name: '' }, ...allEmployees()]
+  const wheel = $('employeeWheel')
+  wheel.replaceChildren(...wheelEntries.map((entry, index) => {
+    const item = document.createElement('div')
+    item.className = `wheel-item${entry.id ? '' : ' none'}`
+    item.setAttribute('role', 'option')
+    const strong = document.createElement('strong')
+    strong.textContent = entry.id || 'No ID'
+    item.append(strong)
+    if (entry.name) {
+      const small = document.createElement('small')
+      small.textContent = entry.name
+      item.append(small)
+    }
+    item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+    return item
+  }))
+  const index = Math.max(0, wheelEntries.findIndex(entry => entry.id === selectedEmployeeId))
+  wheel.scrollTop = index * wheelItem
+  styleWheel()
+  showLogChoice()
+}
+function styleWheel() {
+  const wheel = $('employeeWheel'), centre = wheel.scrollTop / wheelItem
+  ;[...wheel.children].forEach((item, index) => {
+    const distance = index - centre
+    item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.3))
+    item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
+    item.setAttribute('aria-selected', String(Math.round(centre) === index))
+  })
+}
+$('employeeWheel').addEventListener('scroll', () => {
+  styleWheel()
+  clearTimeout(wheelTimer)
+  wheelTimer = setTimeout(() => {
+    const entry = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]
+    if (!entry || entry.id === selectedEmployeeId) return
+    selectedEmployeeId = entry.id
+    logOverride = undefined
+    showLogChoice()
+    updateEmployeeSummary()
+    renderLiveStamp()
+  }, 120)
+})
+function showLogChoice() {
+  const attendance = currentAttendance()
+  for (const button of document.querySelectorAll('[data-log]')) {
+    button.disabled = !attendance
+    button.setAttribute('aria-pressed', String(attendance?.action === button.dataset.log))
+  }
+  const last = attendance && [...register].reverse().find(row => row.id === attendance.id)
+  $('logHint').textContent = !attendance ? 'Photos will have no employee ID.'
+    : last ? `Last: ${last.action === 'out' ? 'Log out' : 'Log in'} on ${last.date} at ${last.clock.slice(0, 5)}` : 'No entries yet for this ID.'
+}
+for (const button of document.querySelectorAll('[data-log]')) {
+  button.addEventListener('click', () => {
+    logOverride = button.dataset.log
+    showLogChoice()
+    renderLiveStamp()
+  })
+}
+
+// Employee IDs: typed one per line ("ID, Name") or imported from a text, CSV or PDF file.
+const idPattern = /\b[A-Z]{2,}[A-Z0-9-]*\d{2,}[A-Z0-9-]*\b/g
+function parseEmployees(text) {
+  const found = new Map()
+  // A table with a header row ("Employee ID, Name, Department…"): the name comes from its Name column.
+  let nameColumn = -1, splitter
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    const matches = [...line.toUpperCase().matchAll(idPattern)]
+    if (!matches.length) {
+      const separator = line.includes('\t') ? '\t' : line.includes(',') ? ',' : line.includes(';') ? ';' : undefined
+      if (separator) {
+        const cells = line.split(separator).map(cell => cell.trim().toLowerCase())
+        const column = cells.findIndex(cell => /^(employee\s*)?(full\s*)?name$|^name\s+of/.test(cell))
+        if (column >= 0) { nameColumn = column; splitter = separator }
+      }
+      continue
+    }
+    if (nameColumn >= 0 && matches.length === 1 && line.includes(splitter)) {
+      const cell = (line.split(splitter)[nameColumn] || '').replace(/["']/g, '').trim()
+      const id = matches[0][0]
+      const name = /[A-Za-z]/.test(cell) && !/\d/.test(cell) && cell.length <= 60 ? cell : ''
+      if (!found.has(id) || (name && !found.get(id))) found.set(id, name)
+      continue
+    }
+    if (matches.length > 1) {
+      for (const match of matches) if (!found.has(match[0])) found.set(match[0], '')
+      continue
+    }
+    const [match] = matches
+    const rest = (line.slice(0, match.index) + ' ' + line.slice(match.index + match[0].length))
+      .replace(/[,;|\t:]+/g, ' ').split(/\s+/).filter(word => word && !/\d/.test(word) && !/^[-–.]+$/.test(word)).join(' ')
+    const name = /[A-Za-z]/.test(rest) && rest.length <= 60 ? rest : ''
+    if (!found.has(match[0]) || (name && !found.get(match[0]))) found.set(match[0], name)
+  }
+  return [...found].map(([id, name]) => ({ id, name }))
+}
+function listText(list) {
+  return list.map(entry => entry.name ? `${entry.id}, ${entry.name}` : entry.id).join('\n')
+}
+function fillEmployeesSheet() {
+  $('myEmployeeId').value = employees.me || ''
+  $('employeeList').value = listText(employees.list)
+  $('employeeCount').textContent = employees.list.length ? `(${employees.list.length})` : ''
+  $('employeeStatus').textContent = ''
+}
+$('saveEmployees').addEventListener('click', () => {
+  const me = $('myEmployeeId').value.trim().toUpperCase().replace(/\s+/g, '')
+  const list = parseEmployees($('employeeList').value)
+  if (me && !list.some(entry => entry.id === me)) list.unshift({ id: me, name: '' })
+  const wasMine = selectedEmployeeId === employees.me
+  employees = { me, list }
+  if (wasMine || !selectedEmployeeId) selectedEmployeeId = me
+  saveEmployees()
+  fillEmployeesSheet()
+  $('employeeStatus').textContent = `Saved ${list.length} ID${list.length === 1 ? '' : 's'}.`
+  renderLiveStamp()
+})
+$('employeeFile').addEventListener('change', async () => {
+  const fileChosen = $('employeeFile').files?.[0]
+  $('employeeFile').value = ''
+  if (!fileChosen) return
+  $('employeeStatus').textContent = 'Reading the file…'
+  try {
+    const text = /\.pdf$/i.test(fileChosen.name) || fileChosen.type === 'application/pdf' ? await pdfText(fileChosen) : await fileChosen.text()
+    const imported = parseEmployees(text)
+    if (!imported.length) { $('employeeStatus').textContent = 'No employee IDs found in that file.'; return }
+    const current = parseEmployees($('employeeList').value)
+    const known = new Map(current.map(entry => [entry.id, entry.name]))
+    let added = 0
+    for (const entry of imported) {
+      if (!known.has(entry.id)) added++
+      if (!known.get(entry.id)) known.set(entry.id, entry.name)
+    }
+    $('employeeList').value = listText([...known].map(([id, name]) => ({ id, name })))
+    $('employeeStatus').textContent = `Found ${imported.length} IDs (${added} new). Tap Save to keep them.`
+  } catch {
+    $('employeeStatus').textContent = 'That file could not be read. Try a text or CSV file.'
+  }
+})
+// PDF text with pdf.js (loaded only when a PDF is imported), rebuilt into lines by position.
+let pdfLibrary
+async function pdfText(fileChosen) {
+  pdfLibrary ||= new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'vendor/pdf.min.js'
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js'
+      resolve(window.pdfjsLib)
+    }
+    script.onerror = reject
+    document.head.append(script)
+  })
+  const pdfjs = await pdfLibrary
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await fileChosen.arrayBuffer()) }).promise
+  const lines = []
+  for (let page = 1; page <= Math.min(pdf.numPages, 200); page++) {
+    const content = await (await pdf.getPage(page)).getTextContent()
+    const rows = new Map()
+    for (const item of content.items) {
+      if (!item.str?.trim()) continue
+      const y = Math.round(item.transform[5] / 3)
+      if (!rows.has(y)) rows.set(y, [])
+      rows.get(y).push(item)
+    }
+    for (const y of [...rows.keys()].sort((a, b) => b - a)) {
+      lines.push(rows.get(y).sort((a, b) => a.transform[4] - b.transform[4]).map(item => item.str.trim()).join(', '))
+    }
+  }
+  return lines.join('\n')
+}
+
+// The register: the latest entries, exported as CSV (opens in Excel and Google Sheets).
+function renderRegister() {
+  const list = $('registerList')
+  list.replaceChildren()
+  $('registerSummary').textContent = register.length ? `${register.length} entries. The newest are first.` : ''
+  if (!register.length) {
+    const empty = document.createElement('p')
+    empty.className = 'register-empty'
+    empty.textContent = 'No attendance yet. Photos with an employee ID are added here.'
+    list.append(empty)
+  }
+  for (const row of register.slice(-300).reverse()) {
+    const item = document.createElement('div')
+    item.className = 'register-row'
+    const time = document.createElement('time')
+    time.textContent = `${row.date} ${row.clock.slice(0, 5)}`
+    const who = document.createElement('strong')
+    who.textContent = row.name ? `${row.id} · ${row.name}` : row.id
+    const log = document.createElement('span')
+    log.className = `log ${row.action}`
+    log.textContent = row.action === 'out' ? 'LOG OUT' : 'LOG IN'
+    const place = document.createElement('small')
+    place.textContent = row.place || row.address || 'No location'
+    item.append(time, who, log, place)
+    list.append(item)
+  }
+  $('exportRegister').disabled = $('clearRegister').disabled = !register.length
+}
+function registerCsv() {
+  const cell = (value) => {
+    const text = value === undefined || value === null ? '' : String(value)
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+  }
+  const header = ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo']
+  const rows = register.map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+    row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), row.file])
+  return '\ufeff' + [header, ...rows].map(row => row.map(cell).join(',')).join('\r\n') + '\r\n'
+}
+$('exportRegister').addEventListener('click', async () => {
+  const name = `GeoZipTag-attendance-${new Date().toISOString().slice(0, 10)}.csv`
+  const csv = registerCsv()
+  if (typeof android?.exportText === 'function') {
+    android.exportText('share', name, csv)
+    return
+  }
+  const file = new File([csv], name, { type: 'text/csv' })
+  try {
+    if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file] }); return }
+  } catch (error) { if (error.name === 'AbortError') return }
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(file)
+  link.download = name
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000)
+})
+$('clearRegister').addEventListener('click', () => {
+  if (!confirm('Clear all attendance entries? Export them first if you need them.')) return
+  register = []
+  try { localStorage.setItem(registerKey, '[]') } catch {}
+  renderRegister()
+  updateEmployeeSummary()
+})
+
 // ---- Photo / Video modes (slide sideways on the camera, or tap the label) ----
 // Video records the camera picture with the live stamp drawn on every frame (its clock keeps running) and the
 // sound, using the browser camera; photos keep the phone's own camera.
@@ -2025,9 +2333,10 @@ async function startRecording() {
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   const place = snapshot && placeReady(snapshot) ? placeCache.result : {}
   const note = stampNote
+  const attendance = currentAttendance()
   const drawLayer = () => {
     stampLayer.getContext('2d').clearRect(0, 0, stampLayer.width, stampLayer.height)
-    drawStamp(stampLayer, { snapshot, date: new Date(), picked: false, address: place.address, map: place.map, note })
+    drawStamp(stampLayer, { snapshot, date: new Date(), picked: false, address: place.address, map: place.map, note, attendance })
   }
   drawLayer()
   const mirrored = facing === 'user' && preferences.mirrorFront
@@ -2048,6 +2357,7 @@ async function startRecording() {
   thumb.getContext('2d').drawImage(canvas, (144 - canvas.width * scale) / 2, (144 - canvas.height * scale) / 2, canvas.width * scale, canvas.height * scale)
   state.thumbBlob = await new Promise(resolve => thumb.toBlob(resolve, 'image/jpeg', 0.82))
 
+  if (attendance) state.attendance = attendance
   const output = canvas.captureStream(30)
   for (const track of stream.getAudioTracks()) output.addTrack(track)
   state.mimeType = recordingFormats.find(type => MediaRecorder.isTypeSupported?.(type)) || ''
@@ -2097,6 +2407,7 @@ async function stopRecording() {
   }
   rememberPhoto(entry)
   showThumbnail(entry, true)
+  if (state.attendance) recordAttendance(state.attendance, { date: state.date, snapshot: state.snapshot, address: state.address, file: name })
   if (hostSaves) {
     entry.saved = true
     entry.saving = sendVideo(name, blob, 'save')
@@ -2850,6 +3161,9 @@ for (const button of document.querySelectorAll('[data-open]')) {
       setManualFields(snapshot)
       $('pinStatus').textContent = 'Enter coordinates or use a GPS fix, then preview the pin.'
     }
+    if (panel === 'employeePicker') setTimeout(prepareEmployeePicker)
+    if (panel === 'employeesSheet') fillEmployeesSheet()
+    if (panel === 'registerSheet') renderRegister()
     if (panel === 'reports') {
       $('reportSource').textContent = lastPhoto ? 'The latest stamped photo is ready to use.' : 'Take a photo first or select one below.'
       updateReportFields()
@@ -2867,7 +3181,7 @@ for (const sheet of document.querySelectorAll('dialog')) {
   sheet.addEventListener('close', reset)
   sheet.addEventListener('touchstart', event => {
     startY = undefined
-    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range]')) return
+    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range], .wheel, .register-list')) return
     if (sheet.scrollTop > 0 && !event.target.closest('.sheet-head')) return
     startY = event.touches[0].clientY
     startTime = performance.now()
@@ -2934,7 +3248,7 @@ function renderLiveStamp() {
   let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   const place = snapshot && placeReady(snapshot) ? placeCache.result : undefined
-  const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width })
+  const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width, attendance: currentAttendance() })
   // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
   const stampTop = frame.top + edges.top / scale
   document.documentElement.style.setProperty('--stamp-clearance',

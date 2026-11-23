@@ -17,7 +17,7 @@ const webDir = args.web || 'android/app/src/main/assets/web'   // what the Andro
 const siteDir = args.site || 'web'                              // what browsers get
 
 // The only files the Android app will serve or accept (keep in sync with OtaUpdater.java).
-const allowed = /^(index\.html|style\.css|camera\.js|manifest\.webmanifest|vendor\/qrcode\.(mjs|txt)|vendor\/qrcode-LICENSE\.txt|vendor\/tz-lookup\.js|vendor\/tz-lookup-LICENSE\.txt|assets\/[a-z0-9-]{1,60}\.(svg|woff2|jpg|png|txt))$/
+const allowed = /^(index\.html|style\.css|camera\.js|manifest\.webmanifest|vendor\/qrcode\.(mjs|txt)|vendor\/qrcode-LICENSE\.txt|vendor\/tz-lookup\.js|vendor\/tz-lookup-LICENSE\.txt|vendor\/pdf\.(min|worker\.min)\.js|vendor\/pdf-LICENSE\.txt|assets\/[a-z0-9-]{1,60}\.(svg|woff2|jpg|png|txt))$/
 
 const list = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
   const full = path.join(dir, entry.name)

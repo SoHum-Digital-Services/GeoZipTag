@@ -9,7 +9,7 @@ final class OtaUpdater: @unchecked Sendable {
     static let defaultURL = URL(string: "https://sohum-digital-services.github.io/GeoZipTag/ota/")!
     private static let webPath = try! NSRegularExpression(pattern:
         "^(index\\.html|style\\.css|camera\\.js|manifest\\.webmanifest|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt"
-        + "|vendor/tz-lookup\\.js|vendor/tz-lookup-LICENSE\\.txt|assets/[a-z0-9-]{1,60}\\.(svg|woff2|jpg|png|txt))$")
+        + "|vendor/tz-lookup\\.js|vendor/tz-lookup-LICENSE\\.txt|vendor/pdf\\.(min|worker\\.min)\\.js|vendor/pdf-LICENSE\\.txt|assets/[a-z0-9-]{1,60}\\.(svg|woff2|jpg|png|txt))$")
     private static let labelPattern = try! NSRegularExpression(pattern: "^[0-9A-Za-z._-]{1,32}$")
     private static let hexPattern = try! NSRegularExpression(pattern: "^[0-9a-f]{64}$")
     private static let maxFiles = 100, maxFile = 8 * 1024 * 1024, maxTotal = 24 * 1024 * 1024
