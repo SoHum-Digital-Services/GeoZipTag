@@ -26,7 +26,9 @@ const preferences = { template: 'satellite', position: 'bottom', keepOriginal: f
   mirrorFront: false, showLevel: false }
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
-  if (['satellite', 'time', 'qr'].includes(saved.template)) preferences.template = saved.template
+  // Date & time was replaced by Attendance.
+  if (['satellite', 'attendance', 'qr'].includes(saved.template)) preferences.template = saved.template
+  else if (saved.template === 'time') preferences.template = 'attendance'
   if (saved.position === 'top') preferences.position = 'top'
   preferences.keepOriginal = saved.keepOriginal === true
   preferences.preferShare = saved.preferShare === true
@@ -58,7 +60,9 @@ function formatsFor(timeZone) {
       offset: new Intl.DateTimeFormat(undefined, { timeZoneName: 'longOffset', ...zone }),
       calendar: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', weekday: 'long', ...zone }),
       csvDate: new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', ...zone }),
-      csvTime: new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, ...zone })
+      csvTime: new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, ...zone }),
+      hm: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...zone }),
+      dayMonth: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', ...zone })
     })
   }
   return timeFormats.get(key)
@@ -860,8 +864,10 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const w = canvas.width / unit, h = canvas.height / unit
   const inset = 10, padding = 8, radius = 11
   // Date & time stamps get a calendar tile where the satellite stamp has its map, so all cards match.
-  const calendar = !snapshot
-  const mapSize = map || calendar ? 92 : 0
+  const attendanceCard = template === 'attendance'
+  const calendar = !snapshot && !attendanceCard
+  if (attendanceCard) map = undefined   // the status tile takes the map's place
+  const mapSize = map || calendar || attendanceCard ? 92 : 0
   const codeSize = template === 'qr' && snapshot ? 84 : 0
   const accentBar = mapSize ? 0 : 3
   const width = Math.min(w - 2 * inset, mapSize ? 540 : 450)
@@ -914,19 +920,27 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const zoned = timeAt(snapshot)
   const dateLabel = `${picked ? 'Stamped ' : ''}${zoned.date.format(date)}`
   const time = zoned.time.format(date)
-  // Attendance: "ENDWEMP20153 · Name · LOG IN" in green, or LOG OUT in orange.
-  if (attendance?.id) {
-    const who = [attendance.id, attendance.name, attendance.action === 'out' ? 'LOG OUT' : 'LOG IN'].filter(Boolean).join(' · ')
-    add(who, 11, attendance.action === 'out' ? '#ffb067' : '#6fe0a0', 700, { maxLines: 1, tracking: 0.3, gapAfter: 3 })
-  }
-  if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
-  if (snapshot) {
+  if (attendanceCard) {
+    // Attendance: who (large), their name, where, the coordinates and when.
+    add(snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
+    add(attendance?.id || 'No employee ID', 19, attendance?.id ? colors.text : colors.muted, 700, { maxLines: 1, tracking: 0.3, gapAfter: 1 })
+    if (attendance?.name) add(attendance.name, 13, colors.muted, 600, { maxLines: 1, gapAfter: 3 })
+    else if (!attendance?.id) add('Choose one with the ID button', 11.5, colors.muted, 500, { maxLines: 1, gapAfter: 3 })
+    if (snapshot) {
+      add(placeHeading(snapshot, address) || 'GPS location', 12.5, colors.muted, 500, { maxLines: 1 })
+      add(formatCoordinates(snapshot), 11, colors.coordinate, 600, { maxLines: 1 })
+    } else add('Location unavailable', 12, colors.muted, 500, { maxLines: 1 })
+    add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
+  } else if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
+  if (attendanceCard) {
+    // (drawn above)
+  } else if (snapshot) {
     add(placeHeading(snapshot, address) || 'GPS location', 18, colors.text, 700, { gapAfter: 1 })
     addressRows.forEach(([text, maxLines], index) => add(text, 12.5, colors.muted, 500, { maxLines, gapAfter: index === addressRows.length - 1 ? 4 : 0 }))
     add(formatCoordinates(snapshot), 11.5, colors.coordinate, 600, { maxLines: 1 })
     add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
   } else {
-    if (!attendance?.id) add(picked ? 'STAMPED' : 'TIMESTAMP', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 4 })
+    add(picked ? 'STAMPED' : 'TIMESTAMP', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 4 })
     add(zoned.clock.format(date), 25, colors.text, 700, { maxLines: 1, gapAfter: 3 })
     add(zoned.longDate.format(date), 13.5, colors.text, 500, { maxLines: 1, gapAfter: 2 })
     add(zoneLabel(zoned, date), 11.5, colors.coordinate, 600, { maxLines: 1 })
@@ -992,6 +1006,35 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.fillStyle = colors.accent
     rounded(inset + padding, top + padding + 1, accentBar, panelHeight - 2 * padding - 2, 1.5)
     ctx.fill()
+  }
+
+  if (attendanceCard) {
+    // Status tile: LOG IN (green) or LOG OUT (orange), the time large and the date.
+    const x = inset + padding, y = top + (panelHeight - mapSize) / 2, size = mapSize, band = 24
+    const out = attendance?.action === 'out'
+    const [clock, meridiem = ''] = zoned.hm.format(date).split(/\s+/)
+    ctx.save()
+    rounded(x, y, size, size, 8)
+    ctx.clip()
+    ctx.fillStyle = '#fbf8f2'
+    ctx.fillRect(x, y, size, size)
+    ctx.fillStyle = !attendance?.id ? '#6b7275' : out ? '#d9772b' : '#1f8a52'
+    ctx.fillRect(x, y, size, band)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#ffffff'
+    ctx.font = `800 11.5px ${stampFace}`
+    ctx.fillText(!attendance?.id ? 'NO ID' : out ? 'LOG OUT' : 'LOG IN', x + size / 2, y + band / 2 + 0.5)
+    ctx.fillStyle = '#16191a'
+    ctx.font = `700 27px ${stampFace}`
+    ctx.fillText(clock, x + size / 2, y + band + 19)
+    ctx.fillStyle = '#3c4447'
+    ctx.font = `700 10px ${stampFace}`
+    ctx.fillText(meridiem.toUpperCase(), x + size / 2, y + band + 39)
+    ctx.fillStyle = '#5f676a'
+    ctx.font = `600 9.5px ${stampFace}`
+    ctx.fillText(zoned.dayMonth.format(date).toUpperCase(), x + size / 2, y + size - 10)
+    ctx.restore()
   }
 
   if (calendar) {
@@ -2011,7 +2054,7 @@ function suggestedLog(id) {
   return last && new Date(last.time).toDateString() === today && last.action === 'in' ? 'out' : 'in'
 }
 function currentAttendance() {
-  if (!selectedEmployeeId) return undefined
+  if (preferences.template !== 'attendance' || !selectedEmployeeId) return undefined
   const person = employeeById(selectedEmployeeId)
   return { id: person.id, name: person.name || '', action: logOverride || suggestedLog(person.id) }
 }
@@ -2044,6 +2087,12 @@ updateEmployeeSummary()
 const wheelItem = 44
 let wheelEntries = [], wheelTimer
 function prepareEmployeePicker() {
+  // Picking an employee is attendance: switch the stamp to the Attendance style.
+  if (preferences.template !== 'attendance') {
+    const radio = document.querySelector('input[name="template"][value="attendance"]')
+    radio.checked = true
+    radio.dispatchEvent(new Event('change'))
+  }
   wheelEntries = [{ id: '', name: '' }, ...allEmployees()]
   const wheel = $('employeeWheel')
   wheel.replaceChildren(...wheelEntries.map((entry, index) => {
@@ -2858,7 +2907,7 @@ $('placeLabel').addEventListener('input', (event) => {
 function updateTemplateLabel() {
   setTimeout(renderLiveStamp)
   prefetchPlace(manualFix || currentFix())
-  $('chosenTemplate').textContent = { satellite: 'Satellite', time: 'Date & Time', qr: 'QR Location' }[preferences.template]
+  $('chosenTemplate').textContent = { satellite: 'Satellite', attendance: 'Attendance', qr: 'QR Location' }[preferences.template]
   for (const tab of document.querySelectorAll('[data-template]')) {
     tab.setAttribute('aria-pressed', String(tab.dataset.template === preferences.template))
   }
@@ -2934,6 +2983,7 @@ function renderTemplatePreview() {
   grid.lineTo(128, 44)
   grid.stroke()
   drawStamp(canvas, {
+    attendance: preferences.template === 'attendance' ? currentAttendance() || { id: 'ENDWEMP20153', name: '', action: 'in' } : undefined,
     snapshot: isTime ? undefined : { lat: 17.2, lon: 79.2 },
     address: isTime ? undefined : { street: 'Site access road', locality: 'Example village', county: 'Example mandal', state: 'Telangana', postcode: '500001', country: 'India' },
     note: stampNote || 'Foundation inspection, Block B',
