@@ -53,7 +53,8 @@ function formatsFor(timeZone) {
       clock: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', ...zone }),
       longDate: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', ...zone }),
       zoneName: new Intl.DateTimeFormat(undefined, { timeZoneName: 'long', ...zone }),
-      offset: new Intl.DateTimeFormat(undefined, { timeZoneName: 'longOffset', ...zone })
+      offset: new Intl.DateTimeFormat(undefined, { timeZoneName: 'longOffset', ...zone }),
+      calendar: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', weekday: 'long', ...zone })
     })
   }
   return timeFormats.get(key)
@@ -851,11 +852,13 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const unit = (base || Math.min(canvas.width, canvas.height)) / 460
   const w = canvas.width / unit, h = canvas.height / unit
   const inset = 10, padding = 8, radius = 11
-  const mapSize = map ? 92 : 0
+  // Date & time stamps get a calendar tile where the satellite stamp has its map, so all cards match.
+  const calendar = !snapshot
+  const mapSize = map || calendar ? 92 : 0
   const codeSize = template === 'qr' && snapshot ? 84 : 0
-  const accentBar = map ? 0 : 3
-  const width = Math.min(w - 2 * inset, map ? 540 : snapshot ? 450 : 310)
-  const textX = inset + padding + (map ? mapSize + padding + 2 : accentBar + padding)
+  const accentBar = mapSize ? 0 : 3
+  const width = Math.min(w - 2 * inset, mapSize ? 540 : 450)
+  const textX = inset + padding + (mapSize ? mapSize + padding + 2 : accentBar + padding)
   const textWidth = inset + width - padding - (codeSize ? codeSize + padding : 0) - textX
   const colors = {
     text: '#fbf8f2', muted: '#c9cfd1', coordinate: '#8fdcd8', brand: '#f47a67',
@@ -912,7 +915,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
   } else {
     add(picked ? 'STAMPED' : 'TIMESTAMP', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 4 })
-    add(zoned.clock.format(date), 27, colors.text, 700, { maxLines: 1, gapAfter: 3 })
+    add(zoned.clock.format(date), 25, colors.text, 700, { maxLines: 1, gapAfter: 3 })
     add(zoned.longDate.format(date), 13.5, colors.text, 500, { maxLines: 1, gapAfter: 2 })
     add(zoneLabel(zoned, date), 11.5, colors.coordinate, 600, { maxLines: 1 })
   }
@@ -977,6 +980,30 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.fillStyle = colors.accent
     rounded(inset + padding, top + padding + 1, accentBar, panelHeight - 2 * padding - 2, 1.5)
     ctx.fill()
+  }
+
+  if (calendar) {
+    const x = inset + padding, y = top + (panelHeight - mapSize) / 2, size = mapSize, band = 24
+    const parts = Object.fromEntries(zoned.calendar.formatToParts(date).map(part => [part.type, part.value]))
+    ctx.save()
+    rounded(x, y, size, size, 8)
+    ctx.clip()
+    ctx.fillStyle = '#fbf8f2'
+    ctx.fillRect(x, y, size, size)
+    ctx.fillStyle = colors.accent
+    ctx.fillRect(x, y, size, band)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#ffffff'
+    ctx.font = `700 12px ${stampFace}`
+    ctx.fillText((parts.month || '').toUpperCase(), x + size / 2, y + band / 2 + 0.5)
+    ctx.fillStyle = '#16191a'
+    ctx.font = `700 38px ${stampFace}`
+    ctx.fillText(parts.day || '', x + size / 2, y + band + (size - band) / 2 - 6)
+    ctx.fillStyle = '#5f676a'
+    ctx.font = `600 9.5px ${stampFace}`
+    ctx.fillText((parts.weekday || '').toUpperCase(), x + size / 2, y + size - 11)
+    ctx.restore()
   }
 
   if (map) {
@@ -1483,14 +1510,85 @@ function releasePhoto(entry) {
 
 function rememberPhoto(entry) {
   photoHistory.push(entry)
-  while (photoHistory.length > MAX_PHOTOS) releasePhoto(photoHistory.shift())
+  while (photoHistory.length > MAX_PHOTOS) {
+    const old = photoHistory.shift()
+    photoStore.remove(old.name)
+    releasePhoto(old)
+  }
   setCurrentPhoto(entry)
+  photoStore.put(entry)
 }
+
+// The last photos are kept on the phone (IndexedDB), so the thumbnail shows the last photo taken with the app
+// even after it was closed, and older photos open, share and delete as before.
+const photoStore = (() => {
+  let database
+  const open = () => database ||= new Promise((resolve, reject) => {
+    if (!window.indexedDB) { reject(new Error('no storage')); return }
+    const request = indexedDB.open('geoziptag', 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('photos', { keyPath: 'name' })
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+  const run = async (mode, work) => {
+    const db = await open()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('photos', mode)
+      const request = work(transaction.objectStore('photos'))
+      transaction.oncomplete = () => resolve(request?.result)
+      transaction.onerror = () => reject(transaction.error)
+    })
+  }
+  return {
+    put: (entry) => run('readwrite', store => store.put({
+      name: entry.name, date: entry.date.getTime(), jpeg: entry.jpeg, kind: entry.kind || 'photo',
+      snapshot: entry.snapshot ? { ...entry.snapshot } : undefined, address: entry.address, note: entry.note, saved: entry.saved
+    })).catch(() => {}),
+    remove: (name) => run('readwrite', store => store.delete(name)).catch(() => {}),
+    all: () => run('readonly', store => store.getAll()).catch(() => [])
+  }
+})()
+
+async function thumbnailFor(blob) {
+  const bitmap = await createImageBitmap(blob)
+  const size = 144, canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const scale = Math.max(size / bitmap.width, size / bitmap.height)
+  canvas.getContext('2d').drawImage(bitmap, (size - bitmap.width * scale) / 2, (size - bitmap.height * scale) / 2, bitmap.width * scale, bitmap.height * scale)
+  bitmap.close?.()
+  const thumb = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.82))
+  return thumb ? URL.createObjectURL(thumb) : undefined
+}
+
+async function restorePhotos() {
+  const records = (await photoStore.all()).filter(record => record?.jpeg instanceof Blob).sort((a, b) => a.date - b.date)
+  const known = new Set(photoHistory.map(entry => entry.name))
+  const restored = []
+  for (const record of records.slice(-MAX_PHOTOS)) {
+    if (known.has(record.name)) continue
+    const entry = {
+      jpeg: record.jpeg, date: new Date(record.date), snapshot: record.snapshot, address: record.address, note: record.note,
+      name: record.name, kind: record.kind, saved: !!record.saved, url: URL.createObjectURL(record.jpeg),
+      shareFile: new File([record.jpeg], record.name, { type: record.jpeg.type || 'image/jpeg' })
+    }
+    try { entry.thumb = await thumbnailFor(record.jpeg) } catch {}
+    restored.push(entry)
+  }
+  if (!restored.length) return
+  photoHistory.unshift(...restored)   // older than anything taken since the app opened
+  while (photoHistory.length > MAX_PHOTOS) releasePhoto(photoHistory.shift())
+  if (!lastPhoto) {
+    setCurrentPhoto(photoHistory[photoHistory.length - 1])
+    showThumbnail(lastPhoto)
+  }
+}
+restorePhotos()
 
 function removePhoto(entry) {
   const index = photoHistory.indexOf(entry)
   if (index < 0) return
   photoHistory.splice(index, 1)
+  photoStore.remove(entry.name)
   releasePhoto(entry)
   if (lastPhoto === entry) {
     const previous = photoHistory[photoHistory.length - 1]
@@ -1787,6 +1885,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     if (hostSaves) {
       entry.saved = true
       entry.saving = saveAutomatically(name, jpeg, original)
+      photoStore.put(entry)   // remembers that the app saved it (Delete then removes it from the gallery too)
     }
     if (live && preferences.shareAfter) sharePhoto(entry, true)
     if (!live && !stream) startLiveCamera()

@@ -871,10 +871,21 @@ public final class MainActivity extends Activity {
             }
             complete = true;
             savedPhotos.put(filename, uri);
+            rememberSaved(filename, uri);
             showSaved();
         } finally {
             if (!complete) getContentResolver().delete(uri, null, null);
         }
+    }
+
+    /** Remembers where a photo went in the gallery (the 60 most recent), so it can be deleted after a restart. */
+    private void rememberSaved(String filename, Uri uri) {
+        android.content.SharedPreferences prefs = getSharedPreferences("savedPhotos", MODE_PRIVATE);
+        android.content.SharedPreferences.Editor editor = prefs.edit().putString(filename, uri.toString());
+        java.util.TreeSet<String> names = new java.util.TreeSet<>(prefs.getAll().keySet());
+        names.add(filename);
+        while (names.size() > 60) editor.remove(names.pollFirst());   // names sort by their timestamp
+        editor.apply();
     }
 
     // A photo that was never saved (or is already gone) counts as deleted.
@@ -886,6 +897,12 @@ public final class MainActivity extends Activity {
         }
         boolean ok = true;
         Uri uri = savedPhotos.remove(filename);
+        if (uri == null) {
+            // A photo from an earlier session: its gallery entry was remembered on disk.
+            String stored = getSharedPreferences("savedPhotos", MODE_PRIVATE).getString(filename, null);
+            if (stored != null) uri = Uri.parse(stored);
+        }
+        getSharedPreferences("savedPhotos", MODE_PRIVATE).edit().remove(filename).apply();
         if (uri != null) {
             try { getContentResolver().delete(uri, null, null); }
             catch (SecurityException | IllegalArgumentException error) { ok = false; }

@@ -45,7 +45,13 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private var lastUpdateCheck = Date.distantPast
     private let locationManager = CLLocationManager()
     private let geocoder = CLGeocoder()
-    private var savedAssets: [String: String] = [:]          // file name -> Photos asset id, this session only
+    // File name -> Photos asset id, kept across launches so Delete works on photos from earlier sessions.
+    private var savedAssets: [String: String] = UserDefaults.standard.dictionary(forKey: "savedAssets") as? [String: String] ?? [:] {
+        didSet {
+            if savedAssets.count > 60 { savedAssets = Dictionary(uniqueKeysWithValues: savedAssets.sorted { $0.key < $1.key }.suffix(40)) }
+            UserDefaults.standard.set(savedAssets, forKey: "savedAssets")
+        }
+    }
     private var lastSave: Task<Void, Never> = Task {}        // saves run one after another
     private var toast: UILabel?
     private var printer: ReportPrinter?
