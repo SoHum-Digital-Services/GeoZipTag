@@ -19,6 +19,8 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
     private var pending: [Int64: (Data?) -> Void] = [:]
     private var lightTimer: DispatchSourceTimer?
     private var brightened = false
+    private var userBias: Float = 0                       // the brightness slider, in stops
+    private var flashMode: AVCaptureDevice.FlashMode = .off
 
     override init() {
         super.init()
@@ -102,6 +104,8 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
             device.unlockForConfiguration()
         }
         brightened = false
+        userBias = 0
+        if !photoOutput.supportedFlashModes.contains(flashMode) { flashMode = .off }
         if !session.isRunning { session.startRunning() }
         watchLight()
 
@@ -115,7 +119,25 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
             "hasTorch": device.hasTorch && device.isTorchModeSupported(.on),
             "canFocus": device.isFocusPointOfInterestSupported,
             "cameras": max(1, others.devices.count),
+            // Real photo flash (the front camera's is the screen flash): the modes this camera supports.
+            "flashModes": [(AVCaptureDevice.FlashMode.off, "off"), (.auto, "auto"), (.on, "on")]
+                .filter { photoOutput.supportedFlashModes.contains($0.0) }.map { $0.1 },
+            "exposureMin": Double(max(-2, device.minExposureTargetBias)),
+            "exposureMax": Double(min(2, device.maxExposureTargetBias)),
+            "lenses": lenses(of: device),
         ])
+    }
+
+    /// The lens buttons, in the page's zoom units (1 = the main lens): .5 for the ultra wide, 1, 2 (a sensor crop,
+    /// as the Camera app offers) and each telephoto lens (3×, 5×).
+    private func lenses(of device: AVCaptureDevice) -> [Double] {
+        guard device.position == .back else { return [1] }
+        var stops: [Double] = [1, 2]
+        if wideFactor > 1 { stops.append(Double(device.minAvailableVideoZoomFactor / wideFactor)) }
+        for factor in device.virtualDeviceSwitchOverVideoZoomFactors.dropFirst(wideFactor > 1 ? 1 : 0) {
+            stops.append(Double(CGFloat(truncating: factor) / wideFactor))
+        }
+        return Array(Set(stops.map { ($0 * 10).rounded() / 10 })).sorted()
     }
 
     // MARK: Brightening in the dark
@@ -136,21 +158,35 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
         let maxISO = device.activeFormat.maxISO, iso = device.iso
         let dark = brightened ? iso > maxISO * 0.2 : iso > maxISO * 0.45
         guard dark != brightened, (try? device.lockForConfiguration()) != nil else { return }
-        let bias: Float = dark ? min(1.0, device.maxExposureTargetBias) : 0
-        device.setExposureTargetBias(bias, completionHandler: nil)
-        device.unlockForConfiguration()
         brightened = dark
+        device.setExposureTargetBias(totalBias(device), completionHandler: nil)
+        device.unlockForConfiguration()
+    }
+
+    /// The low-light boost plus the brightness slider, within what the camera allows.
+    private func totalBias(_ device: AVCaptureDevice) -> Float {
+        max(device.minExposureTargetBias, min(device.maxExposureTargetBias, userBias + (brightened ? 1 : 0)))
     }
 
     // MARK: Zoom, torch, focus
 
     /// `zoom` is in the page's units: 1 = the main lens, 0.5 = ultra wide.
-    func set(zoom: Double?, torch: Bool?) {
+    func set(zoom: Double?, torch: Bool?, flash: String? = nil, exposure: Double? = nil) {
         queue.async {
+            switch flash {
+            case "auto": self.flashMode = .auto
+            case "on": self.flashMode = .on
+            case "off": self.flashMode = .off
+            default: break
+            }
             guard let device = self.input?.device, (try? device.lockForConfiguration()) != nil else { return }
             if let zoom {
                 let factor = CGFloat(zoom) * self.wideFactor
                 device.videoZoomFactor = max(device.minAvailableVideoZoomFactor, min(factor, device.maxAvailableVideoZoomFactor))
+            }
+            if let exposure, device.exposureMode != .custom {
+                self.userBias = Float(max(-2, min(2, exposure)))
+                device.setExposureTargetBias(self.totalBias(device), completionHandler: nil)
             }
             device.unlockForConfiguration()
             if let torch { self.setTorchLocked(torch) }
@@ -199,6 +235,7 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
             let settings = self.photoOutput.availablePhotoCodecTypes.contains(.jpeg)
                 ? AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg]) : AVCapturePhotoSettings()
             settings.photoQualityPrioritization = self.photoOutput.maxPhotoQualityPrioritization
+            if self.photoOutput.supportedFlashModes.contains(self.flashMode) { settings.flashMode = self.flashMode }
             self.pending[settings.uniqueID] = completion
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }

@@ -70,7 +70,12 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
     private boolean zoomRatioSupported, brightened;
     private float zoom = 1f, zoomMin = 1f, zoomMax = 1f;
     private boolean torch;
+    private String flash = "off";              // off | auto | on: the photo flash
+    private float userExposure;                // the brightness slider, in stops
     private int exposureBoost, maxIso = 1, frames;
+    private String stillAfterMetering;         // a photo waiting for the flash metering to finish
+    private long meteringStarted;
+    private boolean meteringSeen;
     private final ArrayDeque<String> pendingPhotos = new ArrayDeque<>();
     private volatile int deviceOrientation;
 
@@ -178,6 +183,9 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
             torch = false;
             brightened = false;
             exposureBoost = 0;
+            userExposure = 0;
+            Boolean hasFlash = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+            if (hasFlash == null || !hasFlash) flash = "off";
             reader = ImageReader.newInstance(photoSize.getWidth(), photoSize.getHeight(), ImageFormat.JPEG, 2);
             reader.setOnImageAvailableListener(this::photoReady, handler);
             final boolean answer = reply || waitingForSurface;
@@ -299,6 +307,10 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
                     .put("height", Math.max(photoSize.getWidth(), photoSize.getHeight()))
                     .put("zoom", (double) zoom).put("zoomMin", (double) zoomMin).put("zoomMax", (double) zoomMax)
                     .put("hasTorch", flash != null && flash)
+                    .put("flashModes", flash != null && flash ? new org.json.JSONArray(Arrays.asList("off", "auto", "on"))
+                            : new org.json.JSONArray(Arrays.asList("off")))
+                    .put("exposureMin", (double) Math.max(-2f, evStep() * aeRange().getLower()))
+                    .put("exposureMax", (double) Math.min(2f, evStep() * aeRange().getUpper()))
                     .put("canFocus", regions != null && regions > 0)
                     .put("cameras", front && back ? 2 : 1);
         } catch (JSONException | CameraAccessException ignored) {
@@ -311,8 +323,11 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
 
     private void applySettings(CaptureRequest.Builder request) {
         request.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
-        request.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
-        request.set(CaptureRequest.FLASH_MODE, torch ? CaptureRequest.FLASH_MODE_TORCH : CaptureRequest.FLASH_MODE_OFF);
+        // The photo flash is planned by auto exposure; the torch only works with the plain mode.
+        int aeMode = "auto".equals(flash) ? CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH
+                : "on".equals(flash) ? CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH : CaptureRequest.CONTROL_AE_MODE_ON;
+        request.set(CaptureRequest.CONTROL_AE_MODE, aeMode);
+        request.set(CaptureRequest.FLASH_MODE, torch && "off".equals(flash) ? CaptureRequest.FLASH_MODE_TORCH : CaptureRequest.FLASH_MODE_OFF);
         // Low light: allow the slowest frame rate the camera offers (longer exposures), like the Camera app.
         Range<Integer>[] ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
         if (ranges != null) {
@@ -324,7 +339,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
             }
             if (best != null) request.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, best);
         }
-        request.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, exposureBoost);
+        request.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, compensation());
         if (zoomRatioSupported && Build.VERSION.SDK_INT >= 30) {
             request.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoom);
         } else if (activeArray != null) {
@@ -340,6 +355,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
             session.setRepeatingRequest(previewRequest.build(), new CameraCaptureSession.CaptureCallback() {
                 @Override public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r, TotalCaptureResult result) {
                     if (++frames % 15 == 0) adjustForLight(result);
+                    if (stillAfterMetering != null) checkMetering(result);
                 }
             }, handler);
         } catch (CameraAccessException | IllegalStateException ignored) {
@@ -354,19 +370,40 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
         boolean dark = brightened ? iso > maxIso * 0.2 : iso > maxIso * 0.45;
         if (dark == brightened) return;
         brightened = dark;
-        Rational step = characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
-        Range<Integer> range = characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
-        int oneStop = step == null || step.floatValue() <= 0 ? 0 : Math.round(1f / step.floatValue());
-        exposureBoost = dark ? (range == null ? 0 : Math.min(oneStop, range.getUpper())) : 0;
-        previewRequest.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, exposureBoost);
+        exposureBoost = dark ? 1 : 0;
+        previewRequest.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, compensation());
         repeat();
     }
 
+    private float evStep() {
+        Rational step = characteristics == null ? null : characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
+        return step == null || step.floatValue() <= 0 ? 0f : step.floatValue();
+    }
+
+    private Range<Integer> aeRange() {
+        Range<Integer> range = characteristics == null ? null : characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
+        return range == null ? new Range<>(0, 0) : range;
+    }
+
+    /** The low-light boost plus the brightness slider, in the camera's compensation steps. */
+    private int compensation() {
+        float step = evStep();
+        if (step <= 0) return 0;
+        Range<Integer> range = aeRange();
+        int steps = Math.round((exposureBoost + userExposure) / step);
+        return Math.max(range.getLower(), Math.min(range.getUpper(), steps));
+    }
+
     /** zoom: 1 = the main lens, below 1 = ultra wide. torch: null leaves it as it is. */
-    void set(Double nextZoom, Boolean nextTorch) {
+    void set(Double nextZoom, Boolean nextTorch, String nextFlash, Double nextExposure) {
         handler().post(() -> {
             if (nextZoom != null) zoom = (float) Math.max(zoomMin, Math.min(zoomMax, nextZoom));
             if (nextTorch != null) torch = nextTorch;
+            if (nextFlash != null && characteristics != null) {
+                Boolean hasFlash = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                flash = hasFlash != null && hasFlash && ("auto".equals(nextFlash) || "on".equals(nextFlash)) ? nextFlash : "off";
+            }
+            if (nextExposure != null) userExposure = (float) Math.max(-2, Math.min(2, nextExposure));
             if (previewRequest == null) return;
             applySettings(previewRequest);
             repeat();
@@ -413,6 +450,35 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
     void capture(String id) {
         handler().post(() -> {
             if (device == null || session == null || reader == null) { listener.onPhoto(id, null); return; }
+            if ("off".equals(flash) || previewRequest == null) { takeStill(id); return; }
+            // With the flash, auto exposure first meters with a pre-flash; the photo follows once it is done.
+            try {
+                previewRequest.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
+                session.capture(previewRequest.build(), null, handler);
+                previewRequest.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE);
+                stillAfterMetering = id;
+                meteringStarted = System.currentTimeMillis();
+                meteringSeen = false;
+                handler.postDelayed(() -> { if (id.equals(stillAfterMetering)) { stillAfterMetering = null; takeStill(id); } }, 1500);
+            } catch (CameraAccessException | IllegalStateException error) {
+                takeStill(id);
+            }
+        });
+    }
+
+    private void checkMetering(CaptureResult result) {
+        Integer ae = result.get(CaptureResult.CONTROL_AE_STATE);
+        if (ae != null && ae == CaptureResult.CONTROL_AE_STATE_PRECAPTURE) { meteringSeen = true; return; }
+        if (meteringSeen || System.currentTimeMillis() - meteringStarted > 400) {
+            String id = stillAfterMetering;
+            stillAfterMetering = null;
+            if (id != null) takeStill(id);
+        }
+    }
+
+    private void takeStill(String id) {
+        {
+            if (device == null || session == null || reader == null) { listener.onPhoto(id, null); return; }
             try {
                 CaptureRequest.Builder still = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
                 still.addTarget(reader.getSurface());
@@ -430,7 +496,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
                 pendingPhotos.remove(id);
                 listener.onPhoto(id, null);
             }
-        });
+        }
     }
 
     private void photoReady(ImageReader source) {

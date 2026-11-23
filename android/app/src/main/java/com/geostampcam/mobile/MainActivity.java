@@ -688,7 +688,9 @@ public final class MainActivity extends Activity {
             try {
                 JSONObject settings = new JSONObject(json);
                 nativeCamera.set(settings.has("zoom") ? settings.getDouble("zoom") : null,
-                        settings.has("torch") ? settings.getBoolean("torch") : null);
+                        settings.has("torch") ? settings.getBoolean("torch") : null,
+                        settings.has("flash") ? settings.getString("flash") : null,
+                        settings.has("exposure") ? settings.getDouble("exposure") : null);
             } catch (JSONException ignored) {
                 // Ignore malformed settings.
             }

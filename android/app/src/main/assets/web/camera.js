@@ -159,14 +159,17 @@ function openNativeCamera(nextFacing) {
 }
 
 function nativeStream(state) {
-  const settings = { facingMode: state.facing, zoom: state.zoom ?? 1, torch: false }
+  const settings = { facingMode: state.facing, zoom: state.zoom ?? 1, torch: false, flash: 'off', exposure: 0 }
   const track = {
     native: true,
     width: state.width,
     height: state.height,
+    lenses: Array.isArray(state.lenses) ? state.lenses : undefined,
     getCapabilities: () => ({
       zoom: state.zoomMax > state.zoomMin ? { min: state.zoomMin, max: state.zoomMax, step: 0.01 } : undefined,
       torch: !!state.hasTorch,
+      flash: Array.isArray(state.flashModes) && state.flashModes.length > 1 ? state.flashModes : undefined,
+      exposure: state.exposureMax > state.exposureMin ? { min: state.exposureMin, max: state.exposureMax } : undefined,
       focusMode: state.canFocus ? ['single-shot'] : []
     }),
     getSettings: () => ({ ...settings }),
@@ -175,7 +178,9 @@ function nativeStream(state) {
       const change = constraints?.advanced?.[0] || {}
       if (Number.isFinite(change.zoom)) settings.zoom = change.zoom
       if (typeof change.torch === 'boolean') settings.torch = change.torch
-      nativeHost.cameraSet(JSON.stringify({ zoom: settings.zoom, torch: settings.torch }))
+      if (typeof change.flash === 'string') settings.flash = change.flash
+      if (Number.isFinite(change.exposure)) settings.exposure = change.exposure
+      nativeHost.cameraSet(JSON.stringify({ zoom: settings.zoom, torch: settings.torch, flash: settings.flash, exposure: settings.exposure }))
     },
     focusAt: (x, y) => nativeHost.cameraFocus(x, y),
     addEventListener: (type, listener) => { if (type === 'ended') nativeEnded = listener },
@@ -1091,6 +1096,8 @@ function resetLiveControls() {
   $('cameraGrid').hidden = true
   $('focusPoint').hidden = true
   $('zoomControl').hidden = true
+  $('exposureControl').hidden = true
+  exposureValue = 0
   video.classList.remove('can-focus')
 }
 
@@ -1165,52 +1172,89 @@ $('gridToggle').addEventListener('click', () => {
   updateCameraGrid()
 })
 
-// Zoom: small out/in arrows step through the lenses and a few zoom levels; pinching zooms in between.
-const zoomStops = [1, 2, 3, 5, 10]
-let zoomSteps = []
+// Zoom like the iPhone camera. Back camera: lens numbers (.5, 1×, 2, 3…), the active one yellow and centred,
+// showing the exact zoom while pinching. Front camera: one button between the normal and the wider view.
 const zoomText = (value) => `${Number(value.toFixed(1))}`.replace(/^0\./, '.')
+let zoomSteps = [], frontZoom
 function setZoomLabel(value) {
-  $('zoomValue').textContent = `${zoomText(value)}×`
-  $('zoomOut').disabled = !zoomSteps.length || value <= zoomSteps[0] + 0.01
-  $('zoomIn').disabled = !zoomSteps.length || value >= zoomSteps[zoomSteps.length - 1] - 0.01
+  if (frontZoom) {
+    const wide = value <= frontZoom.wide + 0.01
+    $('zoomToggle').setAttribute('aria-label', wide ? 'Narrower' : 'Wider')
+    $('zoomToggle').querySelector('use').setAttribute('href', wide ? '#i-zoom-out' : '#i-zoom-in')
+    return
+  }
+  const buttons = [...$('zoomLenses').querySelectorAll('button')]
+  const active = buttons.filter(button => Number(button.dataset.zoom) <= value + 0.05).pop() || buttons[0]
+  for (const button of buttons) {
+    const selected = button === active
+    button.setAttribute('aria-pressed', String(selected))
+    button.textContent = selected ? `${zoomText(value)}×` : zoomText(Number(button.dataset.zoom))
+  }
+  // Keep the active lens in the middle, as the Camera app does.
+  const row = $('zoomLenses')
+  if (active) row.style.transform = `translateX(${row.offsetWidth / 2 - (active.offsetLeft + active.offsetWidth / 2)}px)`
 }
-function buildZoomButtons(min, max) {
-  // The widest step is the camera's own ultra-wide (.5 on iPhones, often .6 or .7 on Android).
+function buildZoomButtons(min, max, track) {
+  const row = $('zoomLenses')
+  row.replaceChildren()
+  frontZoom = undefined
+  if (track?.getSettings?.().facingMode === 'user') {
+    // Front camera: the full sensor (wider) or Apple's usual selfie crop (about 1.3×).
+    if (max < 1.25) { $('zoomToggle').hidden = true; return 0 }
+    frontZoom = { wide: Math.max(min, 1), narrow: Math.min(max, 1.3) }
+    $('zoomToggle').hidden = false
+    row.hidden = true
+    return 1
+  }
+  $('zoomToggle').hidden = true
+  row.hidden = false
+  // Lenses: the camera's own list when it gives one (iPhone: .5, 1, 2, 3…), otherwise ultra-wide, 1× and 2×.
   const widest = min < 0.95 ? Math.max(0.5, Math.round(min * 10) / 10) : undefined
-  zoomSteps = [widest, ...zoomStops].filter(stop => stop && stop >= min - 0.01 && stop <= max + 0.01)
-  return zoomSteps.length
+  const lenses = track?.lenses || [widest, 1, 2]
+  zoomSteps = [...new Set(lenses.filter(Boolean).map(stop => Math.round(stop * 10) / 10))]
+    .filter(stop => stop >= min - 0.01 && stop <= max + 0.01).sort((a, b) => a - b)
+  for (const stop of zoomSteps) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.dataset.zoom = stop
+    button.setAttribute('aria-label', `Zoom ${stop}×`)
+    button.addEventListener('click', () => setZoom(stop))
+    row.append(button)
+  }
+  return zoomSteps.length > 1 ? zoomSteps.length : 0
 }
-function stepZoom(direction) {
+function setZoom(value) {
   const camera = cameraHardware
-  if (!camera || !zoomSteps.length) return
-  const current = $('zoomSlider').valueAsNumber
-  const next = direction > 0 ? zoomSteps.find(stop => stop > current + 0.05)
-    : [...zoomSteps].reverse().find(stop => stop < current - 0.05)
-  if (next === undefined) return
-  $('zoomSlider').value = next
-  setZoomLabel(next)
-  requestZoom(camera, next)
+  if (!camera) return
+  $('zoomSlider').value = value
+  setZoomLabel(value)
+  requestZoom(camera, value)
 }
-$('zoomIn').addEventListener('click', () => stepZoom(1))
-$('zoomOut').addEventListener('click', () => stepZoom(-1))
+$('zoomToggle').addEventListener('click', () => {
+  if (!frontZoom) return
+  const current = $('zoomSlider').valueAsNumber
+  setZoom(current <= frontZoom.wide + 0.01 ? frontZoom.narrow : frontZoom.wide)
+})
 
 function showLiveControls(track) {
   const capabilities = track.getCapabilities?.() || {}
   const settings = track.getSettings()
   const focus = capabilities.focusMode?.includes('single-shot') &&
     (!!track.native || !!navigator.mediaDevices.getSupportedConstraints?.().pointsOfInterest)
+  // Brightness: the native camera's exposure bias (EV), or the browser's exposure compensation.
+  const exposure = capabilities.exposure || (capabilities.exposureCompensation?.max > capabilities.exposureCompensation?.min
+    ? { ...capabilities.exposureCompensation, key: 'exposureCompensation' } : undefined)
   cameraHardware = {
-    track, focus, desired: {}, queue: Promise.resolve(), base: track.getConstraints?.() || {}
+    track, focus, exposure, desired: {}, queue: Promise.resolve(), base: track.getConstraints?.() || {},
+    flashModes: capabilities.flash, torch: capabilities.torch === true
   }
   $('liveCameraTools').hidden = false
-  $('torchToggle').hidden = capabilities.torch !== true
-  $('torchToggle').setAttribute('aria-pressed', String(settings.torch === true))
-  $('torchToggle').disabled = false
+  showFlash(cameraHardware, settings)
   const zoom = capabilities.zoom
   const hasZoom = Number.isFinite(zoom?.min) && Number.isFinite(zoom?.max) && zoom.max > zoom.min
   const slider = $('zoomSlider')   // hidden; holds the zoom range and value for the buttons and pinch
   slider.disabled = !hasZoom
-  $('zoomControl').hidden = !hasZoom || buildZoomButtons(zoom.min, zoom.max) < 2
+  $('zoomControl').hidden = !hasZoom || buildZoomButtons(zoom.min, zoom.max, track) < 1
   if (hasZoom) {
     slider.min = zoom.min
     slider.max = zoom.max
@@ -1233,18 +1277,37 @@ function applyHardwareSetting(camera, change) {
   return camera.queue
 }
 
+// Flash: Off → Auto → On with the phone's own camera (it fires when the photo is taken); in a browser the
+// button is a torch (Off/On).
+function showFlash(camera, settings) {
+  const button = $('torchToggle')
+  const usable = !!camera.flashModes || camera.torch
+  button.hidden = !usable
+  button.disabled = false
+  setFlashButton(camera.flashModes ? settings.flash || 'off' : settings.torch ? 'on' : 'off')
+}
+function setFlashButton(mode) {
+  const button = $('torchToggle')
+  button.dataset.flash = mode
+  button.setAttribute('aria-label', `Flash ${mode}`)
+  button.querySelector('use').setAttribute('href', mode === 'off' ? '#i-flash-off' : '#i-flash')
+}
 $('torchToggle').addEventListener('click', async () => {
   const camera = cameraHardware
   if (!camera) return
   const button = $('torchToggle')
-  const enable = button.getAttribute('aria-pressed') !== 'true'
+  const modes = camera.flashModes
+  const current = button.dataset.flash || 'off'
+  const next = modes ? modes[(modes.indexOf(current) + 1) % modes.length] : current === 'on' ? 'off' : 'on'
+  setFlashButton(next)
   button.disabled = true
-  const applied = await applyHardwareSetting(camera, { torch: enable })
+  const applied = await applyHardwareSetting(camera, modes ? { flash: next } : { torch: next === 'on' })
   if (cameraHardware !== camera) return
   button.disabled = false
-  if (applied) {
-    button.setAttribute('aria-pressed', String(camera.track.getSettings().torch ?? enable))
-  } else message('Torch is unavailable on this camera.')
+  if (!applied) {
+    setFlashButton(current)
+    message('Flash is unavailable on this camera.')
+  } else message(`Flash ${next === 'auto' ? 'auto' : next}`, 1200)
 })
 
 $('zoomSlider').addEventListener('input', event => setZoomLabel(event.target.valueAsNumber))
@@ -1272,21 +1335,73 @@ video.addEventListener('click', async event => {
   }
   const camera = cameraHardware
   const frame = videoFrame()
-  if (!camera?.focus || !frame) return
+  if (!(camera?.focus || camera?.exposure) || !frame) return
   const x = (event.clientX - frame.left) / frame.width
   const y = (event.clientY - frame.top) / frame.height
   if (x < 0 || x > 1 || y < 0 || y > 1) return
   const applied = camera.track.native ? (camera.track.focusAt(event.clientX, event.clientY), true)
-    : await applyHardwareSetting(camera, { focusMode: 'single-shot', pointsOfInterest: [{ x: facing === 'user' ? 1 - x : x, y }] })
+    : camera.focus ? await applyHardwareSetting(camera, { focusMode: 'single-shot', pointsOfInterest: [{ x: facing === 'user' ? 1 - x : x, y }] })
+      : true
   if (!applied) return
+  showExposureControl(camera, event.clientX, event.clientY)
   const marker = $('focusPoint')
   const bounds = marker.parentElement.getBoundingClientRect()
   marker.style.left = `${event.clientX - bounds.left}px`
   marker.style.top = `${event.clientY - bounds.top}px`
   marker.hidden = false
   clearTimeout(focusTimer)
-  focusTimer = setTimeout(() => { marker.hidden = true }, 950)
+  focusTimer = setTimeout(() => { if ($('exposureControl').hidden) marker.hidden = true }, 950)
 })
+
+// Brightness: after a tap, a sun beside the focus square; drag it up to brighten, down to darken (±2 stops).
+let exposureTimer, exposureValue = 0
+function exposureRange(camera) {
+  const range = camera?.exposure
+  return range ? { min: Math.max(-2, range.min), max: Math.min(2, range.max), key: range.key || 'exposure' } : undefined
+}
+function placeExposureKnob() {
+  $('exposureKnob').style.top = `${(1 - (exposureValue + 2) / 4) * 122}px`
+}
+function hideExposureLater() {
+  clearTimeout(exposureTimer)
+  exposureTimer = setTimeout(() => { $('exposureControl').hidden = true; $('focusPoint').hidden = true }, 2500)
+}
+function showExposureControl(camera, clientX, clientY) {
+  const range = exposureRange(camera)
+  const control = $('exposureControl')
+  if (!range) { control.hidden = true; return }
+  if (exposureValue !== 0) applyHardwareSetting(camera, { [range.key]: 0 })   // a new tap starts from normal
+  exposureValue = 0
+  const bounds = control.parentElement.getBoundingClientRect()
+  const right = clientX - bounds.left + 46 + 36 < bounds.width
+  control.style.left = `${clientX - bounds.left + (right ? 46 : -82)}px`
+  control.style.top = `${Math.min(Math.max(clientY - bounds.top - 75, 8), bounds.height - 158)}px`
+  placeExposureKnob()
+  control.hidden = false
+  hideExposureLater()
+}
+{
+  const control = $('exposureControl')
+  let drag
+  control.addEventListener('pointerdown', event => {
+    drag = { id: event.pointerId, y: event.clientY, value: exposureValue }
+    control.setPointerCapture(event.pointerId)
+    clearTimeout(exposureTimer)
+    event.preventDefault()
+  })
+  control.addEventListener('pointermove', event => {
+    const camera = cameraHardware, range = exposureRange(camera)
+    if (!drag || drag.id !== event.pointerId || !range) return
+    const next = Math.min(range.max, Math.max(range.min, drag.value - (event.clientY - drag.y) / 122 * 4))
+    if (Math.abs(next - exposureValue) < 0.05) return
+    exposureValue = Math.round(next * 10) / 10
+    placeExposureKnob()
+    applyHardwareSetting(camera, { [range.key]: exposureValue })
+  })
+  const end = () => { drag = undefined; hideExposureLater() }
+  control.addEventListener('pointerup', end)
+  control.addEventListener('pointercancel', end)
+}
 
 // Pinch-to-zoom drives the same hardware zoom as the slider.
 const touchPoints = new Map()

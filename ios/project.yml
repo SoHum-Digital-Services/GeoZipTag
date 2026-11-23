@@ -7,9 +7,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.13"
+    MARKETING_VERSION: "1.14"
     # Never below android/ota-min-apk.txt: update lists name one minimum native build ("min-apk") for both apps.
-    CURRENT_PROJECT_VERSION: "14"
+    CURRENT_PROJECT_VERSION: "15"
 targets:
   GeoZipTag:
     type: application
