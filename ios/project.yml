@@ -1,7 +1,7 @@
 # Generate the Xcode project with:  xcodegen generate   (see ios/README.md)
 name: GeoZipTag
 options:
-  bundleIdPrefix: com.geostampcam
+  bundleIdPrefix: cc.sohum
   deploymentTarget:
     iOS: "15.0"
 settings:
@@ -46,7 +46,7 @@ targets:
           NSAllowsLocalNetworking: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.geostampcam.mobile
+        PRODUCT_BUNDLE_IDENTIFIER: cc.sohum.geoziptag
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO

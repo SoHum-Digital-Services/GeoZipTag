@@ -82,7 +82,7 @@ jobs:
           xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE"
           xcrun simctl install "$DEVICE" build/sim/Build/Products/Debug-iphonesimulator/GeoZipTag.app
-          xcrun simctl launch "$DEVICE" com.geostampcam.mobile
+          xcrun simctl launch "$DEVICE" cc.sohum.geoziptag
           sleep 8
           curl -sf -o /dev/null -w "index.html: %{http_code}\n" http://127.0.0.1:47653/index.html
           curl -sf -o /dev/null -w "camera.js: %{http_code}\n" http://127.0.0.1:47653/camera.js
