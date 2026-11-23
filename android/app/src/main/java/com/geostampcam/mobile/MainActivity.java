@@ -125,6 +125,7 @@ public final class MainActivity extends Activity {
     // The phone's own camera (preview behind the page), its last photos for the page, and volume-key capture.
     private NativeCamera nativeCamera;
     private final java.util.LinkedHashMap<String, byte[]> nativePhotos = new java.util.LinkedHashMap<>();
+    private final Map<String, Object[]> videoParts = new ConcurrentHashMap<>();   // id -> name, file, stream
     private String pendingCameraFacing;
     private volatile boolean volumeShutter;
     private String bundledWebLabel = "bundled";
@@ -209,17 +210,26 @@ public final class MainActivity extends Activity {
         cameraView.setWebChromeClient(new WebChromeClient() {
             @Override public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
-                    boolean video = false;
+                    boolean video = false, audio = false;
                     for (String resource : request.getResources()) {
                         video |= PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource);
+                        audio |= PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource);
                     }
                     if (!video || !isLocal(request.getOrigin()) || cameraPermission != null) {
                         request.deny();
-                    } else if (hasCameraPermission()) {
-                        request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                        return;
+                    }
+                    // Video mode also records sound; ask Android for whatever is still missing.
+                    ArrayList<String> missing = new ArrayList<>();
+                    if (!hasCameraPermission()) missing.add(Manifest.permission.CAMERA);
+                    if (audio && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        missing.add(Manifest.permission.RECORD_AUDIO);
+                    }
+                    if (missing.isEmpty()) {
+                        grantMedia(request);
                     } else {
                         cameraPermission = request;
-                        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_ACCESS);
+                        requestPermissions(missing.toArray(new String[0]), CAMERA_ACCESS);
                     }
                 });
             }
@@ -360,6 +370,19 @@ public final class MainActivity extends Activity {
         });
     }
 
+    /** Grants the page the camera, and the microphone when it asked for it and Android allows it. */
+    private void grantMedia(PermissionRequest request) {
+        ArrayList<String> granted = new ArrayList<>();
+        for (String resource : request.getResources()) {
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                    || (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                        && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)) {
+                granted.add(resource);
+            }
+        }
+        request.grant(granted.toArray(new String[0]));
+    }
+
     private boolean hasCameraPermission() {
         return checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
     }
@@ -374,7 +397,7 @@ public final class MainActivity extends Activity {
         if (code == CAMERA_ACCESS && cameraPermission != null) {
             PermissionRequest pending = cameraPermission;
             cameraPermission = null;
-            if (hasCameraPermission()) pending.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            if (hasCameraPermission()) grantMedia(pending);
             else pending.deny();
         } else if (code == LOCATION_ACCESS && locationPermission != null) {
             locationPermission.invoke(locationOrigin, hasLocationPermission(), false);
@@ -727,6 +750,68 @@ public final class MainActivity extends Activity {
 
         @JavascriptInterface public void setVolumeShutter(boolean on) { volumeShutter = on; }
 
+        // ---- Videos: the page sends the recording in base64 pieces; the app saves it to the gallery ----
+        @JavascriptInterface public void videoBegin(String id, String filename) {
+            if (id == null || !id.matches("[A-Za-z0-9_-]{1,40}") || filename == null
+                    || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.(mp4|webm)")) return;
+            storage.execute(() -> {
+                try {
+                    File folder = new File(getCacheDir(), "videos");
+                    if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("No video folder");
+                    File file = new File(folder, id);
+                    videoParts.put(id, new Object[]{filename, file, new FileOutputStream(file)});
+                } catch (IOException error) {
+                    videoParts.remove(id);
+                }
+            });
+        }
+
+        @JavascriptInterface public void videoChunk(String id, String encoded) {
+            if (id == null || encoded == null || encoded.length() > 4 * 1024 * 1024) return;
+            storage.execute(() -> {
+                Object[] part = videoParts.get(id);
+                if (part == null) return;
+                try { ((OutputStream) part[2]).write(Base64.decode(encoded, Base64.DEFAULT)); }
+                catch (IOException | IllegalArgumentException error) { part[0] = null; }
+            });
+        }
+
+        /** action: "save" puts the video in the gallery, "share" opens the share sheet. */
+        @JavascriptInterface public void videoEnd(String id, String action) {
+            if (id == null) return;
+            if ("share".equals(action)) {
+                storage.execute(() -> {
+                    Object[] part = videoParts.remove(id);
+                    if (part == null || part[0] == null) return;
+                    try {
+                        ((OutputStream) part[2]).close();
+                        File shared = new File(CacheImageProvider.folder(MainActivity.this, "shared"), (String) part[0]);
+                        if (!((File) part[1]).renameTo(shared)) throw new IOException("Could not prepare the video");
+                        shareFile(CacheImageProvider.uriFor("shared", (String) part[0]));
+                    } catch (IOException error) {
+                        notifyUser("Could not share the video.");
+                    }
+                });
+                return;
+            }
+            storage.execute(() -> {
+                Object[] part = videoParts.remove(id);
+                if (part == null) return;
+                String filename = (String) part[0];
+                File file = (File) part[1];
+                boolean ok = false;
+                try {
+                    ((OutputStream) part[2]).close();
+                    if (filename != null && file.length() > 0) { saveVideo(filename, file); ok = true; }
+                } catch (IOException | SecurityException error) {
+                    notifyUser("Could not save the video.");
+                } finally {
+                    file.delete();
+                }
+                callPage("window.onVideoSaved && window.onVideoSaved(" + JSONObject.quote(filename == null ? "" : filename) + "," + ok + ")");
+            });
+        }
+
         @JavascriptInterface public boolean hasLocationAccess() {
             return hasLocationPermission();
         }
@@ -737,7 +822,7 @@ public final class MainActivity extends Activity {
 
         /** Deletes a photo (and its "-original" twin) that this app saved into Pictures/GeoZipTag. */
         @JavascriptInterface public void deletePhoto(String filename) {
-            if (filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.jpg")) return;
+            if (filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.(jpg|mp4|webm)")) return;
             storage.execute(() -> {
                 boolean ok = true;
                 for (String name : new String[]{filename, filename.replace(".jpg", "-original.jpg")}) {
@@ -918,6 +1003,50 @@ public final class MainActivity extends Activity {
         return ok;
     }
 
+    /** Saves a finished video into Pictures/GeoZipTag next to the photos. */
+    private void saveVideo(String filename, File source) throws IOException {
+        String mime = filename.endsWith(".webm") ? "video/webm" : "video/mp4";
+        if (Build.VERSION.SDK_INT >= 29) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Video.Media.DISPLAY_NAME, filename);
+            values.put(MediaStore.Video.Media.MIME_TYPE, mime);
+            values.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/GeoZipTag");
+            values.put(MediaStore.Video.Media.IS_PENDING, 1);
+            Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new IOException("Could not open the gallery");
+            boolean complete = false;
+            try (InputStream in = new FileInputStream(source); OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out == null) throw new IOException("Could not write the video");
+                byte[] buffer = new byte[256 * 1024];
+                for (int read; (read = in.read(buffer)) > 0; ) out.write(buffer, 0, read);
+                out.close();
+                values.clear();
+                values.put(MediaStore.Video.Media.IS_PENDING, 0);
+                getContentResolver().update(uri, values, null, null);
+                complete = true;
+                savedPhotos.put(filename, uri);
+                rememberSaved(filename, uri);
+                notifyUser("Video saved");
+            } finally {
+                if (!complete) getContentResolver().delete(uri, null, null);
+            }
+        } else {
+            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                notifyUser("Allow storage access to save videos.");
+                throw new IOException("No storage access");
+            }
+            File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GeoZipTag");
+            if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Could not create the folder");
+            File target = new File(folder, filename);
+            try (InputStream in = new FileInputStream(source); OutputStream out = new FileOutputStream(target)) {
+                byte[] buffer = new byte[256 * 1024];
+                for (int read; (read = in.read(buffer)) > 0; ) out.write(buffer, 0, read);
+            }
+            MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{mime}, null);
+            notifyUser("Video saved");
+        }
+    }
+
     // Android 8-9: write into Pictures/GeoZipTag directly once storage access is granted.
     private void saveLegacy(String filename, byte[] bytes) throws IOException {
         if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -970,7 +1099,9 @@ public final class MainActivity extends Activity {
 
     private void shareFile(Uri uri) {
         runOnUiThread(() -> {
-            Intent share = new Intent(Intent.ACTION_SEND).setType("image/jpeg");
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            Intent share = new Intent(Intent.ACTION_SEND).setType(path.endsWith(".mp4") ? "video/mp4"
+                    : path.endsWith(".webm") ? "video/webm" : "image/jpeg");
             share.putExtra(Intent.EXTRA_STREAM, uri);
             share.setClipData(ClipData.newRawUri("Photo", uri));
             share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);

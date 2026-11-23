@@ -150,7 +150,7 @@ dialog:focus, dialog:focus-visible { outline: none; }
 /* iPhone app: the phone's camera preview is drawn by the app behind the page, so the page is see-through there. */
 html.native-camera, html.native-camera body:not(:has(.photo-review)) { background: transparent; }
 html.native-camera .viewfinder:not(.photo-review) { background: transparent; }
-html.native-camera .viewfinder video { opacity: 0; }
+html.native-camera .viewfinder #video { opacity: 0; }
 /* Flipping cameras: the last frame stays up, blurred, until the new camera is ready. */
 .switch-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: blur(14px) brightness(.7); transform: scale(1.05); }
 .switch-frame.mirror { transform: scaleX(-1) scale(1.05); }
@@ -182,7 +182,7 @@ html.native-camera .viewfinder video { opacity: 0; }
 button.danger { background: #d94242; color: #fff; }
 button.danger:hover { background: #e25555; }
 /* Reviewing the last photo: the camera keeps running underneath, out of sight. */
-.viewfinder.photo-review video, .viewfinder.photo-review .switch-frame { visibility: hidden; }
+.viewfinder.photo-review #video, .viewfinder.photo-review .switch-frame { visibility: hidden; }
 .viewfinder.photo-review :is(.level-line, .exposure-control, .camera-zoom, .camera-grid, .focus-point, .camera-countdown) { display: none; }
 video.mirror { transform: scaleX(-1); }
 .viewfinder video { touch-action: none; }
@@ -961,3 +961,18 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 .level-line::before { right: calc(100% + 10px); }
 .level-line::after { left: calc(100% + 10px); }
 .level-line.straight, .level-line.straight::before, .level-line.straight::after { background: #ffd60a; }
+
+/* Photo / Video, slid like the iPhone camera: the active mode is yellow and centred. */
+.mode-switch { overflow: hidden; margin: .45rem 0 0; touch-action: pan-y; }
+.mode-track { display: flex; justify-content: center; gap: 1.6rem; transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+.mode-track button { min-height: 28px; padding: .15rem .2rem; background: transparent; color: rgba(255, 255, 255, .78); font-size: .74rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; text-shadow: 0 1px 3px #000a; }
+.mode-track button[aria-pressed=true] { color: #ffd60a; }
+.mode-track button:disabled { opacity: .45; }
+/* Video mode: a red record button that turns into a stop square while recording. */
+body.video-mode .shutter::before { background: #ff3b30; }
+.shutter.recording::before { inset: 17px !important; border-radius: 6px; background: #ff3b30; }
+.record-time { position: absolute; z-index: 3; top: .6rem; left: 50%; display: flex; align-items: center; gap: .4rem; padding: .2rem .65rem; transform: translateX(-50%); border-radius: 6px; background: rgba(255, 59, 48, .92); color: #fff; font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rec-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: rec-blink 1s steps(2) infinite; }
+@keyframes rec-blink { 50% { opacity: 0; } }
+.viewfinder .result-video { object-fit: contain; background: #000; }
+.last-photo.is-video::after { position: absolute; right: 3px; bottom: 3px; display: grid; width: 15px; height: 15px; place-items: center; border-radius: 50%; background: #000a; color: #fff; font-size: 7px; content: "▶"; }

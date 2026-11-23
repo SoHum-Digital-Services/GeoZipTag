@@ -7,9 +7,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.14"
+    MARKETING_VERSION: "1.15"
     # Never below android/ota-min-apk.txt: update lists name one minimum native build ("min-apk") for both apps.
-    CURRENT_PROJECT_VERSION: "15"
+    CURRENT_PROJECT_VERSION: "16"
 targets:
   GeoZipTag:
     type: application
@@ -38,6 +38,7 @@ targets:
         UIViewControllerBasedStatusBarAppearance: true
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: GeoZipTag uses the camera to take photos that get a location and time stamp.
+        NSMicrophoneUsageDescription: GeoZipTag records sound with your videos.
         NSLocationWhenInUseUsageDescription: GeoZipTag uses your location to stamp the address and coordinates onto your photos.
         NSPhotoLibraryAddUsageDescription: GeoZipTag saves your stamped photos to your Photos library.
         NSPhotoLibraryUsageDescription: GeoZipTag keeps its photos in a GeoZipTag album and lets you delete them from there.

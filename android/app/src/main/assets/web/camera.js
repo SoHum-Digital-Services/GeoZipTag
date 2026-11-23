@@ -19,6 +19,7 @@ let timestampOnly = false
 let manualFix, originalUrl, lastPhoto
 let cameraHardware, countdownTimer, focusTimer
 let gridEnabled = false
+let captureMode = 'photo'   // photo | video
 let timerSeconds = 0
 const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
   quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false,
@@ -280,7 +281,7 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
   message('')
   try {
     let next
-    if (nativeHost) {
+    if (nativeHost && captureMode === 'photo') {
       // The phone's own camera; the browser camera is only a fallback (never after a refused permission).
       next = await openNativeCamera(nextFacing).catch(error => {
         if (error.message === 'denied' || !navigator.mediaDevices?.getUserMedia) throw error
@@ -288,10 +289,13 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
     }
     if (!next) {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable')
-      next = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: nextFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false
-      })
+      const videoConstraints = { facingMode: { ideal: nextFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      // Video mode records sound; without a microphone it still records the picture.
+      next = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: captureMode === 'video' })
+        .catch(error => {
+          if (captureMode !== 'video') throw error
+          return navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false })
+        })
     }
     if (cameraRequest !== request) {
       next.getTracks().forEach((track) => track.stop())
@@ -1356,7 +1360,7 @@ $('zoomSlider').addEventListener('change', async event => {
 })
 
 video.addEventListener('click', async event => {
-  if (pinch || Date.now() - pinchEndedAt < 400) return
+  if (pinch || Date.now() - pinchEndedAt < 400 || Date.now() - modeSwipedAt < 400) return
   if (preferences.tapAction === 'capture') {
     if (!busy && countdownTimer === undefined) $('shutter').click()
     return
@@ -1541,7 +1545,7 @@ const photoStore = (() => {
   }
   return {
     put: (entry) => run('readwrite', store => store.put({
-      name: entry.name, date: entry.date.getTime(), jpeg: entry.jpeg, kind: entry.kind || 'photo',
+      name: entry.name, date: entry.date.getTime(), jpeg: entry.jpeg, kind: entry.kind || 'photo', thumbBlob: entry.thumbBlob,
       snapshot: entry.snapshot ? { ...entry.snapshot } : undefined, address: entry.address, note: entry.note, saved: entry.saved
     })).catch(() => {}),
     remove: (name) => run('readwrite', store => store.delete(name)).catch(() => {}),
@@ -1569,9 +1573,9 @@ async function restorePhotos() {
     const entry = {
       jpeg: record.jpeg, date: new Date(record.date), snapshot: record.snapshot, address: record.address, note: record.note,
       name: record.name, kind: record.kind, saved: !!record.saved, url: URL.createObjectURL(record.jpeg),
-      shareFile: new File([record.jpeg], record.name, { type: record.jpeg.type || 'image/jpeg' })
+      thumbBlob: record.thumbBlob, shareFile: new File([record.jpeg], record.name, { type: record.jpeg.type || 'image/jpeg' })
     }
-    try { entry.thumb = await thumbnailFor(record.jpeg) } catch {}
+    try { entry.thumb = record.thumbBlob ? URL.createObjectURL(record.thumbBlob) : await thumbnailFor(record.jpeg) } catch {}
     restored.push(entry)
   }
   if (!restored.length) return
@@ -1599,6 +1603,7 @@ function removePhoto(entry) {
 
 function showThumbnail(entry, fresh = false) {
   const button = $('lastPhotoButton'), image = $('lastPhotoImage')
+  button.classList.toggle('is-video', entry?.kind === 'video')
   if (!entry?.thumb) {
     image.hidden = true
     image.removeAttribute('src')
@@ -1662,8 +1667,14 @@ function showReview() {
   const { name, jpeg, shareFile } = lastPhoto
   $('start').hidden = true
   $('controls').hidden = true
-  $('result').src = photoUrl
-  $('result').hidden = false
+  const isVideo = lastPhoto.kind === 'video'
+  $('result').hidden = isVideo
+  if (isVideo) {
+    $('resultVideo').src = photoUrl
+    $('resultVideo').hidden = false
+  } else {
+    $('result').src = photoUrl
+  }
   $('result').parentElement.classList.add('photo-review')
   $('retakeLabel').textContent = 'Camera'
   $('save').href = photoUrl
@@ -1689,6 +1700,9 @@ function showReview() {
 }
 
 function hideReview() {
+  $('resultVideo').pause()
+  $('resultVideo').hidden = true
+  $('resultVideo').removeAttribute('src')
   $('result').hidden = true
   $('result').parentElement.classList.remove('photo-review')
   $('result').removeAttribute('src')
@@ -1791,7 +1805,7 @@ function cancelCountdown() {
   clearInterval(countdownTimer)
   countdownTimer = undefined
   $('cameraCountdown').hidden = true
-  $('shutter').setAttribute('aria-label', 'Take photo')
+  $('shutter').setAttribute('aria-label', captureMode === 'video' ? 'Record video' : 'Take photo')
   $('shutter').classList.remove('counting')
 }
 
@@ -1949,6 +1963,170 @@ if (android) {
   }
 }
 
+// ---- Photo / Video modes (slide sideways on the camera, or tap the label) ----
+// Video records the camera picture with the live stamp drawn on every frame (its clock keeps running) and the
+// sound, using the browser camera; photos keep the phone's own camera.
+let modeSwipedAt = 0, recording
+const videoCapable = typeof MediaRecorder !== 'undefined' && !!HTMLCanvasElement.prototype.captureStream &&
+  !!navigator.mediaDevices?.getUserMedia && (!hostSaves || typeof android.videoBegin === 'function')
+$('modeSwitch').querySelector('[data-mode="video"]').hidden = !videoCapable
+
+function centreMode() {
+  const track = $('modeTrack'), active = track.querySelector('[aria-pressed=true]')
+  if (active) track.style.transform = `translateX(${track.offsetWidth / 2 - (active.offsetLeft + active.offsetWidth / 2)}px)`
+}
+function setMode(mode) {
+  if (recording || busy || mode === captureMode || (mode === 'video' && !videoCapable)) return
+  captureMode = mode
+  for (const button of $('modeTrack').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode))
+  document.body.classList.toggle('video-mode', mode === 'video')
+  $('shutter').setAttribute('aria-label', mode === 'video' ? 'Record video' : 'Take photo')
+  centreMode()
+  cancelCountdown()
+  if (stream || !$('start').hidden) startCamera(facing, { soft: !!stream })
+}
+for (const button of $('modeTrack').querySelectorAll('button')) button.addEventListener('click', () => setMode(button.dataset.mode))
+window.addEventListener('resize', centreMode)
+setTimeout(centreMode)
+{
+  const area = video.parentElement
+  let swipe
+  area.addEventListener('pointerdown', event => {
+    if (area.classList.contains('photo-review') || event.target.closest('button, .exposure-control')) return
+    swipe = { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now() }
+  })
+  area.addEventListener('pointerup', event => {
+    if (!swipe || swipe.id !== event.pointerId || pinch || touchPoints.size > 1) { swipe = undefined; return }
+    const dx = event.clientX - swipe.x, dy = event.clientY - swipe.y, quick = performance.now() - swipe.time < 700
+    swipe = undefined
+    if (quick && Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
+      modeSwipedAt = Date.now()
+      setMode(dx < 0 ? 'video' : 'photo')
+    }
+  })
+  area.addEventListener('pointercancel', () => { swipe = undefined })
+}
+
+const recordingFormats = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+function toggleRecording() {
+  if (recording) stopRecording()
+  else startRecording()
+}
+async function startRecording() {
+  if (recording || busy || !stream || stream.native || !video.videoWidth) return
+  const crop = cropToShape(video.videoWidth, video.videoHeight)
+  const fit = Math.min(1, 1920 / Math.max(crop.width, crop.height))
+  const even = (value) => Math.max(2, Math.round(value * fit / 2) * 2)
+  const canvas = document.createElement('canvas'), stampLayer = document.createElement('canvas')
+  canvas.width = stampLayer.width = even(crop.width)
+  canvas.height = stampLayer.height = even(crop.height)
+  const context = canvas.getContext('2d', { alpha: false })
+  let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
+  if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
+  const place = snapshot && placeReady(snapshot) ? placeCache.result : {}
+  const note = stampNote
+  const drawLayer = () => {
+    stampLayer.getContext('2d').clearRect(0, 0, stampLayer.width, stampLayer.height)
+    drawStamp(stampLayer, { snapshot, date: new Date(), picked: false, address: place.address, map: place.map, note })
+  }
+  drawLayer()
+  const mirrored = facing === 'user' && preferences.mirrorFront
+  const state = { started: Date.now(), date: new Date(), snapshot, address: place.address, note, chunks: [], canvas }
+  const drawFrame = () => {
+    if (mirrored) context.setTransform(-1, 0, 0, 1, canvas.width, 0)
+    context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height)
+    if (mirrored) context.setTransform(1, 0, 0, 1, 0, 0)
+    context.drawImage(stampLayer, 0, 0)
+  }
+  drawFrame()
+  state.frames = setInterval(drawFrame, 1000 / 30)
+  state.stampTimer = setInterval(drawLayer, 1000)
+  // A thumbnail from the first frame.
+  const thumb = document.createElement('canvas')
+  thumb.width = thumb.height = 144
+  const scale = Math.max(144 / canvas.width, 144 / canvas.height)
+  thumb.getContext('2d').drawImage(canvas, (144 - canvas.width * scale) / 2, (144 - canvas.height * scale) / 2, canvas.width * scale, canvas.height * scale)
+  state.thumbBlob = await new Promise(resolve => thumb.toBlob(resolve, 'image/jpeg', 0.82))
+
+  const output = canvas.captureStream(30)
+  for (const track of stream.getAudioTracks()) output.addTrack(track)
+  state.mimeType = recordingFormats.find(type => MediaRecorder.isTypeSupported?.(type)) || ''
+  try {
+    state.recorder = new MediaRecorder(output, { ...(state.mimeType ? { mimeType: state.mimeType } : {}), videoBitsPerSecond: 8_000_000 })
+  } catch {
+    clearInterval(state.frames); clearInterval(state.stampTimer)
+    message('Video recording is unavailable on this phone.', 4000)
+    return
+  }
+  state.recorder.ondataavailable = event => { if (event.data?.size) state.chunks.push(event.data) }
+  state.recorder.start(1000)
+  recording = state
+  $('shutter').classList.add('recording')
+  $('shutter').setAttribute('aria-label', 'Stop recording')
+  for (const id of ['switchCamera', 'cameraPanelButton', 'lastPhotoButton']) $(id).disabled = true
+  for (const button of $('modeTrack').querySelectorAll('button')) button.disabled = true
+  $('recordClock').textContent = '00:00'
+  $('recordTime').hidden = false
+  state.clock = setInterval(() => {
+    const seconds = Math.floor((Date.now() - state.started) / 1000)
+    $('recordClock').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+  }, 250)
+}
+async function stopRecording() {
+  const state = recording
+  if (!state) return
+  recording = undefined
+  const stopped = new Promise(resolve => { state.recorder.onstop = resolve })
+  state.recorder.stop()
+  await stopped
+  clearInterval(state.frames); clearInterval(state.stampTimer); clearInterval(state.clock)
+  $('recordTime').hidden = true
+  $('shutter').classList.remove('recording')
+  $('shutter').setAttribute('aria-label', 'Record video')
+  for (const id of ['switchCamera', 'cameraPanelButton']) $(id).disabled = false
+  for (const button of $('modeTrack').querySelectorAll('button')) button.disabled = false
+  const type = (state.recorder.mimeType || state.mimeType || 'video/webm').split(';')[0]
+  const blob = new Blob(state.chunks, { type })
+  state.canvas.width = state.canvas.height = 0
+  if (!blob.size) { message('The video could not be recorded.', 4000); showThumbnail(lastPhoto); return }
+  const name = `GeoZipTag-${state.date.toISOString().replace(/[:.]/g, '-')}.${type.includes('mp4') ? 'mp4' : 'webm'}`
+  const entry = {
+    kind: 'video', jpeg: blob, thumbBlob: state.thumbBlob, date: state.date, snapshot: state.snapshot, address: state.address,
+    note: state.note, name, saved: false, url: URL.createObjectURL(blob),
+    thumb: state.thumbBlob ? URL.createObjectURL(state.thumbBlob) : undefined, shareFile: new File([blob], name, { type })
+  }
+  rememberPhoto(entry)
+  showThumbnail(entry, true)
+  if (hostSaves) {
+    entry.saved = true
+    entry.saving = sendVideo(name, blob, 'save')
+    photoStore.put(entry)
+  } else message('Video ready · tap the thumbnail to save or share', 3500)
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden && recording) stopRecording() })
+
+// The app receives a video in pieces (base64 travels through the bridge), then saves or shares it.
+const pendingVideos = new Map()
+window.onVideoSaved = (name, ok) => {
+  pendingVideos.get(name)?.(ok)
+  pendingVideos.delete(name)
+  if (!ok) message('Could not save the video to the gallery.', 5000)
+}
+async function sendVideo(name, blob, action) {
+  const id = `video${Date.now()}`
+  const piece = 786432   // a multiple of 3, so the pieces' base64 joins up
+  android.videoBegin(id, name)
+  for (let offset = 0; offset < blob.size; offset += piece) {
+    const data = await readPhotoData(blob.slice(offset, offset + piece))
+    android.videoChunk(id, data.slice(data.indexOf(',') + 1))
+  }
+  const done = action === 'save'
+    ? new Promise(resolve => { pendingVideos.set(name, resolve); setTimeout(() => resolve(false), 180000) })
+    : Promise.resolve(true)
+  android.videoEnd(id, action)
+  return done
+}
+
 // ---- Camera settings tray: Ratio, Grid, Timer, Focus, Mirror, Level, Add text ----
 function setCameraPanel(open) {
   $('cameraPanel').hidden = !open
@@ -2046,7 +2224,8 @@ function cropToShape(width, height) {
 async function sharePhoto(entry, automatic = false) {
   if (!entry) return
   try {
-    if (hostSaves) await exportToAndroid('share', entry.name, entry.jpeg)
+    if (hostSaves && entry.kind === 'video') await sendVideo(entry.name, entry.jpeg, 'share')
+    else if (hostSaves) await exportToAndroid('share', entry.name, entry.jpeg)
     else await navigator.share({ files: [entry.shareFile] })
   } catch (error) {
     // Right after the shutter a browser may refuse to open sharing; the photo view's Share still works.
@@ -2060,6 +2239,7 @@ function exportJpeg(canvas) {
 }
 
 $('shutter').addEventListener('click', () => {
+  if (captureMode === 'video') { toggleRecording(); return }
   if (countdownTimer !== undefined) cancelCountdown()
   else requestCapture(takeLivePhoto)
 })

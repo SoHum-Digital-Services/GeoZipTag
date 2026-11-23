@@ -28,6 +28,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         cameraFocus: (x, y) => post({ type: 'cameraFocus', x: Number(x), y: Number(y) }),
         cameraLayout: (x, y, w, h) => post({ type: 'cameraLayout', x: Number(x), y: Number(y), w: Number(w), h: Number(h) }),
         cameraCapture: (id) => post({ type: 'cameraCapture', id: String(id) }),
+        videoBegin: (id, name) => post({ type: 'videoBegin', id: String(id), name: String(name) }),
+        videoChunk: (id, data) => post({ type: 'videoChunk', id: String(id), data: String(data) }),
+        videoEnd: (id, action) => post({ type: 'videoEnd', id: String(id), action: String(action || 'save') }),
         setVolumeShutter: window.__geoZipTagVolumeButtons ? (on) => post({ type: 'setVolumeShutter', on: !!on }) : undefined,
         exportPhoto: (action, filename, data) => post({ type: 'exportPhoto', action, filename, data }),
         deletePhoto: (filename) => post({ type: 'deletePhoto', filename }),
@@ -40,6 +43,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private var webView: WKWebView!
     private let camera = NativeCamera()
     private var volumeInteraction: UIInteraction?
+    private var videoParts: [String: (name: String, url: URL, handle: FileHandle)] = [:]
     private var server: LocalServer?
     private var updater: OtaUpdater?
     private var lastUpdateCheck = Date.distantPast
@@ -308,6 +312,28 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                 if let data { self.server?.putPhoto(id, data) }
                 self.callPage("window.onNativePhoto && window.onNativePhoto(\(Self.js(id)), \(data != nil))")
             }
+        case "videoBegin":
+            guard let id = body["id"] as? String, id.range(of: "^[A-Za-z0-9_-]{1,40}$", options: .regularExpression) != nil,
+                  let name = body["name"] as? String, Self.validName(name), !name.hasSuffix(".jpg") else { return }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            if let handle = try? FileHandle(forWritingTo: url) { videoParts[id] = (name, url, handle) }
+        case "videoChunk":
+            if let id = body["id"] as? String, let part = videoParts[id], let text = body["data"] as? String,
+               let data = Data(base64Encoded: text) {
+                part.handle.write(data)
+            }
+        case "videoEnd":
+            guard let id = body["id"] as? String, let part = videoParts.removeValue(forKey: id) else { return }
+            try? part.handle.close()
+            if body["action"] as? String == "share" {
+                let sheet = UIActivityViewController(activityItems: [part.url], applicationActivities: nil)
+                sheet.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: part.url) }
+                sheet.popoverPresentationController?.sourceView = view
+                present(sheet, animated: true)
+            } else {
+                enqueueVideoSave(name: part.name, url: part.url)
+            }
         case "setVolumeShutter":
             setVolumeShutter(body["on"] as? Bool == true)
         case "checkForUpdates": checkForUpdates(manual: true)
@@ -321,7 +347,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     private static func validName(_ name: String) -> Bool {
-        name.range(of: "^GeoZipTag-[A-Za-z0-9_-]{1,95}\\.jpg$", options: .regularExpression) != nil
+        name.range(of: "^GeoZipTag-[A-Za-z0-9_-]{1,95}\\.(jpg|mp4|webm)$", options: .regularExpression) != nil
     }
 
     private func callPage(_ script: String) {
@@ -395,6 +421,45 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         } catch { return nil }
         guard let identifier = created.value else { return nil }
         return PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [identifier], options: nil).firstObject
+    }
+
+    // MARK: Videos
+
+    private func enqueueVideoSave(name: String, url: URL) {
+        let previous = lastSave
+        lastSave = Task { [weak self] in
+            await previous.value
+            await self?.saveVideo(name: name, url: url)
+        }
+    }
+
+    private func saveVideo(name: String, url: URL) async {
+        defer { try? FileManager.default.removeItem(at: url) }
+        var ok = false
+        if await photosAccess() {
+            let album = await ensureAlbum()
+            let created = Box()
+            do {
+                try await PHPhotoLibrary.shared().performChanges {
+                    let options = PHAssetResourceCreationOptions()
+                    options.originalFilename = name
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .video, fileURL: url, options: options)
+                    if let placeholder = request.placeholderForCreatedAsset {
+                        created.value = placeholder.localIdentifier
+                        if let album, let change = PHAssetCollectionChangeRequest(for: album) { change.addAssets([placeholder] as NSArray) }
+                    }
+                }
+                if let identifier = created.value { savedAssets[name] = identifier }
+                ok = true
+                showToast("Video saved")
+            } catch {
+                showToast("Could not save the video.")
+            }
+        } else {
+            showToast("Allow Photos access in Settings to save videos.")
+        }
+        callPage("window.onVideoSaved && window.onVideoSaved(\(Self.js(name)), \(ok))")
     }
 
     // MARK: Deleting
