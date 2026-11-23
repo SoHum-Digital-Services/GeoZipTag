@@ -235,6 +235,12 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         decisionHandler(origin.host == "127.0.0.1" ? .grant : .deny)
     }
 
+    // The level in Camera settings reads the motion sensor; the page is our own, so allow it.
+    func webView(_ webView: WKWebView, requestDeviceOrientationAndMotionPermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        decisionHandler(origin.host == "127.0.0.1" ? .grant : .deny)
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         webView.reload()   // iOS can stop the page's process in the background
     }

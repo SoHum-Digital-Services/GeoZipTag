@@ -183,7 +183,7 @@ button.danger { background: #d94242; color: #fff; }
 button.danger:hover { background: #e25555; }
 /* Reviewing the last photo: the camera keeps running underneath, out of sight. */
 .viewfinder.photo-review video, .viewfinder.photo-review .switch-frame { visibility: hidden; }
-.viewfinder.photo-review :is(.live-camera-tools, .camera-zoom, .camera-grid, .focus-point, .camera-countdown) { display: none; }
+.viewfinder.photo-review :is(.level-line, .exposure-control, .camera-zoom, .camera-grid, .focus-point, .camera-countdown) { display: none; }
 video.mirror { transform: scaleX(-1); }
 .viewfinder video { touch-action: none; }
 video.can-focus { cursor: crosshair; }
@@ -945,3 +945,19 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
   .shutter:active::before { inset: 8px; }
   .shutter.counting::before { inset: 18px; }
 }
+
+/* Camera settings tray (GPS Map Camera style): drops down under the top strip. */
+.camera-panel { position: fixed; z-index: 6; top: calc(env(safe-area-inset-top) + 50px); left: 0; right: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: .2rem; padding: .6rem .5rem .8rem; background: rgba(0, 0, 0, .78); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); animation: panel-in .18s ease-out; }
+@keyframes panel-in { from { opacity: 0; transform: translateY(-8px); } }
+.panel-tile { display: flex; flex-direction: column; align-items: center; gap: .15rem; min-height: 72px; padding: .45rem .2rem; border-radius: 14px; background: transparent; color: #fff; font-size: .8rem; font-weight: 600; }
+.panel-tile .icon { width: 1.6rem; height: 1.6rem; }
+.panel-tile small { color: rgba(255, 255, 255, .62); font-size: .66rem; font-weight: 500; }
+.panel-tile[aria-pressed=true], .panel-tile[aria-pressed=true] small, .panel-tile.on, .panel-tile.on small { color: #ffd60a; }
+.panel-tile:hover { background: rgba(255, 255, 255, .08); }
+#cameraPanelButton[aria-expanded=true] { background: var(--cream); color: #111; }
+/* Level: a line across the middle that turns yellow when the phone is straight. */
+.level-line { position: absolute; z-index: 2; left: 50%; top: 50%; width: 150px; height: 2px; margin: -1px 0 0 -75px; border-radius: 1px; background: rgba(255, 255, 255, .85); box-shadow: 0 0 3px #000a; pointer-events: none; transition: background-color .15s; }
+.level-line::before, .level-line::after { position: absolute; top: 0; width: 40px; height: 2px; background: rgba(255, 255, 255, .5); content: ""; }
+.level-line::before { right: calc(100% + 10px); }
+.level-line::after { left: calc(100% + 10px); }
+.level-line.straight, .level-line.straight::before, .level-line.straight::after { background: #ffd60a; }

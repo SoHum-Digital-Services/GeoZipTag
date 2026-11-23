@@ -21,7 +21,8 @@ let cameraHardware, countdownTimer, focusTimer
 let gridEnabled = false
 let timerSeconds = 0
 const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
-  quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false }
+  quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false,
+  mirrorFront: false, showLevel: false }
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
   if (['satellite', 'time', 'qr'].includes(saved.template)) preferences.template = saved.template
@@ -33,6 +34,8 @@ try {
   if (saved.tapAction === 'capture') preferences.tapAction = 'capture'
   preferences.volumeShutter = saved.volumeShutter !== false
   preferences.shareAfter = saved.shareAfter === true
+  preferences.mirrorFront = saved.mirrorFront === true
+  preferences.showLevel = saved.showLevel === true
 } catch {}
 
 // Dates and times are shown in the time zone of the photo's location (GPS or manual pin),
@@ -1092,7 +1095,6 @@ function resetLiveControls() {
   cancelCountdown()
   clearTimeout(focusTimer)
   cameraHardware = undefined
-  $('liveCameraTools').hidden = true
   $('cameraGrid').hidden = true
   $('focusPoint').hidden = true
   $('zoomControl').hidden = true
@@ -1248,7 +1250,6 @@ function showLiveControls(track) {
     track, focus, exposure, desired: {}, queue: Promise.resolve(), base: track.getConstraints?.() || {},
     flashModes: capabilities.flash, torch: capabilities.torch === true
   }
-  $('liveCameraTools').hidden = false
   showFlash(cameraHardware, settings)
   const zoom = capabilities.zoom
   const hasZoom = Number.isFinite(zoom?.min) && Number.isFinite(zoom?.max) && zoom.max > zoom.min
@@ -1761,7 +1762,11 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     canvas.height = Math.round(crop.height * fit)
     const context = canvas.getContext('2d', { alpha: false })
     if (!context) throw new Error('out of memory')
+    // Mirror (Camera settings): front-camera photos saved as seen in the preview.
+    const mirrored = live && facing === 'user' && preferences.mirrorFront
+    if (mirrored) context.setTransform(-1, 0, 0, 1, canvas.width, 0)
     context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height)
+    if (mirrored) context.setTransform(1, 0, 0, 1, 0, 0)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await placeFor(snapshot)
     await stampFonts
@@ -1845,6 +1850,78 @@ if (android) {
   }
 }
 
+// ---- Camera settings tray: Ratio, Grid, Timer, Focus, Mirror, Level, Add text ----
+function setCameraPanel(open) {
+  $('cameraPanel').hidden = !open
+  $('cameraPanelButton').setAttribute('aria-expanded', String(open))
+  if (open) refreshCameraPanel()
+}
+function refreshCameraPanel() {
+  $('ratioValue').textContent = preferences.aspect
+  $('tapValue').textContent = preferences.tapAction === 'capture' ? 'Tap to shoot' : 'Tap to focus'
+  $('tapTile').classList.toggle('on', preferences.tapAction === 'capture')
+  $('mirrorTile').setAttribute('aria-pressed', String(preferences.mirrorFront))
+  $('levelTile').setAttribute('aria-pressed', String(preferences.showLevel))
+  $('noteValue').textContent = stampNote ? 'Added' : 'On the stamp'
+  $('noteTile').classList.toggle('on', !!stampNote)
+}
+$('cameraPanelButton').addEventListener('click', () => setCameraPanel($('cameraPanel').hidden))
+document.addEventListener('pointerdown', event => {
+  if (!$('cameraPanel').hidden && !event.target.closest('#cameraPanel, #cameraPanelButton')) setCameraPanel(false)
+})
+$('ratioTile').addEventListener('click', () => {
+  preferences.aspect = { '16:9': '4:3', '4:3': '1:1', '1:1': '16:9' }[preferences.aspect] || '16:9'
+  $('photoShape').value = preferences.aspect
+  savePreferences()
+  layoutFrame()
+  refreshCameraPanel()
+})
+$('tapTile').addEventListener('click', () => {
+  preferences.tapAction = preferences.tapAction === 'capture' ? 'focus' : 'capture'
+  $('tapAction').value = preferences.tapAction
+  savePreferences()
+  refreshCameraPanel()
+})
+$('mirrorTile').addEventListener('click', () => {
+  preferences.mirrorFront = !preferences.mirrorFront
+  savePreferences()
+  refreshCameraPanel()
+})
+$('noteTile').addEventListener('click', () => {
+  setCameraPanel(false)
+  $('locationTools').showModal()
+  setTimeout(() => $('stampNote').focus(), 50)
+})
+
+// Level: a line that stays level with the horizon (from the motion sensor) and turns yellow when straight.
+function onMotion(event) {
+  const g = event.accelerationIncludingGravity
+  if (!g || g.x == null || g.y == null) return
+  let angle = Math.atan2(g.x, g.y) * 180 / Math.PI
+  if (angle > 90) angle -= 180   // iOS reports the opposite sign
+  else if (angle < -90) angle += 180
+  const line = $('levelLine')
+  line.style.transform = `rotate(${angle.toFixed(1)}deg)`
+  line.classList.toggle('straight', Math.abs(angle) < 1.5)
+}
+async function applyLevel() {
+  const on = preferences.showLevel
+  $('levelLine').hidden = !on
+  window.removeEventListener('devicemotion', onMotion)
+  if (on) window.addEventListener('devicemotion', onMotion)
+}
+$('levelTile').addEventListener('click', async () => {
+  preferences.showLevel = !preferences.showLevel
+  // iPhones ask once for motion access; this tap is the permission gesture.
+  if (preferences.showLevel && /iPhone|iPad|iPod/.test(navigator.userAgent) && typeof DeviceMotionEvent?.requestPermission === 'function') {
+    try { if (await DeviceMotionEvent.requestPermission() !== 'granted') preferences.showLevel = false } catch { preferences.showLevel = false }
+  }
+  savePreferences()
+  applyLevel()
+  refreshCameraPanel()
+})
+applyLevel()
+
 // Volume buttons as a shutter (apps only): the app passes presses on while this is on.
 function applyVolumeShutter() {
   try { android?.setVolumeShutter?.(preferences.volumeShutter) } catch {}
@@ -1927,6 +2004,7 @@ window.addEventListener('pagehide', () => {
 })
 
 $('stampNote').addEventListener('input', (event) => {
+  setTimeout(refreshCameraPanel)
   stampNote = event.target.value.trim()
 })
 
