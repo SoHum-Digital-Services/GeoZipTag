@@ -113,8 +113,14 @@ function prefetchPlace(snapshot) {
   const cached = placeCache
   if (cached && usable(cached, snapshot)) return
   if (cached && !cached.done && metresBetween(snapshot, cached) < 200) return   // one request at a time nearby
+  placeCache = placeEntry(snapshot)
+}
+
+function placeEntry(snapshot) {
   const entry = { lat: snapshot.lat, lon: snapshot.lon, at: Date.now(), done: false, failed: false }
-  entry.promise = locate(snapshot).then(result => {
+  const job = locate(snapshot)
+  entry.now = job.now
+  entry.promise = job.then(result => {
     entry.done = true
     entry.failed = !result.address && !result.map
     entry.partial = !result.complete   // e.g. Nominatim busy: retried shortly instead of kept
@@ -122,7 +128,7 @@ function prefetchPlace(snapshot) {
     setTimeout(renderLiveStamp)
     return result
   }, () => { entry.done = true; entry.failed = true; return {} })
-  placeCache = entry
+  return entry
 }
 
 // A cached place is reused within 30 m: complete results for 10 minutes, partial ones for 20 s.
@@ -136,10 +142,18 @@ function placeReady(snapshot) {
   return !!(snapshot && cached && cached.done && usable(cached, snapshot))
 }
 
-function placeFor(snapshot) {
-  const cached = placeCache
-  if (snapshot && cached && usable(cached, snapshot)) return cached.promise
-  return locate(snapshot)
+// The address and map for a photo: the cached ones at once, otherwise whatever arrives within `wait` ms.
+// Started when the shutter is pressed, so it runs while the camera takes the photo.
+async function placeFor(snapshot, wait = 2500) {
+  if (!snapshot) return {}
+  let entry = placeCache
+  const nearby = entry && !entry.failed && metresBetween(snapshot, entry) < 30
+  if (!(nearby && (!entry.done || usable(entry, snapshot)))) entry = placeCache = placeEntry(snapshot)
+  if (entry.done) return entry.result || {}
+  if (navigator.onLine === false) return entry.now()   // offline: coordinates and time only, at once
+  const late = Symbol('late')
+  const result = await Promise.race([entry.promise, new Promise((resolve) => setTimeout(resolve, wait, late))])
+  return result === late ? entry.now() : result
 }
 
 // ---- Native camera (iPhone app): the phone's own photo camera, with its preview drawn by the app behind
@@ -208,6 +222,8 @@ function takeNativePhoto() {
   return new Promise((resolve, reject) => {
     const id = `photo${Date.now()}x${++nativePhotoCount}`
     const timer = setTimeout(() => { nativePhotos.delete(id); reject(new Error('timeout')) }, 20000)
+    // Standard quality keeps at most 2560 px after the crop; 3420 px covers the 1:1 and 4:3 crops of a 3:4 photo.
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) nativeHost.cameraSet(JSON.stringify({ maxSide: preferences.quality === 'standard' ? 3420 : 0 }))
     nativePhotos.set(id, (ok) => {
       clearTimeout(timer)
       nativePhotos.delete(id)
@@ -740,8 +756,18 @@ function mergeAddresses(photon, phone) {
   return merged
 }
 
-async function locate(snapshot) {
-  if (!snapshot) return {}
+// Looks up the address and satellite map. The returned promise settles when every service has answered
+// (or after 15 s); its now() gives whatever has arrived so far, so a photo never waits for a slow service.
+function locate(snapshot) {
+  if (!snapshot) return Object.assign(Promise.resolve({}), { now: () => ({}) })
+  const got = {}
+  const keep = (key, promise) => promise.then((value) => { got[key] = value; return value })
+  const result = () => ({ address: mergeAddresses(fillAddress(got.osm, got.address), got.phone), map: got.map?.image, complete: !!(got.osm && got.map) })
+  const promise = lookAround(snapshot, keep).then(result)
+  return Object.assign(promise, { now: result })
+}
+
+async function lookAround(snapshot, keep) {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), 15000)
   const reverse = new URL('https://photon.komoot.io/reverse')
@@ -750,13 +776,12 @@ async function locate(snapshot) {
   nominatim.search = new URLSearchParams({ format: 'jsonv2', lat: snapshot.lat, lon: snapshot.lon, zoom: 18, addressdetails: 1, 'accept-language': 'en' })
   const request = (url) => lookup(url, abort.signal)
   try {
-    const [address, map, phone, osm] = await Promise.allSettled([
-      request(reverse).then((response) => response.json()).then((data) => photonAddress(data.features?.[0], snapshot)),
-      loadSatelliteMap(snapshot, request, abort.signal),
-      phoneAddress(snapshot),
-      request(nominatim).then((response) => response.json()).then(nominatimAddress)
+    await Promise.allSettled([
+      keep('address', request(reverse).then((response) => response.json()).then((data) => photonAddress(data.features?.[0], snapshot))),
+      keep('map', loadSatelliteMap(snapshot, request, abort.signal)),
+      keep('phone', phoneAddress(snapshot)),
+      keep('osm', request(nominatim).then((response) => response.json()).then(nominatimAddress))
     ])
-    return { address: mergeAddresses(fillAddress(osm.value, address.value), phone.value), map: map.value?.image, complete: !!(osm.value && map.value) }
   } finally {
     clearTimeout(timer)
   }
@@ -1915,6 +1940,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
   if (!live) message('Stamping photo…')
   else if (snapshot && !placeReady(snapshot)) message('Adding address and satellite map…')
   let canvas
+  const place = placeFor(snapshot)   // runs while the camera takes the photo
   try {
     if (live && stream?.native) {
       source = await takeNativePhoto()   // full-quality photo from the phone's camera
@@ -1938,7 +1964,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height)
     if (mirrored) context.setTransform(1, 0, 0, 1, 0, 0)
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
-    const { address, map } = await placeFor(snapshot)
+    const { address, map } = await place
     await stampFonts
     const attendance = live || phoneMode ? currentAttendance() : undefined
     drawStamp(canvas, { snapshot, date, picked, address, map, attendance })

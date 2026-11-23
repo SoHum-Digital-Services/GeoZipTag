@@ -1,5 +1,7 @@
 import AVFoundation
+import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 
 /// The iPhone's own photo camera (the one the Camera app uses), so photos get Apple's full processing:
 /// Smart HDR, Deep Fusion and low-light fusion, at full resolution. The live preview is a native layer
@@ -17,10 +19,12 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
     private var input: AVCaptureDeviceInput?
     private var wideFactor: CGFloat = 1          // zoom factor of the main (1×) lens on multi-lens cameras
     private var pending: [Int64: (Data?) -> Void] = [:]
+    private var sizes: [Int64: Int] = [:]
     private var lightTimer: DispatchSourceTimer?
     private var brightened = false
     private var userBias: Float = 0                       // the brightness slider, in stops
     private var flashMode: AVCaptureDevice.FlashMode = .off
+    private var maxSide = 0                               // longest side the page needs (0 = full size)
 
     override init() {
         super.init()
@@ -171,8 +175,10 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
     // MARK: Zoom, torch, focus
 
     /// `zoom` is in the page's units: 1 = the main lens, 0.5 = ultra wide.
-    func set(zoom: Double?, torch: Bool?, flash: String? = nil, exposure: Double? = nil) {
+    func set(zoom: Double?, torch: Bool?, flash: String? = nil, exposure: Double? = nil, maxSide: Int? = nil) {
         queue.async {
+            if let maxSide { self.maxSide = max(0, maxSide) }
+            guard zoom != nil || torch != nil || flash != nil || exposure != nil else { return }
             switch flash {
             case "auto": self.flashMode = .auto
             case "on": self.flashMode = .on
@@ -234,30 +240,48 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
             if connection.isVideoOrientationSupported { connection.videoOrientation = orientation }
             let settings = self.photoOutput.availablePhotoCodecTypes.contains(.jpeg)
                 ? AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg]) : AVCapturePhotoSettings()
-            settings.photoQualityPrioritization = self.photoOutput.maxPhotoQualityPrioritization
+            // Balanced keeps Smart HDR and low-light fusion but skips Deep Fusion's extra second or so per photo.
+            settings.photoQualityPrioritization = self.photoOutput.maxPhotoQualityPrioritization == .speed ? .speed : .balanced
             if self.photoOutput.supportedFlashModes.contains(self.flashMode) { settings.flashMode = self.flashMode }
+            let maxSide = self.maxSide
             self.pending[settings.uniqueID] = completion
+            self.sizes[settings.uniqueID] = maxSide
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        let data = error == nil ? photo.fileDataRepresentation().flatMap(Self.upright) : nil
         let id = photo.resolvedSettings.uniqueID
+        let file = error == nil ? photo.fileDataRepresentation() : nil
         queue.async {
             let done = self.pending.removeValue(forKey: id)
+            let maxSide = self.sizes.removeValue(forKey: id) ?? 0
+            let data = file.flatMap { Self.upright($0, maxSide: maxSide) }
             DispatchQueue.main.async { done?(data) }
         }
     }
 
-    private static func upright(_ data: Data) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
-        if image.imageOrientation == .up { return image.jpegData(compressionQuality: 0.95) ?? data }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let rendered = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-        }
-        return rendered.jpegData(compressionQuality: 0.95)
+    /// Turns the photo upright and, when the page needs less, shrinks it, in one hardware-assisted
+    /// decode (ImageIO). A photo that is already upright and small enough is passed on untouched.
+    static func upright(_ data: Data, maxSide: Int) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        let orientation = properties[kCGImagePropertyOrientation] as? UInt32 ?? 1
+        let longest = max(width, height)
+        let target = maxSide > 0 ? min(maxSide, longest) : longest
+        if orientation == 1 && target == longest { return data }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: target,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? output as Data : nil
     }
 }

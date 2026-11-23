@@ -294,7 +294,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         case "cameraSet":
             let settings = body["settings"] as? [String: Any] ?? [:]
             camera.set(zoom: (settings["zoom"] as? NSNumber)?.doubleValue, torch: settings["torch"] as? Bool,
-                       flash: settings["flash"] as? String, exposure: (settings["exposure"] as? NSNumber)?.doubleValue)
+                       flash: settings["flash"] as? String, exposure: (settings["exposure"] as? NSNumber)?.doubleValue,
+                       maxSide: (settings["maxSide"] as? NSNumber)?.intValue)
         case "cameraFocus":
             if let x = (body["x"] as? NSNumber)?.doubleValue, let y = (body["y"] as? NSNumber)?.doubleValue {
                 camera.focus(at: webView.convert(CGPoint(x: x, y: y), to: camera.previewView))   // preview-local point
