@@ -1005,3 +1005,19 @@ body.video-mode .shutter::before { background: #ff3b30; }
 .register-row .log.in { color: #6fe0a0; }
 .register-row .log.out { color: #ffb067; }
 .register-empty { padding: 1.2rem; color: var(--text-3); text-align: center; }
+
+/* Shared register */
+.sheet-subtitle { margin: 1.2rem .1rem .4rem; color: var(--text-3); font-size: .74rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.pin-row { display: flex; gap: .5rem; align-items: stretch; }
+.pin-row input { flex: 1; min-width: 0; }
+.toggle-row { margin-top: .8rem; border-radius: var(--radius-m); background: var(--surface-2); }
+.danger-text { display: block; margin: 1.2rem auto 0; color: #ff7b72; }
+#teamCode { color: var(--cream); letter-spacing: .06em; }
+.segmented.four { grid-template-columns: repeat(4, 1fr); margin-bottom: .6rem; }
+.segmented button[aria-pressed=true][data-period] { background: var(--surface-3); color: var(--text); }
+.register-row.with-photo { grid-template-columns: 52px auto 1fr auto; }
+.register-row.with-photo small { grid-column: 2 / -1; }
+.register-row .proof { grid-row: span 2; width: 52px; height: 52px; border-radius: 8px; object-fit: cover; background: var(--surface-3); }
+.register-row.team-row { grid-template-columns: 1fr auto; }
+.register-row.team-row.with-photo { grid-template-columns: 52px 1fr auto; }
+.register-row.team-row small { white-space: normal; }

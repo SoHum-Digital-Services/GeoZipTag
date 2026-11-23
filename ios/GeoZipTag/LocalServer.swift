@@ -7,8 +7,8 @@ import Network
 final class LocalServer {
     static let preferredPort: UInt16 = 47653
     private static let csp = "default-src 'none'; script-src 'self'; style-src 'self'; "
-        + "img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; "
-        + "connect-src 'self' blob: https://photon.komoot.io https://nominatim.openstreetmap.org https://*.arcgis.com; "
+        + "img-src 'self' blob: data: https://ziebgspujtdzkiwyybsa.supabase.co; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; "
+        + "connect-src 'self' blob: https://photon.komoot.io https://nominatim.openstreetmap.org https://*.arcgis.com https://ziebgspujtdzkiwyybsa.supabase.co; "
         + "frame-src 'none'; base-uri 'none'; form-action 'self'"
     private static let types: [String: String] = [
         "html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "mjs": "text/javascript; charset=utf-8",

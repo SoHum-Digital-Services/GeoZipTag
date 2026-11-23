@@ -54,6 +54,7 @@
   <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 7V4.5h14V7M12 4.5v15M9 19.5h6"/></symbol>
   <symbol id="i-person" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9.5" cy="10.5" r="2.3"/><path d="M5.8 16.5c.6-1.8 2-2.7 3.7-2.7s3.1.9 3.7 2.7M14.5 9.5h3.5M14.5 12.5h3.5"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.8" cy="6.5" r="1"/><circle cx="4.8" cy="12" r="1"/><circle cx="4.8" cy="17.5" r="1"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.6 9.1 4.7 4.7 0 0 0 7 18.5Z"/><path d="M12 15.5v-5M9.8 12.5 12 10.3l2.2 2.2"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5M14 11v5"/></symbol>
 </svg>
 
@@ -234,6 +235,11 @@
         <span class="row-text"><strong>Attendance register</strong><small id="registerCount">Log in / log out records</small></span>
         <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
       </button>
+      <button class="setting-row setting-link" type="button" data-open="teamSheet">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-cloud"/></svg>
+        <span class="row-text"><strong>Shared register</strong><small id="teamSummary">Send attendance to your team online</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
     </div>
   </section>
   <section class="settings-group" aria-labelledby="settingsCamera">
@@ -361,6 +367,54 @@
   </div>
 </dialog>
 
+<dialog id="teamSheet" aria-labelledby="teamTitle">
+  <div class="sheet-head"><h2 id="teamTitle">Shared register</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <div id="teamJoined" hidden>
+    <div class="status-card">
+      <span class="status-icon" aria-hidden="true"><svg class="icon"><use href="#i-cloud"/></svg></span>
+      <div><strong id="teamName">Team</strong><p class="sheet-status">Team code <b id="teamCode">—</b></p></div>
+    </div>
+    <p id="syncStatus" class="hint" role="status"></p>
+    <div class="sheet-actions">
+      <button id="shareTeamCode" type="button">Share code</button>
+      <button id="syncNow" type="button">Send now</button>
+    </div>
+    <label class="setting-row toggle-row"><span class="row-text"><strong>Send small photos</strong><small>A small copy of each attendance photo as proof (about 150 KB)</small></span><input id="sharePhotos" class="switch" type="checkbox"></label>
+    <h3 class="sheet-subtitle">Manager</h3>
+    <label for="managerPin">Manager PIN</label>
+    <div class="pin-row"><input id="managerPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 digits"><button id="openTeamRegister" class="primary" type="button">Open register</button></div>
+    <p id="managerStatus" class="hint" role="status"></p>
+    <button id="leaveTeam" class="text-button danger-text" type="button">Leave this team</button>
+  </div>
+  <div id="teamNotJoined">
+    <p class="hint">Everyone's attendance photos go to one online register. Phones join with the team's code; only the manager's PIN opens the register.</p>
+    <h3 class="sheet-subtitle">Join a team</h3>
+    <div class="pin-row"><input id="joinCode" type="text" maxlength="12" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. ENDW-4821"><button id="joinTeam" class="primary" type="button">Join</button></div>
+    <h3 class="sheet-subtitle">Start a team (manager)</h3>
+    <label for="newTeamName">Team name</label>
+    <input id="newTeamName" type="text" maxlength="60" placeholder="e.g. Endowments, Nalgonda">
+    <label for="newTeamPin">Manager PIN <small>6 digits, keep it to yourself</small></label>
+    <input id="newTeamPin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="6 digits">
+    <button id="createTeam" type="button">Create team</button>
+    <p id="teamStatus" class="hint" role="status"></p>
+  </div>
+</dialog>
+
+<dialog id="teamRegisterSheet" aria-labelledby="teamRegisterTitle">
+  <div class="sheet-head"><h2 id="teamRegisterTitle">Team register</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <div class="segmented four" role="group" aria-label="Period">
+    <button type="button" data-period="1" aria-pressed="true">Today</button>
+    <button type="button" data-period="7" aria-pressed="false">7 days</button>
+    <button type="button" data-period="31" aria-pressed="false">31 days</button>
+    <button type="button" data-period="0" aria-pressed="false">All</button>
+  </div>
+  <input id="teamEmployeeFilter" type="search" autocapitalize="characters" placeholder="All employees (type an ID to filter)" list="teamEmployees">
+  <datalist id="teamEmployees"></datalist>
+  <p id="teamRegisterSummary" class="hint" role="status"></p>
+  <div id="teamRegisterList" class="register-list"></div>
+  <div class="sheet-actions"><button id="exportTeamRegister" class="primary" type="button">Export CSV</button></div>
+</dialog>
+
 <dialog id="helpSheet" class="info-sheet" aria-labelledby="helpTitle" autofocus>
   <div class="sheet-head"><h2 id="helpTitle">How to use</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
   <div class="info-text">
@@ -376,6 +430,8 @@
     <p>Tap the thumbnail beside the shutter to open the last photo, share it, or delete it. Swipe down to go back to the camera.</p>
     <h3>Attendance</h3>
     <p>Add your employee ID (and your team's) in Settings &gt; Employee IDs, by typing them or importing a text, CSV or PDF list. Every photo then shows the ID with Log in or Log out. Tap the ID button at the top to roll to someone else's ID or switch between Log in and Log out. Settings &gt; Attendance register lists every entry and exports a CSV for Excel.</p>
+    <h3>Shared register</h3>
+    <p>In Settings &gt; Shared register a manager starts a team (a name and a 6-digit PIN) and gets a team code. Everyone else enters that code on their phone. Attendance photos are then sent to the team's online register, with a small copy of the photo, and wait on the phone while it is offline. The manager opens the register with the PIN to see everyone's entries and export them.</p>
     <h3>Reports</h3>
     <p>The report button at the top turns a photo, or a before-and-after pair, into a PDF with your company logo and notes.</p>
   </div>

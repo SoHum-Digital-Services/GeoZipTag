@@ -37,6 +37,7 @@ try {
   preferences.shareAfter = saved.shareAfter === true
   preferences.mirrorFront = saved.mirrorFront === true
   preferences.showLevel = saved.showLevel === true
+  if (saved.sharePhotos === false) preferences.sharePhotos = false
 } catch {}
 
 // Dates and times are shown in the time zone of the photo's location (GPS or manual pin),
@@ -1536,16 +1537,20 @@ const photoStore = (() => {
   let database
   const open = () => database ||= new Promise((resolve, reject) => {
     if (!window.indexedDB) { reject(new Error('no storage')); return }
-    const request = indexedDB.open('geoziptag', 1)
-    request.onupgradeneeded = () => request.result.createObjectStore('photos', { keyPath: 'name' })
+    const request = indexedDB.open('geoziptag', 2)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos', { keyPath: 'name' })
+      if (!db.objectStoreNames.contains('uploads')) db.createObjectStore('uploads')   // small photos waiting to be sent
+    }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
-  const run = async (mode, work) => {
+  const run = async (mode, work, storeName = 'photos') => {
     const db = await open()
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction('photos', mode)
-      const request = work(transaction.objectStore('photos'))
+      const transaction = db.transaction(storeName, mode)
+      const request = work(transaction.objectStore(storeName))
       transaction.oncomplete = () => resolve(request?.result)
       transaction.onerror = () => reject(transaction.error)
     })
@@ -1556,7 +1561,10 @@ const photoStore = (() => {
       snapshot: entry.snapshot ? { ...entry.snapshot } : undefined, address: entry.address, note: entry.note, saved: entry.saved
     })).catch(() => {}),
     remove: (name) => run('readwrite', store => store.delete(name)).catch(() => {}),
-    all: () => run('readonly', store => store.getAll()).catch(() => [])
+    all: () => run('readonly', store => store.getAll()).catch(() => []),
+    putUpload: (ref, blob) => run('readwrite', store => store.put(blob, ref), 'uploads').catch(() => {}),
+    getUpload: (ref) => run('readonly', store => store.get(ref), 'uploads').catch(() => undefined),
+    removeUpload: (ref) => run('readwrite', store => store.delete(ref), 'uploads').catch(() => {})
   }
 })()
 
@@ -1902,7 +1910,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       url: URL.createObjectURL(jpeg), originalUrl: original ? URL.createObjectURL(original) : undefined
     }
     rememberPhoto(entry)
-    if (attendance) recordAttendance(attendance, { date, snapshot, address, file: name })
+    if (attendance) recordAttendance(attendance, { date, snapshot, address, file: name, photo: proofCopy(canvas) })
     // The photo is ready: the thumbnail updates at once and the viewfinder stays on screen.
     updateThumbnail(canvas, entry)
     if (hostSaves) {
@@ -2007,14 +2015,16 @@ function currentAttendance() {
   const person = employeeById(selectedEmployeeId)
   return { id: person.id, name: person.name || '', action: logOverride || suggestedLog(person.id) }
 }
-function recordAttendance(attendance, { date, snapshot, address, file }) {
+function recordAttendance(attendance, { date, snapshot, address, file, photo }) {
   const zoned = timeAt(snapshot)
-  register.push({
+  const row = {
     id: attendance.id, name: attendance.name, action: attendance.action, time: date.toISOString(),
     date: zoned.csvDate.format(date), clock: zoned.csvTime.format(date),
     place: snapshot ? placeHeading(snapshot, address) : '', address: address ? fullAddress(address) : '',
     lat: snapshot?.lat, lon: snapshot?.lon, file
-  })
+  }
+  register.push(row)
+  queueForTeam(row, photo)
   if (register.length > 5000) register = register.slice(-5000)
   try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
   logOverride = undefined   // the next photo for this ID suggests the opposite action
@@ -2236,19 +2246,19 @@ function renderRegister() {
   }
   $('exportRegister').disabled = $('clearRegister').disabled = !register.length
 }
-function registerCsv() {
+function toCsv(header, rows) {
   const cell = (value) => {
     const text = value === undefined || value === null ? '' : String(value)
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
   }
-  const header = ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo']
-  const rows = register.map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
-    row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), row.file])
   return '\ufeff' + [header, ...rows].map(row => row.map(cell).join(',')).join('\r\n') + '\r\n'
 }
-$('exportRegister').addEventListener('click', async () => {
-  const name = `GeoZipTag-attendance-${new Date().toISOString().slice(0, 10)}.csv`
-  const csv = registerCsv()
+$('exportRegister').addEventListener('click', () => exportCsv(`GeoZipTag-attendance-${new Date().toISOString().slice(0, 10)}.csv`,
+  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo'],
+  register.map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+    row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), row.file])))
+async function exportCsv(name, header, rows) {
+  const csv = toCsv(header, rows)
   if (typeof android?.exportText === 'function') {
     android.exportText('share', name, csv)
     return
@@ -2262,7 +2272,7 @@ $('exportRegister').addEventListener('click', async () => {
   link.download = name
   link.click()
   setTimeout(() => URL.revokeObjectURL(link.href), 10000)
-})
+}
 $('clearRegister').addEventListener('click', () => {
   if (!confirm('Clear all attendance entries? Export them first if you need them.')) return
   register = []
@@ -2270,6 +2280,246 @@ $('clearRegister').addEventListener('click', () => {
   renderRegister()
   updateEmployeeSummary()
 })
+
+// ---- Shared register (online): teams join with a code; a manager PIN opens everyone's entries ----
+// Supabase: the tables are closed; these functions are the only way in (see the GeoZipTag migration).
+const teamServer = { url: 'https://ziebgspujtdzkiwyybsa.supabase.co', key: 'sb_publishable_cp3vrEcGluNQ6Cv6uXAEeQ_ZAdJ9NRv', bucket: 'geoziptag-photos' }
+const teamKey = 'geoziptagTeam', queueKey = 'geoziptagTeamQueue'
+let team = loadJson(teamKey, null)
+let teamQueue = loadJson(queueKey, [])
+if (!Array.isArray(teamQueue)) teamQueue = []
+let syncing, lastSyncAt, lastSyncError, managerPin = ''
+if (typeof preferences.sharePhotos !== 'boolean') preferences.sharePhotos = true
+
+async function teamCall(name, body) {
+  let response
+  try {
+    response = await fetch(`${teamServer.url}/rest/v1/rpc/${name}`, {
+      method: 'POST',
+      headers: { apikey: teamServer.key, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+  } catch {
+    throw new Error('No connection to the shared register. Check the internet and try again.')
+  }
+  const data = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(data?.message || `The shared register answered ${response.status}`)
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+const deviceLabel = /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : 'Web'
+const newRef = () => crypto.randomUUID?.() || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+function saveQueue() {
+  try { localStorage.setItem(queueKey, JSON.stringify(teamQueue)) } catch {}
+}
+// A small JPEG copy for the register (long side 1080 px), drawn now while the photo canvas is still there.
+function proofCopy(source) {
+  if (!team || !preferences.sharePhotos || !source?.width) return undefined
+  const scale = Math.min(1, 1080 / Math.max(source.width, source.height))
+  const copy = document.createElement('canvas')
+  copy.width = Math.round(source.width * scale)
+  copy.height = Math.round(source.height * scale)
+  copy.getContext('2d').drawImage(source, 0, 0, copy.width, copy.height)
+  return copy
+}
+function queueForTeam(row, photo) {
+  if (!team) return
+  const item = { ...row, ref: newRef(), device: deviceLabel, waitingPhoto: !!photo }
+  teamQueue.push(item)
+  if (teamQueue.length > 5000) teamQueue = teamQueue.slice(-5000)
+  saveQueue()
+  if (photo) {
+    photo.toBlob(async blob => {
+      photo.width = photo.height = 0
+      if (blob) await photoStore.putUpload(item.ref, blob)
+      else item.waitingPhoto = false
+      syncTeam()
+    }, 'image/jpeg', 0.7)
+  } else syncTeam()
+  updateTeamSummary()
+}
+// Sends what is waiting: photos first (their links go with the rows), then up to 200 rows in one call.
+async function syncTeam() {
+  if (syncing || !team || !teamQueue.length || navigator.onLine === false) return
+  syncing = true
+  try {
+    const batch = teamQueue.slice(0, 200)
+    for (const item of batch.filter(entry => entry.waitingPhoto && !entry.photo).slice(0, 20)) {
+      const blob = await photoStore.getUpload(item.ref)
+      if (!blob) { item.waitingPhoto = false; continue }
+      const path = `${team.team}/${item.ref}.jpg`
+      const response = await fetch(`${teamServer.url}/storage/v1/object/${teamServer.bucket}/${path}`, {
+        method: 'POST', headers: { apikey: teamServer.key, Authorization: `Bearer ${teamServer.key}`, 'Content-Type': 'image/jpeg' }, body: blob
+      })
+      const text = response.ok ? '' : await response.text().catch(() => '')
+      if (response.ok || /exists|duplicate/i.test(text)) item.photo = path
+      else if (response.status >= 500) throw new Error('The photo store is busy; trying again later.')
+      item.waitingPhoto = false   // sent, or refused for good: the entry goes without it
+    }
+    saveQueue()
+    const ready = batch.filter(entry => !entry.waitingPhoto)
+    if (ready.length) {
+      await teamCall('geoziptag_submit', { p_code: team.code, p_rows: ready.map(({ waitingPhoto, ...row }) => ({ ...row, photo: row.photo })) })
+      const sent = new Set(ready.map(entry => entry.ref))
+      teamQueue = teamQueue.filter(entry => !sent.has(entry.ref))
+      saveQueue()
+      for (const ref of sent) photoStore.removeUpload(ref)
+    }
+    lastSyncAt = new Date()
+    lastSyncError = undefined
+  } catch (error) {
+    lastSyncError = error.message
+  } finally {
+    syncing = false
+    updateTeamSummary()
+    if (teamQueue.length && !lastSyncError && teamQueue.some(entry => !entry.waitingPhoto)) setTimeout(syncTeam, 500)
+  }
+}
+window.addEventListener('online', syncTeam)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTeam() })
+setInterval(syncTeam, 60000)
+setTimeout(syncTeam, 4000)
+
+function updateTeamSummary() {
+  $('teamSummary').textContent = team ? `${team.name} · ${teamQueue.length ? `${teamQueue.length} waiting to send` : 'all sent'}` : 'Send attendance to your team online'
+  if (!$('teamSheet').open) return
+  $('teamJoined').hidden = !team
+  $('teamNotJoined').hidden = !!team
+  if (!team) return
+  $('teamName').textContent = team.name
+  $('teamCode').textContent = team.code
+  $('sharePhotos').checked = preferences.sharePhotos
+  $('syncStatus').textContent = teamQueue.length
+    ? `${teamQueue.length} entr${teamQueue.length === 1 ? 'y is' : 'ies are'} waiting${lastSyncError ? `: ${lastSyncError}` : navigator.onLine === false ? ' for the internet' : ''}.`
+    : lastSyncAt ? `Everything is sent (last at ${lastSyncAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).` : 'Everything is sent.'
+}
+$('teamSheet').addEventListener('close', () => { $('managerPin').value = '' })
+function joinedTeam(result) {
+  team = { code: result.code, name: result.name, team: result.team }
+  try { localStorage.setItem(teamKey, JSON.stringify(team)) } catch {}
+  updateTeamSummary()
+}
+$('joinTeam').addEventListener('click', async () => {
+  const code = $('joinCode').value.trim().toUpperCase()
+  if (!code) return
+  $('teamStatus').textContent = 'Joining…'
+  try {
+    const result = await teamCall('geoziptag_join', { p_code: code })
+    if (!result?.team) throw new Error('No team has that code. Check it with your manager.')
+    joinedTeam(result)
+    $('teamStatus').textContent = ''
+  } catch (error) { $('teamStatus').textContent = error.message }
+})
+$('createTeam').addEventListener('click', async () => {
+  const name = $('newTeamName').value.trim(), pin = $('newTeamPin').value.trim()
+  if (name.length < 2) { $('teamStatus').textContent = 'Give the team a name.'; return }
+  if (!/^\d{6}$/.test(pin)) { $('teamStatus').textContent = 'The manager PIN must be 6 digits.'; return }
+  $('teamStatus').textContent = 'Creating the team…'
+  try {
+    joinedTeam(await teamCall('geoziptag_create_team', { p_name: name, p_pin: pin }))
+    $('newTeamPin').value = ''
+    $('teamStatus').textContent = ''
+    message(`Team created. Its code is ${team.code}: share it with your team.`, 6000)
+  } catch (error) { $('teamStatus').textContent = error.message }
+})
+$('shareTeamCode').addEventListener('click', async () => {
+  const text = `Join our GeoZipTag attendance team "${team.name}": open GeoZipTag > Settings > Shared register and enter the code ${team.code}`
+  try { if (navigator.share) { await navigator.share({ text }); return } } catch (error) { if (error.name === 'AbortError') return }
+  try { await navigator.clipboard.writeText(text); message('Team code copied.', 2500) } catch { message(`Team code: ${team.code}`, 6000) }
+})
+$('syncNow').addEventListener('click', () => { lastSyncError = undefined; syncTeam() })
+$('sharePhotos').addEventListener('change', () => {
+  preferences.sharePhotos = $('sharePhotos').checked
+  savePreferences()
+})
+$('leaveTeam').addEventListener('click', () => {
+  if (!confirm(teamQueue.length ? `${teamQueue.length} entries have not been sent yet and will be dropped. Leave the team?` : 'Leave this team? You can join again with its code.')) return
+  for (const entry of teamQueue) photoStore.removeUpload(entry.ref)
+  team = null
+  teamQueue = []
+  saveQueue()
+  try { localStorage.removeItem(teamKey) } catch {}
+  updateTeamSummary()
+})
+
+// Manager view: the whole team's register for a period, with proof photos and CSV export.
+let teamRows = [], teamPeriod = 1
+async function loadTeamRegister() {
+  const since = teamPeriod ? new Date(Date.now() - (teamPeriod - 1) * 86400000) : undefined
+  if (since) since.setHours(0, 0, 0, 0)
+  $('teamRegisterSummary').textContent = 'Loading…'
+  try {
+    const result = await teamCall('geoziptag_list', {
+      p_code: team.code, p_pin: managerPin, p_from: since ? since.toISOString() : null, p_employee: $('teamEmployeeFilter').value.trim() || null, p_limit: 2000
+    })
+    teamRows = result.rows || []
+    renderTeamRegister()
+    return true
+  } catch (error) {
+    $('teamRegisterSummary').textContent = error.message
+    return false
+  }
+}
+const photoLink = (path) => path ? `${teamServer.url}/storage/v1/object/public/${teamServer.bucket}/${path}` : ''
+function renderTeamRegister() {
+  const list = $('teamRegisterList')
+  list.replaceChildren()
+  const people = new Set(teamRows.map(row => row.id))
+  $('teamRegisterSummary').textContent = teamRows.length ? `${teamRows.length} entries · ${people.size} employee${people.size === 1 ? '' : 's'}` : 'No entries for this period.'
+  $('teamEmployees').replaceChildren(...[...people].map(id => Object.assign(document.createElement('option'), { value: id })))
+  for (const row of teamRows) {
+    const item = document.createElement('div')
+    item.className = `register-row${row.photo ? ' with-photo' : ''}`
+    if (row.photo) {
+      const image = document.createElement('img')
+      image.className = 'proof'
+      image.loading = 'lazy'
+      image.alt = `Attendance photo of ${row.id}`
+      image.src = photoLink(row.photo)
+      image.addEventListener('click', () => window.open(photoLink(row.photo), '_blank'))
+      item.append(image)
+    }
+    // Line 1: who and Log in/out; line 2: when, where and from which phone.
+    item.classList.add('team-row')
+    const who = document.createElement('strong')
+    who.textContent = row.name ? `${row.id} · ${row.name}` : row.id
+    const log = document.createElement('span')
+    log.className = `log ${row.action}`
+    log.textContent = row.action === 'out' ? 'LOG OUT' : 'LOG IN'
+    const place = document.createElement('small')
+    place.textContent = [`${row.date || ''} ${(row.clock || '').slice(0, 5)}`.trim(), row.place || row.address || 'No location', row.device].filter(Boolean).join(' · ')
+    item.append(who, log, place)
+    list.append(item)
+  }
+  $('exportTeamRegister').disabled = !teamRows.length
+}
+$('openTeamRegister').addEventListener('click', async () => {
+  managerPin = $('managerPin').value.trim()
+  if (!/^\d{6}$/.test(managerPin)) { $('managerStatus').textContent = 'Enter the 6-digit manager PIN.'; return }
+  $('managerStatus').textContent = 'Opening…'
+  teamPeriod = 1
+  for (const button of document.querySelectorAll('[data-period]')) button.setAttribute('aria-pressed', String(button.dataset.period === '1'))
+  $('teamEmployeeFilter').value = ''
+  if (await loadTeamRegister()) {
+    $('managerStatus').textContent = ''
+    $('teamSheet').close()
+    $('teamRegisterSheet').showModal()
+  } else $('managerStatus').textContent = $('teamRegisterSummary').textContent
+})
+for (const button of document.querySelectorAll('[data-period]')) {
+  button.addEventListener('click', () => {
+    teamPeriod = Number(button.dataset.period)
+    for (const other of document.querySelectorAll('[data-period]')) other.setAttribute('aria-pressed', String(other === button))
+    loadTeamRegister()
+  })
+}
+$('teamEmployeeFilter').addEventListener('change', loadTeamRegister)
+$('teamRegisterSheet').addEventListener('close', () => { managerPin = ''; teamRows = []; $('teamRegisterList').replaceChildren() })
+$('exportTeamRegister').addEventListener('click', () => exportCsv(`GeoZipTag-team-${team.code}-${new Date().toISOString().slice(0, 10)}.csv`,
+  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo', 'Phone'],
+  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+    row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), photoLink(row.photo), row.device])))
+updateTeamSummary()
 
 // ---- Photo / Video modes (slide sideways on the camera, or tap the label) ----
 // Video records the camera picture with the live stamp drawn on every frame (its clock keeps running) and the
@@ -2397,6 +2647,7 @@ async function stopRecording() {
   for (const button of $('modeTrack').querySelectorAll('button')) button.disabled = false
   const type = (state.recorder.mimeType || state.mimeType || 'video/webm').split(';')[0]
   const blob = new Blob(state.chunks, { type })
+  const proof = state.attendance ? proofCopy(state.canvas) : undefined   // the last frame, before the canvas is freed
   state.canvas.width = state.canvas.height = 0
   if (!blob.size) { message('The video could not be recorded.', 4000); showThumbnail(lastPhoto); return }
   const name = `GeoZipTag-${state.date.toISOString().replace(/[:.]/g, '-')}.${type.includes('mp4') ? 'mp4' : 'webm'}`
@@ -2407,7 +2658,7 @@ async function stopRecording() {
   }
   rememberPhoto(entry)
   showThumbnail(entry, true)
-  if (state.attendance) recordAttendance(state.attendance, { date: state.date, snapshot: state.snapshot, address: state.address, file: name })
+  if (state.attendance) recordAttendance(state.attendance, { date: state.date, snapshot: state.snapshot, address: state.address, file: name, photo: proof })
   if (hostSaves) {
     entry.saved = true
     entry.saving = sendVideo(name, blob, 'save')
@@ -3164,6 +3415,7 @@ for (const button of document.querySelectorAll('[data-open]')) {
     if (panel === 'employeePicker') setTimeout(prepareEmployeePicker)
     if (panel === 'employeesSheet') fillEmployeesSheet()
     if (panel === 'registerSheet') renderRegister()
+    if (panel === 'teamSheet') setTimeout(updateTeamSummary)
     if (panel === 'reports') {
       $('reportSource').textContent = lastPhoto ? 'The latest stamped photo is ready to use.' : 'Take a photo first or select one below.'
       updateReportFields()
