@@ -108,6 +108,15 @@ status.addEventListener('click', () => { clearTimeout(messageTimer); status.hidd
 // Address and satellite map are fetched in the background whenever GPS updates, so the
 // shutter can stamp instantly. Refetched after moving about 30 m or after 10 minutes.
 let placeCache
+let lastTimings = [], nativeShotAt   // [step, ms since the shutter] for the last photo, to find what is slow
+// Settings > bottom line: where the last photo's time went (each step's time since the shutter).
+function showTimings() {
+  const line = $('photoTimings')
+  if (!line || !lastTimings.length) return
+  const names = { shot: 'photo taken', loaded: 'loaded', draw: 'drawn', place: 'address', stamp: 'stamped', encode: 'encoded', thumbnail: 'thumbnail', saved: 'saved' }
+  line.textContent = 'Last photo: ' + lastTimings.map(([step, ms]) => `${names[step] || step} ${(ms / 1000).toFixed(1)} s`).join(' · ')
+  line.hidden = false
+}
 function prefetchPlace(snapshot) {
   if (!snapshot || preferences.template === 'time') return
   const cached = placeCache
@@ -227,6 +236,7 @@ function takeNativePhoto() {
     nativePhotos.set(id, (ok) => {
       clearTimeout(timer)
       nativePhotos.delete(id)
+      nativeShotAt = performance.now()
       if (!ok) { reject(new Error('capture failed')); return }
       const image = new Image()
       image.onload = () => resolve(image)
@@ -1940,11 +1950,16 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
   if (!live) message('Stamping photo…')
   else if (snapshot && !placeReady(snapshot)) message('Adding address and satellite map…')
   let canvas
+  const t0 = performance.now(), mark = (label) => { lastTimings.push([label, Math.round(performance.now() - t0)]); showTimings() }
+  lastTimings = []
+  nativeShotAt = undefined
   const place = placeFor(snapshot)   // runs while the camera takes the photo
   try {
     if (live && stream?.native) {
       source = await takeNativePhoto()   // full-quality photo from the phone's camera
       imageFile = true
+      if (nativeShotAt) lastTimings.push(['shot', Math.round(nativeShotAt - t0)])
+      mark('loaded')
     }
     const sourceWidth = imageFile ? source.naturalWidth : source.videoWidth
     const sourceHeight = imageFile ? source.naturalHeight : source.videoHeight
@@ -1963,13 +1978,17 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     if (mirrored) context.setTransform(-1, 0, 0, 1, canvas.width, 0)
     context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height)
     if (mirrored) context.setTransform(1, 0, 0, 1, 0, 0)
+    mark('draw')
     const original = preferences.keepOriginal ? await exportJpeg(canvas) : undefined
     const { address, map } = await place
+    mark('place')
     await stampFonts
     const attendance = live || phoneMode ? currentAttendance() : undefined
     drawStamp(canvas, { snapshot, date, picked, address, map, attendance })
+    mark('stamp')
     const jpeg = await exportJpeg(canvas)
     if (!jpeg) throw new Error('Export unavailable')
+    mark('encode')
     const name = `GeoZipTag-${date.toISOString().replace(/[:.]/g, '-')}.jpg`
     const shareFile = new File([jpeg], name, { type: 'image/jpeg' })
     fromPicker = picked
@@ -1982,9 +2001,10 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     if (attendance) recordAttendance(attendance, { date, snapshot, address, file: name, photo: proofCopy(canvas) })
     // The photo is ready: the thumbnail updates at once and the viewfinder stays on screen.
     updateThumbnail(canvas, entry)
+    mark('thumbnail')
     if (hostSaves) {
       entry.saved = true
-      entry.saving = saveAutomatically(name, jpeg, original)
+      entry.saving = saveAutomatically(name, jpeg, original).finally(() => mark('saved'))
       photoStore.put(entry)   // remembers that the app saved it (Delete then removes it from the gallery too)
     }
     if (live && preferences.shareAfter) sharePhoto(entry, true)
