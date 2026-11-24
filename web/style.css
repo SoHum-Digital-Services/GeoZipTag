@@ -188,6 +188,9 @@ video.mirror { transform: scaleX(-1); }
 .viewfinder video { touch-action: none; }
 video.can-focus { cursor: crosshair; }
 
+.start.opening > * { visibility: hidden; }
+/* While the camera opens: a plain dark viewfinder, the controls appear with the picture. */
+html.camera-opening .capture-dock, html.camera-opening #addLocationMap, html.camera-opening #modeSwitch { visibility: hidden; }
 .start {
   position: relative;
   display: grid;

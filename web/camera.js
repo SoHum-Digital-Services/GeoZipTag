@@ -108,6 +108,34 @@ status.addEventListener('click', () => { clearTimeout(messageTimer); status.hidd
 // Address and satellite map are fetched in the background whenever GPS updates, so the
 // shutter can stamp instantly. Refetched after moving about 30 m or after 10 minutes.
 let placeCache
+const lastPlaceKey = 'geoziptagLastPlace'
+let rememberedPlace
+try {
+  const saved = JSON.parse(localStorage.getItem(lastPlaceKey))
+  if (saved?.address && saved.map && Number.isFinite(saved.lat)) {
+    loadImage(saved.map).then((map) => { rememberedPlace = { ...saved, map }; setTimeout(renderLiveStamp) }, () => {})
+  }
+} catch {}
+function rememberPlace(snapshot, result) {
+  if (!result.address || !result.map) return
+  rememberedPlace = { lat: snapshot.lat, lon: snapshot.lon, at: Date.now(), address: result.address, map: result.map }
+  try {
+    let canvas = result.map
+    if (!canvas.toDataURL) {   // a single map tile (an image): copied to a canvas to save it
+      canvas = document.createElement('canvas')
+      canvas.width = result.map.naturalWidth || result.map.width
+      canvas.height = result.map.naturalHeight || result.map.height
+      canvas.getContext('2d').drawImage(result.map, 0, 0)
+    }
+    const map = canvas.toDataURL('image/jpeg', 0.85)
+    if (map) localStorage.setItem(lastPlaceKey, JSON.stringify({ lat: snapshot.lat, lon: snapshot.lon, at: Date.now(), address: result.address, map }))
+  } catch {}
+}
+// The last complete address and map, when the phone is within `metres` of where they were looked up.
+function rememberedNear(snapshot, metres) {
+  const place = rememberedPlace
+  return snapshot && place && metresBetween(snapshot, place) < metres ? { address: place.address, map: place.map } : undefined
+}
 let lastTimings = [], nativeShotAt   // [step, ms since the shutter] for the last photo, to find what is slow
 // Settings > bottom line: where the last photo's time went (each step's time since the shutter).
 function showTimings() {
@@ -134,6 +162,7 @@ function placeEntry(snapshot) {
     entry.failed = !result.address && !result.map
     entry.partial = !result.complete   // e.g. Nominatim busy: retried shortly instead of kept
     entry.result = result
+    if (result.complete) rememberPlace(snapshot, result)
     setTimeout(renderLiveStamp)
     return result
   }, () => { entry.done = true; entry.failed = true; return {} })
@@ -158,11 +187,16 @@ async function placeFor(snapshot, wait = 2500) {
   let entry = placeCache
   const nearby = entry && !entry.failed && metresBetween(snapshot, entry) < 30
   if (!(nearby && (!entry.done || usable(entry, snapshot)))) entry = placeCache = placeEntry(snapshot)
-  if (entry.done) return entry.result || {}
-  if (navigator.onLine === false) return entry.now()   // offline: coordinates and time only, at once
+  // Not looked up in time (or offline): the remembered address and map of this spot, else what has arrived.
+  const fallback = () => {
+    const now = entry.now()
+    return now.address && now.map ? now : rememberedNear(snapshot, 30) || now
+  }
+  if (entry.done) return entry.result?.address || entry.result?.map ? entry.result : fallback()
+  if (navigator.onLine === false) return fallback()
   const late = Symbol('late')
   const result = await Promise.race([entry.promise, new Promise((resolve) => setTimeout(resolve, wait, late))])
-  return result === late ? entry.now() : result
+  return result === late ? fallback() : result
 }
 
 // ---- Native camera (iPhone app): the phone's own photo camera, with its preview drawn by the app behind
@@ -307,6 +341,8 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
   const request = cameraRequest
   if (!soft) {
     $('start').hidden = false
+    $('start').classList.add('opening')   // just the dark viewfinder; the card shows only if the camera fails
+    document.documentElement.classList.add('camera-opening')
     $('startCamera').disabled = true
     $('startWithoutLocation').disabled = true
     $('startCamera').textContent = 'Opening camera…'
@@ -373,6 +409,8 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
 }
 
 function resetStart() {
+  $('start').classList.remove('opening')
+  document.documentElement.classList.remove('camera-opening')
   $('startCamera').disabled = false
   $('startCamera').textContent = preferences.template === 'time' ? 'Start camera' : 'Start camera with location'
   $('startWithoutLocation').disabled = false
@@ -492,7 +530,7 @@ $('captureWithoutLocation').addEventListener('click', () => {
 })
 
 function updateLocationMapAction() {
-  $('addLocationMap').hidden = preferences.template === 'time' || !!(manualFix || currentFix())
+  $('addLocationMap').hidden = preferences.template === 'time' || !!(manualFix || currentFix()) || watchId !== undefined
 }
 
 function addLocationMap() {
@@ -3630,7 +3668,8 @@ function renderLiveStamp() {
   liveStamp.getContext('2d').clearRect(0, 0, width, height)
   let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
-  const place = snapshot && placeReady(snapshot) ? placeCache.result : undefined
+  // The live card: this spot's address and map, or the remembered ones nearby until they arrive.
+  const place = snapshot && placeReady(snapshot) ? placeCache.result : rememberedNear(snapshot, 200)
   const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width, attendance: currentAttendance() })
   // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
   const stampTop = frame.top + edges.top / scale
