@@ -451,12 +451,15 @@ $('fallback').addEventListener('click', () => {
   else requestCapture(openPicker)
 })
 
+// A GPS reading stays usable for 10 minutes: standing still, phones stop sending new readings (nothing
+// changed), and the app also asks for a new one every 20 s. Moving, the watch delivers new ones at once.
+const fixKeep = 600000
 function currentFix() {
-  return freshFix(fix)
+  return freshFix(fix, fixKeep)
 }
 
-function freshFix(snapshot) {
-  return snapshot && (snapshot.manual || Date.now() - snapshot.timestamp <= 60000) ? snapshot : undefined
+function freshFix(snapshot, maxAge = 60000) {
+  return snapshot && (snapshot.manual || Date.now() - snapshot.timestamp <= maxAge) ? snapshot : undefined
 }
 
 function clearGpsChoice() {
@@ -472,9 +475,12 @@ function requestCapture(action) {
     return
   }
   pendingCapture = action
-  $('gpsHint').textContent = watchId === undefined
-    ? 'Enable location for the map, address, and coordinates, or continue with just the time.'
-    : 'Wait for GPS to add the map and address, or continue with just the time.'
+  const waiting = watchId !== undefined
+  $('gpsHint').textContent = waiting
+    ? 'Finding GPS… the photo is taken as soon as your location is ready.'
+    : 'Enable location for the map, address, and coordinates, or continue with just the time.'
+  $('captureWithLocation').textContent = waiting ? 'Cancel' : 'Enable location'
+  $('captureWithLocation').dataset.action = waiting ? 'cancel' : 'enable'
   $('gpsChoice').hidden = false
   $('captureWithLocation').focus()
 }
@@ -505,7 +511,13 @@ function addLocationMap() {
 }
 
 $('addLocationMap').addEventListener('click', addLocationMap)
-$('captureWithLocation').addEventListener('click', addLocationMap)
+$('captureWithLocation').addEventListener('click', () => {
+  if ($('captureWithLocation').dataset.action === 'cancel') { clearGpsChoice(); return }
+  addLocationMap()   // the photo is taken when the first reading arrives
+  $('gpsHint').textContent = 'Finding GPS… the photo is taken as soon as your location is ready.'
+  $('captureWithLocation').textContent = 'Cancel'
+  $('captureWithLocation').dataset.action = 'cancel'
+})
 
 function setLocationStatus(message, ready = false) {
   const indicator = $('locationStatus')
@@ -541,19 +553,31 @@ function enableLocation() {
   setLocationStatus('Finding GPS…')
   const onFix = ({ coords, timestamp }) => {
     if (watchId === undefined) return
+    timestamp = Math.min(timestamp, Date.now())
     // Keep the more accurate of a quick recent position and a fresh GPS reading.
     if (fix && fix.accuracy < coords.accuracy && timestamp - fix.timestamp < 10000) return
     fix = { lat: coords.latitude, lon: coords.longitude, timestamp, accuracy: coords.accuracy }
     if (coords.accuracy > 100) setLocationStatus('Approximate GPS')
     else setLocationStatus('GPS ready', true)
     prefetchPlace(fix)
+    // The shutter was pressed while waiting for GPS: take that photo now.
     if (pendingCapture) {
-      $('gpsHint').textContent = 'Location ready. Tap the shutter or phone camera to include it.'
+      const action = pendingCapture
+      clearGpsChoice()
+      action(fix)
     }
+  }
+  refreshFix = () => navigator.geolocation.getCurrentPosition(onFix, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
+  restartWatch = () => {
+    if (watchId === undefined) return
+    navigator.geolocation.clearWatch(watchId)
+    watchId = navigator.geolocation.watchPosition(onFix, onError, watchOptions)
+    navigator.geolocation.getCurrentPosition(onFix, () => {}, { enableHighAccuracy: false, maximumAge: fixKeep, timeout: 4000 })
   }
   // A recent position (up to a minute old) appears straight away; GPS then refines it.
   navigator.geolocation.getCurrentPosition(onFix, () => {}, { enableHighAccuracy: false, maximumAge: 60000, timeout: 4000 })
-  watchId = navigator.geolocation.watchPosition(onFix, (error) => {
+  const watchOptions = { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+  const onError = (error) => {
     if (watchId === undefined) return
     if (error.code === 1) {
       stopLocation('Location denied. Allow access in your browser’s site settings, then tap Enable location.')
@@ -561,8 +585,19 @@ function enableLocation() {
       return
     }
     if (!currentFix()) setLocationStatus('GPS unavailable. Keep waiting or use timestamp only.')
-  }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 })
+  }
+  watchId = navigator.geolocation.watchPosition(onFix, onError, watchOptions)
 }
+
+// Keeps the reading fresh while the app is open, and restarts GPS when the app comes back to the front.
+let refreshFix, restartWatch
+setInterval(() => {
+  if (document.hidden || watchId === undefined || manualFix) return
+  if (!fix || Date.now() - fix.timestamp > 20000) refreshFix?.()
+}, 20000)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !manualFix) restartWatch?.()
+})
 
 $('location').addEventListener('click', () => {
   if (manualFix) {
