@@ -66,10 +66,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete ios-latest --yes --cleanup-tag || true
-          gh release create ios-latest ios/GeoZipTag-unsigned.ipa --prerelease --target "${{ github.sha }}" \
-            --title "iOS app (unsigned, latest build)" \
-            --notes "Unsigned build of ${{ github.sha }}. Sign it with your Apple ID using Sideloadly or AltStore (see ios/README.md)."
+          notes="Unsigned build of ${{ github.sha }}. Sign it with your Apple ID using Sideloadly or AltStore (see ios/README.md)."
+          # Replace the file in the existing release (keeps the link); create the release only if it is missing.
+          # Retried, since GitHub's release API sometimes answers with a temporary server error.
+          for attempt in 1 2 3 4; do
+            if gh release view ios-latest >/dev/null 2>&1; then
+              gh release upload ios-latest ios/GeoZipTag-unsigned.ipa --clobber &&
+                gh release edit ios-latest --notes "$notes" && exit 0
+            else
+              gh release create ios-latest ios/GeoZipTag-unsigned.ipa --prerelease --target "${{ github.sha }}" \
+                --title "iOS app (unsigned, latest build)" --notes "$notes" && exit 0
+            fi
+            echo "Publishing failed (attempt $attempt), retrying..."; sleep $((attempt * 15))
+          done
+          exit 1
 
       - name: Build for the simulator and start the app
         working-directory: ios
