@@ -99,6 +99,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         webView.navigationDelegate = self
         webView.uiDelegate = self
         view.addSubview(webView)
+        // Start the ads SDK in the background a moment after launch (after the camera has started),
+        // so the first banner in the photo view appears quickly. Nothing waits for it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.startAds() }
 
         locationManager.requestWhenInUseAuthorization()
         startServerAndLoad()
@@ -388,11 +391,14 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     // MARK: Banner ad
 
     /// Shows the 320 × 50 banner centred in the page's ad slot (in this view's coordinates).
+    private func startAds() {
+        guard !adsStarted else { return }
+        adsStarted = true
+        MobileAds.shared.start(completionHandler: nil)
+    }
+
     private func showBanner(in frame: CGRect) {
-        if !adsStarted {
-            adsStarted = true
-            MobileAds.shared.start(completionHandler: nil)
-        }
+        startAds()
         if adSlot == nil {
             let slot = UIView()
             let ad = BannerView(adSize: AdSizeBanner)

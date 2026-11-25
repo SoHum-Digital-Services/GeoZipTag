@@ -172,6 +172,9 @@ public final class MainActivity extends Activity {
         cameraView = new WebView(this);
         root.addView(cameraView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        // Start the ads SDK in the background a moment after launch (after the camera has started),
+        // so the first banner in the photo view appears quickly. Nothing waits for it.
+        root.postDelayed(this::startAds, 2000);
         configureCameraView();
         initOta();
         cameraView.loadUrl(HOME);
@@ -1216,12 +1219,15 @@ public final class MainActivity extends Activity {
         return super.dispatchKeyEvent(event);
     }
 
+    private void startAds() {
+        if (adsStarted || isFinishing() || isDestroyed()) return;
+        adsStarted = true;
+        new Thread(() -> MobileAds.initialize(this, status -> { })).start();
+    }
+
     private void showBanner(double x, double y, double width, double height) {
         if (isFinishing() || isDestroyed()) return;
-        if (!adsStarted) {
-            adsStarted = true;
-            new Thread(() -> MobileAds.initialize(this, status -> { })).start();
-        }
+        startAds();
         float density = getResources().getDisplayMetrics().density;
         if (adSlot == null) {
             adSlot = new FrameLayout(this);
