@@ -7,9 +7,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.18"
+    MARKETING_VERSION: "1.19"
     # Never below android/ota-min-apk.txt: update lists name one minimum native build ("min-apk") for both apps.
-    CURRENT_PROJECT_VERSION: "19"
+    CURRENT_PROJECT_VERSION: "20"
 # Google's ads SDK (banner in the photo view).
 packages:
   GoogleMobileAds:
@@ -36,7 +36,10 @@ targets:
         CFBundleDisplayName: GeoZipTag
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIImageName: LaunchBrand
+          UIColorName: LaunchBackground
+          UIImageRespectsSafeAreaInsets: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
