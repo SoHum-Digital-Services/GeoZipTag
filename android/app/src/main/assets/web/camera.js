@@ -500,12 +500,15 @@ function freshFix(snapshot, maxAge = 60000) {
   return snapshot && (snapshot.manual || Date.now() - snapshot.timestamp <= maxAge) ? snapshot : undefined
 }
 
+let gpsWaitTimer
 function clearGpsChoice() {
   pendingCapture = undefined
+  clearTimeout(gpsWaitTimer)
+  $('shutter').classList.remove('waiting-gps')
   $('gpsChoice').hidden = true
 }
 
-function requestCapture(action) {
+function requestCapture(action, { waited = false } = {}) {
   const snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
   if (snapshot || timestampOnly || preferences.template === 'time') {
     clearGpsChoice()
@@ -514,6 +517,18 @@ function requestCapture(action) {
   }
   pendingCapture = action
   const waiting = watchId !== undefined
+  if (waiting && !waited && $('gpsChoice').hidden) {
+    // GPS is starting: wait quietly (a ring on the shutter) and take the photo when the location arrives.
+    // Only if that takes more than 5 s does the box explain it and offer a timestamp-only photo.
+    $('shutter').classList.add('waiting-gps')
+    clearTimeout(gpsWaitTimer)
+    gpsWaitTimer = setTimeout(() => {
+      $('shutter').classList.remove('waiting-gps')
+      if (pendingCapture === action) requestCapture(action, { waited: true })
+    }, 5000)
+    return
+  }
+  $('shutter').classList.remove('waiting-gps')
   $('gpsHint').textContent = waiting
     ? 'Finding GPS… the photo is taken as soon as your location is ready.'
     : 'Enable location for the map, address, and coordinates, or continue with just the time.'
@@ -589,12 +604,17 @@ function enableLocation() {
   location.textContent = 'Turn off location'
   location.setAttribute('aria-pressed', 'true')
   setLocationStatus('Finding GPS…')
+  document.documentElement.classList.remove('gps-slow')
+  setTimeout(() => {
+    if (watchId !== undefined && !manualFix && !currentFix()) document.documentElement.classList.add('gps-slow')
+  }, 15000)
   const onFix = ({ coords, timestamp }) => {
     if (watchId === undefined) return
     timestamp = Math.min(timestamp, Date.now())
     // Keep the more accurate of a quick recent position and a fresh GPS reading.
     if (fix && fix.accuracy < coords.accuracy && timestamp - fix.timestamp < 10000) return
     fix = { lat: coords.latitude, lon: coords.longitude, timestamp, accuracy: coords.accuracy }
+    if (coords.accuracy <= 100) document.documentElement.classList.remove('gps-slow')
     if (coords.accuracy > 100) setLocationStatus('Approximate GPS')
     else setLocationStatus('GPS ready', true)
     prefetchPlace(fix)
@@ -2051,7 +2071,6 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
   const live = source === video
   if (live) fireFlash()
   if (!live) message('Stamping photo…')
-  else if (snapshot && !placeReady(snapshot)) message('Adding address and satellite map…')
   let canvas
   const t0 = performance.now(), mark = (label) => { lastTimings.push([label, Math.round(performance.now() - t0)]); showTimings() }
   lastTimings = []
@@ -3683,6 +3702,7 @@ window.addEventListener('pageshow', event => {
 // Live stamp preview (phones): the stamp as it will appear, drawn over the camera
 // preview and under the controls. Refreshed every second and whenever data changes.
 const liveStamp = $('liveStamp')
+let liveStampSettled = false, liveStampSince = performance.now()
 const phoneLayout = window.matchMedia('(max-width: 759px)')
 function renderLiveStamp() {
   const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden
@@ -3700,6 +3720,12 @@ function renderLiveStamp() {
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   // The live card: this spot's address and map, or the remembered ones nearby until they arrive.
   const place = snapshot && placeReady(snapshot) ? placeCache.result : rememberedNear(snapshot, 200)
+  // While starting, the card stays invisible until it is complete (or after 6 s), then fades in once.
+  if (!liveStampSettled) {
+    const locating = watchId !== undefined && !manualFix
+    liveStampSettled = !locating || !!(place?.address && place?.map) || performance.now() - liveStampSince > 6000
+    if (liveStampSettled) liveStamp.classList.add('settled')
+  }
   const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width, attendance: currentAttendance() })
   // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
   const stampTop = frame.top + edges.top / scale
