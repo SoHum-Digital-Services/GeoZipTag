@@ -5,6 +5,9 @@ const video = $('video')
 const file = $('file')
 const status = $('status')
 const android = window.AndroidHost
+// Apps keep the launch cover (in the page) up until startup is done; the browser version has none.
+const launchCover = android ? $('launchCover') : null
+if (!launchCover) $('launchCover')?.remove()
 const hasPhoneCamera = typeof android?.preparePhoneCamera === 'function'
 let phoneRequest, phoneMetadata, lastPhoneMode
 let placeLabel = ''
@@ -3699,6 +3702,37 @@ window.addEventListener('pageshow', event => {
   if (event.persisted) openViewfinderOnEntry()
 })
 
+// ---- Launch gate (apps): the launch cover stays until the camera is live and the location, address and
+// map are ready, so the user never sees (or waits for) startup work later. It never waits more than 8 s
+// (no GPS indoors, no network): then the camera opens anyway and the shutter has its quiet fallback. ----
+function releaseLaunch() {
+  clearInterval(launchTimer)
+  liveStampSettled = true
+  liveStamp.classList.add('settled')
+  renderLiveStamp()
+  launchCover.classList.add('done')
+  setTimeout(() => launchCover.remove(), 400)
+}
+let launchTimer, launchLiveSince
+if (launchCover) {
+  const launchStarted = performance.now()
+  launchTimer = setInterval(() => {
+    const now = performance.now()
+    const live = !video.hidden
+    if (live && launchLiveSince === undefined) launchLiveSince = now
+    // The camera is live, or the start card is showing (permission needed / no camera).
+    const cameraDone = live || (!$('start').hidden && !$('start').classList.contains('opening'))
+    let locationDone = true
+    if (live) {
+      const where = manualFix || currentFix()
+      if (where) locationDone = !!(placeCache?.done || rememberedNear(where, 200))   // address and map looked up, or remembered
+      else if (watchId === undefined) locationDone = timestampOnly || now - launchLiveSince > 1500   // location off or refused
+      else locationDone = false   // GPS is still finding the first reading
+    }
+    if ((cameraDone && locationDone && stampFontsReady) || now - launchStarted > 8000) releaseLaunch()
+  }, 100)
+}
+
 // Live stamp preview (phones): the stamp as it will appear, drawn over the camera
 // preview and under the controls. Refreshed every second and whenever data changes.
 const liveStamp = $('liveStamp')
@@ -3721,7 +3755,7 @@ function renderLiveStamp() {
   // The live card: this spot's address and map, or the remembered ones nearby until they arrive.
   const place = snapshot && placeReady(snapshot) ? placeCache.result : rememberedNear(snapshot, 200)
   // While starting, the card stays invisible until it is complete (or after 6 s), then fades in once.
-  if (!liveStampSettled) {
+  if (!liveStampSettled && !launchCover?.isConnected) {
     const locating = watchId !== undefined && !manualFix
     liveStampSettled = !locating || !!(place?.address && place?.map) || performance.now() - liveStampSince > 6000
     if (liveStampSettled) liveStamp.classList.add('settled')
