@@ -1350,6 +1350,7 @@ function syncBottomBar() {
   const bar = $('review').hidden ? $('controls') : $('review')
   document.documentElement.style.setProperty('--bottom-bar', `${bar.offsetHeight}px`)
   if (typeof layoutFrame === 'function' && $('review').hidden) setTimeout(layoutFrame)
+  if (!$('review').hidden) requestAnimationFrame(syncAd)
 }
 if ('ResizeObserver' in window) {
   const observer = new ResizeObserver(syncBottomBar)
@@ -1860,9 +1861,37 @@ function showReview() {
   $('share').onclick = () => sharePhoto(lastPhoto)
   $('review').hidden = false
   $('deletePhoto').hidden = false
+  if (adHost) { $('adSlot').hidden = false; requestAnimationFrame(() => { syncBottomBar(); requestAnimationFrame(syncAd) }) }
   message('')
   ;($('share').classList.contains('share-primary') ? $('share') : $('save')).focus()
   renderLiveStamp()
+}
+
+// ---- Banner ad (apps only): a native view the app draws over the ad slot in the photo view. It is
+// hidden whenever a sheet or dialog is open (it would otherwise sit on top of it). ----
+const adHost = typeof android?.adShow === 'function' ? android : undefined
+let adShown = false
+function syncAd() {
+  if (!adHost) return
+  const slot = $('adSlot')
+  const show = !$('review').hidden && !document.hidden && !document.querySelector('dialog[open]')
+  slot.hidden = $('review').hidden
+  if (show) {
+    const box = slot.getBoundingClientRect()
+    if (box.width > 0 && box.height > 0) {
+      try { adHost.adShow(box.left, box.top, box.width, box.height) } catch {}
+      adShown = true
+      return
+    }
+  }
+  if (adShown) { try { adHost.adHide() } catch {} }
+  adShown = false
+}
+if (adHost) {
+  new MutationObserver(() => requestAnimationFrame(syncAd))
+    .observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
+  document.addEventListener('visibilitychange', syncAd)
+  window.addEventListener('resize', () => requestAnimationFrame(syncAd))
 }
 
 function hideReview() {
@@ -1874,6 +1903,7 @@ function hideReview() {
   $('result').removeAttribute('src')
   $('review').hidden = true
   $('deletePhoto').hidden = true
+  syncAd()
   $('result').style.transition = 'none'
   $('result').style.transform = ''
   $('result').style.opacity = ''

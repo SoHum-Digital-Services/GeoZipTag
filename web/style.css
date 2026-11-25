@@ -472,6 +472,11 @@ html.camera-opening .capture-dock, html.camera-opening #addLocationMap, html.cam
 .review > #save { grid-column: 2; min-height: 52px; }
 .review:has(#share[hidden]) { grid-template-columns: auto 1fr; }
 .review #save.secondary { background: var(--surface-3); color: var(--text); }
+/* The banner ad (a native view the app draws here): its own row above the buttons, well apart from them. */
+.review > .ad-slot { grid-column: 1 / -1; grid-row: 1; height: 50px; margin-bottom: 1rem; }
+.review:has(.ad-slot:not([hidden])) > :is(#retake, #save, #share),
+.review:has(.ad-slot:not([hidden])):has(#share.share-primary) > #share { grid-row: 2; }
+.review:has(.ad-slot:not([hidden])) > #saveOriginal { grid-row: 3; }
 .review:has(#share.share-primary) #share { grid-column: 2; grid-row: 1; min-height: 52px; }
 .review:has(#share.share-primary) #save { grid-column: 3; grid-row: 1; }
 #saveOriginal {

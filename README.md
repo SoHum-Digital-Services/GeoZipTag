@@ -27,7 +27,7 @@ For a satellite stamp, allow location access and wait for GPS ready. The camera 
 
 ## Build Android
 
-Version 1.15, version code 16. Supports Android 8.0 and later, with minimum API 26 and target SDK 36.
+Version 1.16, version code 17. Supports Android 8.0 and later, with minimum API 26 and target SDK 36.
 
 Install Android SDK platform 36, build-tools 36.0.0, JDK 17 or newer, Bash and zip. Set ANDROID_HOME, GEOSTAMP_KEYSTORE and GEOSTAMP_SIGNING_PASSWORD_FILE to your local SDK and signing configuration, then run
 
@@ -36,7 +36,7 @@ cd android
 bash build-apk.sh
 ```
 
-The output is `android/build/GeoZipTag.apk`. The script also accepts explicit ANDROID_SDK_JAR and ANDROID_BUILD_TOOLS paths. ECJ_JAR can select the Eclipse Java compiler.
+The output is `android/build/GeoZipTag.apk`. The app builds with Gradle (the `android/gradlew` wrapper); `android/build-aab.sh` makes the Google Play bundle. Without ADMOB_APP_ID and ADMOB_BANNER_ID, builds show Google's test ads.
 
 An update to an existing Android installation requires the same signing certificate used for that installation.
 

@@ -1,0 +1,79 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Signing comes from environment variables (never from the repository):
+//   GEOSTAMP_KEYSTORE, GEOSTAMP_SIGNING_PASSWORD_FILE, GEOSTAMP_KEY_ALIAS
+def keystorePath = System.getenv('GEOSTAMP_KEYSTORE')
+def passwordFile = System.getenv('GEOSTAMP_SIGNING_PASSWORD_FILE')
+def signingPassword = passwordFile ? new File(passwordFile).text.trim() : null
+
+// AdMob: Google's public test IDs until the real ones are set (ADMOB_APP_ID / ADMOB_BANNER_ID).
+def admobAppId = System.getenv('ADMOB_APP_ID') ?: 'ca-app-pub-3940256099942544~3347511713'
+def admobBannerId = System.getenv('ADMOB_BANNER_ID') ?: 'ca-app-pub-3940256099942544/6300978111'
+
+android {
+    namespace 'com.geostampcam.mobile'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'cc.sohum.geoziptag'
+        minSdk 26
+        targetSdk 36
+        versionCode 17
+        versionName '1.16'
+        manifestPlaceholders = [admobAppId: admobAppId]
+        buildConfigField 'String', 'ADMOB_BANNER_ID', "\"${admobBannerId}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword signingPassword
+                keyAlias System.getenv('GEOSTAMP_KEY_ALIAS') ?: 'geoziptag-test'
+                keyPassword signingPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystorePath) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // The web files bundled in the app carry a version, so it only accepts newer over-the-air updates.
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/ota-assets'))
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+def stampOtaVersion = tasks.register('stampOtaVersion') {
+    def out = layout.buildDirectory.file('generated/ota-assets/ota-version.txt')
+    outputs.file(out)
+    outputs.upToDateWhen { false }
+    doLast {
+        def now = new Date()
+        def label = now.format('yy.MM.dd-HHmm', TimeZone.getTimeZone('UTC'))
+        out.get().asFile.text = "${(long) (now.time / 60000)}\n${label}\n"
+    }
+}
+tasks.named('preBuild') { dependsOn stampOtaVersion }
+
+dependencies {
+    implementation 'com.google.android.gms:play-services-ads:25.5.0'
+}

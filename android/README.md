@@ -4,6 +4,6 @@ An Android host for the bundled GeoZipTag interface. The build opens its live vi
 
 ## Build
 
-Install Android SDK platform 36, build-tools 36.0.0, JDK 17 or newer, and the `zip` command. Set `ANDROID_HOME`, `GEOSTAMP_KEYSTORE`, and `GEOSTAMP_SIGNING_PASSWORD_FILE` before running `./build-apk.sh`. The signed APK is written to `build/GeoZipTag.apk`. The script also accepts explicit `ANDROID_SDK_JAR` and `ANDROID_BUILD_TOOLS` paths.
+Install Android SDK platform 36, build-tools 36.0.0 and JDK 17 or newer. Set `ANDROID_HOME` (or `sdk.dir` in `local.properties`), `GEOSTAMP_KEYSTORE`, and `GEOSTAMP_SIGNING_PASSWORD_FILE` before running `./build-apk.sh`; it builds with the Gradle wrapper (`./gradlew`). The signed APK is written to `build/GeoZipTag.apk`. `./build-aab.sh` makes the Google Play bundle with the upload key. Set `ADMOB_APP_ID` and `ADMOB_BANNER_ID` for real ads; without them the banner shows Google's test ads.
 
 The camera and JPEG/PDF preparation run locally. Reverse geocoding and satellite imagery require network access. Android 10 and later save pictures to Pictures/GeoZipTag. Android 8 and 9 use Android's document save picker.

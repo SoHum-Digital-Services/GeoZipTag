@@ -7,13 +7,20 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.17"
+    MARKETING_VERSION: "1.18"
     # Never below android/ota-min-apk.txt: update lists name one minimum native build ("min-apk") for both apps.
-    CURRENT_PROJECT_VERSION: "18"
+    CURRENT_PROJECT_VERSION: "19"
+# Google's ads SDK (banner in the photo view).
+packages:
+  GoogleMobileAds:
+    url: https://github.com/googleads/swift-package-manager-google-mobile-ads
+    from: 12.0.0
 targets:
   GeoZipTag:
     type: application
     platform: iOS
+    dependencies:
+      - package: GoogleMobileAds
     sources:
       - path: GeoZipTag
         excludes: ["Info.plist"]
@@ -44,6 +51,11 @@ targets:
         NSPhotoLibraryUsageDescription: GeoZipTag keeps its photos in a GeoZipTag album and lets you delete them from there.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # AdMob: Google's public test IDs until the real ones are set.
+        GADApplicationIdentifier: ca-app-pub-3940256099942544~1458002511
+        GeoZipTagBannerAdUnit: ca-app-pub-3940256099942544/2934735716
+        SKAdNetworkItems:
+          - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cc.sohum.geoziptag

@@ -6,7 +6,7 @@ Everything to copy into Play Console. The app is published by **SoHum Digital Se
 |---|---|
 | Package name (permanent) | `cc.sohum.geoziptag` |
 | Upload file | `GeoZipTag.aab`, built with `android/build-aab.sh` |
-| Version | 1.15 (version code 16) |
+| Version | 1.16 (version code 17) |
 | Privacy policy URL | https://sohum-digital-services.github.io/GeoZipTag/privacy.html |
 | Website | https://geoziptag.sohum.cc |
 | Icon (512 × 512) | `play-icon-512.png` |
@@ -88,7 +88,8 @@ CAMERA
 • Volume button shutter
 
 PRIVATE BY DESIGN
-• No account, no ads, no tracking
+• No account needed, and we don't track you
+• Only one small banner ad, in the photo view, never on the camera
 • Photos stay on your phone until you share them
 • Location is used only while the app is open
 
@@ -114,7 +115,7 @@ GeoZipTag is made by SoHum Digital Services.
 | Section | Answer |
 |---|---|
 | Privacy policy | https://sohum-digital-services.github.io/GeoZipTag/privacy.html |
-| Ads | No, the app does not contain ads |
+| Ads | **Yes**, the app contains ads (one AdMob banner in the photo view) |
 | App access | All functionality is available without special access |
 | Content rating | Questionnaire category **Utility, Productivity, Communication or other**; answer **No** to everything. Expected rating: Everyone / 3+ |
 | Target audience | **18 and over** only |
@@ -142,21 +143,29 @@ Only the shared team register sends these to our server; everything else stays o
 | Personal info | User IDs | Employee ID in the team register |
 | Photos and videos | Photos | Small proof photo in the team register |
 
+**Ads (Google AdMob):** also declare, as **Collected and Shared**, purpose *Advertising or marketing*,
+*not optional*:
+
+| Category | Data type | Why |
+|---|---|---|
+| Device or other IDs | Device or other IDs | The advertising ID, used by AdMob to show and measure the banner |
+| App activity | App interactions | Ad views and taps, measured by AdMob |
+
 Location coordinates are also sent to address and map services (Photon, Nominatim, Esri) to look up the
 address. Google treats this as data sent to a service provider on your behalf, which is not "sharing", so
 nothing goes under **Shared**.
 
 ## 6. Building a new version
 
-1. Raise `android:versionCode` (and `versionName`) in `android/app/src/main/AndroidManifest.xml`.
+1. Raise `versionCode` (and `versionName`) in `android/app/build.gradle`.
    Play rejects a bundle whose version code it has already seen.
-2. Build:
+2. Build (standard Gradle; the wrapper downloads Gradle itself):
    ```
-   export ANDROID_SDK_JAR=.../platforms/android-36/android.jar
-   export ANDROID_BUILD_TOOLS=.../build-tools/36.0.0
-   export BUNDLETOOL_JAR=.../bundletool-all-1.17.2.jar
+   export ANDROID_HOME=.../android-sdk                 # or sdk.dir in android/local.properties
    export GEOSTAMP_UPLOAD_KEYSTORE=.../sohum-upload-key.p12
    export GEOSTAMP_UPLOAD_PASSWORD_FILE=.../upload-password.txt
+   export ADMOB_APP_ID=ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX     # real AdMob IDs; without these the
+   export ADMOB_BANNER_ID=ca-app-pub-XXXXXXXXXXXXXXXX/XXXXXXXXXX  # build shows Google's test ads
    bash android/build-aab.sh
    ```
 3. Upload the new `GeoZipTag.aab` as a new release.

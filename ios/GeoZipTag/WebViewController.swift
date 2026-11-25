@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import CoreLocation
+import GoogleMobileAds
 import Photos
 import UIKit
 import WebKit
@@ -37,12 +38,18 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         deletePhoto: (filename) => post({ type: 'deletePhoto', filename }),
         reverseGeocode: (id, lat, lon) => post({ type: 'reverseGeocode', id, lat, lon }),
         printReport: (html) => post({ type: 'printReport', html }),
+        adShow: (x, y, w, h) => post({ type: 'adShow', x: Number(x), y: Number(y), w: Number(w), h: Number(h) }),
+        adHide: () => post({ type: 'adHide' }),
       }
     })()
     """
 
     private var webView: WKWebView!
     private let camera = NativeCamera()
+    // The banner ad: a native view over the page, only where the page puts its ad slot (the photo view).
+    private var adSlot: UIView?
+    private var banner: BannerView?
+    private var adsStarted = false
     private var volumeInteraction: UIInteraction?
     private var videoParts: [String: (name: String, url: URL, handle: FileHandle)] = [:]
     private var server: LocalServer?
@@ -307,6 +314,13 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                 camera.previewView.autoresizingMask = []
                 camera.previewView.frame = webView.convert(CGRect(x: x, y: y, width: w, height: h), to: view)
             }
+        case "adShow":
+            if let x = (body["x"] as? NSNumber)?.doubleValue, let y = (body["y"] as? NSNumber)?.doubleValue,
+               let w = (body["w"] as? NSNumber)?.doubleValue, let h = (body["h"] as? NSNumber)?.doubleValue, w > 0, h > 0 {
+                showBanner(in: webView.convert(CGRect(x: x, y: y, width: w, height: h), to: view))
+            }
+        case "adHide":
+            adSlot?.isHidden = true
         case "cameraCapture":
             guard let id = body["id"] as? String, id.range(of: "^[A-Za-z0-9_-]{1,40}$", options: .regularExpression) != nil else { return }
             camera.capture(orientation: currentOrientation()) { [weak self] data in
@@ -369,6 +383,35 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         guard let data = try? JSONSerialization.data(withJSONObject: [value]),
               let text = String(data: data, encoding: .utf8) else { return "null" }
         return String(text.dropFirst().dropLast())
+    }
+
+    // MARK: Banner ad
+
+    /// Shows the 320 × 50 banner centred in the page's ad slot (in this view's coordinates).
+    private func showBanner(in frame: CGRect) {
+        if !adsStarted {
+            adsStarted = true
+            MobileAds.shared.start(completionHandler: nil)
+        }
+        if adSlot == nil {
+            let slot = UIView()
+            let ad = BannerView(adSize: AdSizeBanner)
+            ad.adUnitID = Bundle.main.object(forInfoDictionaryKey: "GeoZipTagBannerAdUnit") as? String
+            ad.rootViewController = self
+            ad.translatesAutoresizingMaskIntoConstraints = false
+            slot.addSubview(ad)
+            NSLayoutConstraint.activate([
+                ad.centerXAnchor.constraint(equalTo: slot.centerXAnchor),
+                ad.centerYAnchor.constraint(equalTo: slot.centerYAnchor)
+            ])
+            view.addSubview(slot)   // above the web view
+            ad.load(Request())
+            adSlot = slot
+            banner = ad
+        }
+        adSlot?.frame = frame
+        adSlot?.isHidden = false
+        if let adSlot { view.bringSubviewToFront(adSlot) }
     }
 
     // MARK: Saving to Photos

@@ -43,6 +43,11 @@ import android.webkit.WebViewClient;
 import android.window.OnBackInvokedDispatcher;
 import android.widget.FrameLayout;
 import android.widget.Toast;
+
+import com.google.android.gms.ads.AdRequest;
+import com.google.android.gms.ads.AdSize;
+import com.google.android.gms.ads.AdView;
+import com.google.android.gms.ads.MobileAds;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -87,6 +92,11 @@ public final class MainActivity extends Activity {
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
     private final ExecutorService lookups = Executors.newSingleThreadExecutor();
     private WebView cameraView;
+    private FrameLayout root;
+    // The banner ad: a native view over the page, only where the page puts its ad slot (the photo view).
+    private FrameLayout adSlot;
+    private AdView banner;
+    private boolean adsStarted;
     private WebView reportView;
     private PermissionRequest cameraPermission;
     private GeolocationPermissions.Callback locationPermission;
@@ -132,7 +142,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle savedState) {
         super.onCreate(savedState);
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setBackgroundColor(0xff000000);
         if (Build.VERSION.SDK_INT >= 30) {
             getWindow().setDecorFitsSystemWindows(false);
@@ -743,6 +753,16 @@ public final class MainActivity extends Activity {
             });
         }
 
+        /** Shows the banner ad in the page's ad slot (CSS pixels); the page hides it when the slot goes away. */
+        @JavascriptInterface public void adShow(double x, double y, double width, double height) {
+            if (!(width > 0 && height > 0)) return;
+            runOnUiThread(() -> showBanner(x, y, width, height));
+        }
+
+        @JavascriptInterface public void adHide() {
+            runOnUiThread(() -> { if (adSlot != null) adSlot.setVisibility(View.GONE); });
+        }
+
         @JavascriptInterface public void cameraCapture(String id) {
             if (id == null || !id.matches("[A-Za-z0-9_-]{1,40}")) return;
             nativeCamera.capture(id);
@@ -1174,7 +1194,7 @@ public final class MainActivity extends Activity {
     private void confirmExit() {
         if (isFinishing() || isDestroyed()) return;
         if (exitDialog != null && exitDialog.isShowing()) return;
-        int theme = getResources().getIdentifier("ExitDialog", "style", getPackageName());
+        int theme = R.style.ExitDialog;
         exitDialog = new AlertDialog.Builder(this, theme != 0 ? theme : android.R.style.Theme_Material_Dialog_Alert)
                 .setTitle("Exit GeoZipTag?")
                 .setMessage("Photos you took are already saved.")
@@ -1196,6 +1216,31 @@ public final class MainActivity extends Activity {
         return super.dispatchKeyEvent(event);
     }
 
+    private void showBanner(double x, double y, double width, double height) {
+        if (isFinishing() || isDestroyed()) return;
+        if (!adsStarted) {
+            adsStarted = true;
+            new Thread(() -> MobileAds.initialize(this, status -> { })).start();
+        }
+        float density = getResources().getDisplayMetrics().density;
+        if (adSlot == null) {
+            adSlot = new FrameLayout(this);
+            banner = new AdView(this);
+            banner.setAdSize(AdSize.BANNER);   // 320 x 50, centred in the slot
+            banner.setAdUnitId(BuildConfig.ADMOB_BANNER_ID);
+            adSlot.addView(banner, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+            root.addView(adSlot);
+            banner.loadAd(new AdRequest.Builder().build());
+        }
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                Math.round((float) width * density), Math.round((float) height * density), Gravity.TOP | Gravity.START);
+        params.leftMargin = Math.round((float) x * density);
+        params.topMargin = Math.round((float) y * density);
+        adSlot.setLayoutParams(params);
+        adSlot.setVisibility(View.VISIBLE);
+    }
+
     private void callPage(String script) {
         runOnUiThread(() -> {
             if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
@@ -1203,6 +1248,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if (banner != null) banner.pause();
         nativeCamera.pause();
         cameraView.onPause();
         super.onPause();
@@ -1212,6 +1258,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         cameraView.onResume();
         nativeCamera.resume();
+        if (banner != null) banner.resume();
         runOtaCheck(false);
     }
 
@@ -1223,6 +1270,7 @@ public final class MainActivity extends Activity {
         updates.shutdownNow();
         if (reportView != null) reportView.destroy();
         nativeCamera.release();
+        if (banner != null) banner.destroy();
         cameraView.removeJavascriptInterface("AndroidHost");
         cameraView.destroy();
         super.onDestroy();
