@@ -1,39 +1,25 @@
-# GeoZipTag app icon
+# GeoZiptag app icon
 
-A bevelled cream shutter-ring lens with an India-facing globe as its glass, a 3D coral location pin, and (on the home-screen version) a mini GeoZipTag
-stamp card with its tab, in a bright sky with soft clouds. Sky gradient: `#8FDBFF` →
-`#3D97F2` → `#1C3F9E`. Ring cream `#FFFBF2`, pin coral `#FF9A7E` → `#C9432F`.
+Navy background, a photo globe facing India, a gold 3D map pin with a camera lens, viewfinder corners, a satellite,
+the GeoZiptag wordmark (white Geo, gold Ziptag) with its gold arc, and the tagline "Click. Tag. Share.".
+The pin uses the same gold as "Ziptag" (light `#FFD828` at the top to amber `#F09600` at the tip).
 
-Drawn on Android's 108-unit adaptive-icon grid (visible area 18–90, safe circle
-radius 33); all solid artwork stays inside the safe circle.
-
-| File | Used for |
+| File | What it is |
 |---|---|
-| `geoziptag-app-icon-full.svg` | Home-screen icon (with stamp card): iPhone, web app icons, legacy Android |
-| `geoziptag-app-icon-fg.svg` + `-bg.svg` | Android adaptive foreground and background layers |
-| `geoziptag-app-icon-mono.svg` | Android 13+ themed icon (single colour) |
-| `geoziptag-app-icon-small.svg` | Simplified icon (no card) for small places: stamp tab, app header, favicon |
-| `globe-artwork-approved.svg` | The original approved globe artwork (a small raster). The icon now redraws the globe as vector map data in the same style, so it stays sharp at any size |
+| `geoziptag-icon-1024.png` | The master: full square, no transparency (the App Store icon; iOS and Google Play round the corners themselves) |
+| `geoziptag-icon-rounded.png` | The same art with its own rounded corners (1248 px), used as the Android adaptive-icon foreground |
 
-PNG exports live in the app's `res/mipmap-*` and `assets/` folders.
+Exports made from these masters:
 
-## The globe
+| Where | Files |
+|---|---|
+| iPhone | `ios/GeoZipTag/Assets.xcassets/AppIcon.appiconset/` (all sizes) |
+| Android | `android/app/src/main/res/mipmap-*/geoziptag_launcher*.png`; adaptive background colour `#061A3B` in `res/values/colors.xml` |
+| Google Play | `android/play/play-icon-512.png` |
+| Web app | `web/assets/icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`, `app-icon-ios.png` (launch cover) |
 
-The globe shows real satellite imagery: NASA's **Blue Marble** (public domain,
-credit NASA Visible Earth), taken from the `earth-blue-marble.jpg` texture bundled
-with the MIT-licensed `three-globe` npm package, colour-graded brighter. No borders are drawn,
-so it shows the planet as seen from space; the pin's tip lands on New Delhi.
+The icon was rebuilt from layered artwork (globe, pin, lens, satellite, wordmark as separate layers). The pin and
+the viewfinder corners are redrawn as clean shapes; the globe, lens, satellite and wordmark are the original art.
 
-The map-style fallback (`GLOBE=vector`) uses vector map data from [Natural Earth](https://www.naturalearthdata.com/)
-(public domain): the 1:50m land layer for the continents, and India's outline from
-Natural Earth's **India point-of-view** 1:10m countries file, which shows Jammu &
-Kashmir and Ladakh (including Gilgit-Baltistan and Aksai Chin) as part of India.
-It is an orthographic projection rotated so the pin tip lands on New Delhi.
-
-## Rebuilding
-
-`tools/build-globe.mjs` projects the map data (download `ne_50m_land.geojson` and
-`ne_10m_admin_0_countries_ind.geojson` from the natural-earth-vector repository into
-`data/`, and install `d3-geo`). `tools/render-satellite.py` wraps the Blue Marble texture onto the same view (numpy).
-`tools/make-icon.js` draws the icon SVGs and PNGs with Playwright (`GLOBE=vector`
-for the map style).
+Still on the earlier icon, on purpose: `web/assets/app-icon.png` (the small chip on photo stamps and the app
+header). Changing it changes how stamped photos look, so it is a separate decision.

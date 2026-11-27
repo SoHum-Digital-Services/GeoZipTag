@@ -56,6 +56,8 @@ android {
 
     // The web files bundled in the app carry a version, so it only accepts newer over-the-air updates.
     sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/ota-assets'))
+    // The web app itself comes from the repository's web/ folder (the one copy shared with iOS and the browser).
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/web-assets'))
     lint {
         abortOnError false
         checkReleaseBuilds false
@@ -72,7 +74,14 @@ def stampOtaVersion = tasks.register('stampOtaVersion') {
         out.get().asFile.text = "${(long) (now.time / 60000)}\n${label}\n"
     }
 }
-tasks.named('preBuild') { dependsOn stampOtaVersion }
+// Copies the app's files from web/ into the APK as assets/web (the browser-only privacy page stays out).
+def bundleWebApp = tasks.register('bundleWebApp', Sync) {
+    from(rootProject.file('../web')) {
+        include 'index.html', 'style.css', 'camera.js', 'manifest.webmanifest', 'assets/**', 'vendor/**'
+    }
+    into layout.buildDirectory.dir('generated/web-assets/web')
+}
+tasks.named('preBuild') { dependsOn stampOtaVersion, bundleWebApp }
 
 dependencies {
     implementation 'com.google.android.gms:play-services-ads:25.5.0'

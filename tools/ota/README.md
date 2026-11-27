@@ -1,6 +1,6 @@
 # Wireless app updates
 
-The Android app is a thin shell around the web app in `android/app/src/main/assets/web`. Every push
+The phone apps are thin shells around the web app in `web/` (bundled into each build). Every push
 publishes that web app, signed, to GitHub Pages. The app checks for it in the background and uses it
 from the next launch, so UI, stamp, report and logic changes arrive without installing an APK.
 

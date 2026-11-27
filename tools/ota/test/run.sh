@@ -19,4 +19,4 @@ mkdir -p "$work/classes"
 javac --release 8 -d "$work/classes" android/app/src/main/java/com/geostampcam/mobile/OtaUpdater.java
 javac -cp "$work/classes" -d "$work/classes" tools/ota/test/OtaUpdaterTest.java
 java -cp "$work/classes" com.geostampcam.mobile.OtaUpdaterTest \
-    "$work/site" "$work/private.pem" "$work/public.b64" android/app/src/main/assets/web
+    "$work/site" "$work/private.pem" "$work/public.b64" web

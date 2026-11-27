@@ -24,8 +24,8 @@ targets:
     sources:
       - path: GeoZipTag
         excludes: ["Info.plist"]
-      # The same web app the Android build uses (one copy, no duplicate to keep in sync).
-      - path: ../android/app/src/main/assets/web
+      # The web app from the repository's web/ folder: the one copy shared with Android and the browser.
+      - path: ../web
         type: folder
       # Public half of the update signing key (same as Android's).
       - path: ../android/app/src/main/assets/ota-public-key.b64

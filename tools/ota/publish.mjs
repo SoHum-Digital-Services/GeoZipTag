@@ -3,7 +3,7 @@
 //   <out>/            the browser version of the app (web/), for iPhone and desktop
 //   <out>/ota/        the signed over-the-air update for the Android app
 //
-// Usage: node tools/ota/publish.mjs [--out _site] [--web android/app/src/main/assets/web] [--site web]
+// Usage: node tools/ota/publish.mjs [--out _site] [--web web] [--site web]
 // The update is signed with the private key in OTA_PRIVATE_KEY (PEM, ECDSA P-256). Without it the
 // site is still built, but no update is published.
 import crypto from 'node:crypto'
@@ -13,7 +13,7 @@ import path from 'node:path'
 const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, index, all) =>
   value.startsWith('--') ? [...pairs, [value.slice(2), all[index + 1]]] : pairs, []))
 const out = args.out || '_site'
-const webDir = args.web || 'android/app/src/main/assets/web'   // what the Android app bundles
+const webDir = args.web || 'web'                               // the app's files (the same web/ folder the apps bundle)
 const siteDir = args.site || 'web'                              // what browsers get
 
 // The only files the Android app will serve or accept (keep in sync with OtaUpdater.java).

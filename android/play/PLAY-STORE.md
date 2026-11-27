@@ -41,7 +41,7 @@ Testing → **Internal testing** (or **Closed testing** for a Personal account) 
 
 - Play App Signing: keep **"Use Google-generated key"** (Google keeps the real signing key; ours is only the
   *upload key*, and Google can reset it if it is ever lost).
-- Upload `GeoZipTag.aab`. Release name: `1.15`. Release notes:
+- Upload `GeoZipTag.aab`. Release name: `1.21`. Release notes:
   `First release: GPS map stamps, photo attendance with employee IDs, video, and a shared team register.`
 - Add testers (email list), save, **Review release → Start rollout**.
 

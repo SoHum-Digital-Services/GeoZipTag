@@ -6,8 +6,9 @@ node_modules/
 .gradle/
 **/build/
 local.properties
+_site/
 
-# Local credentials and signing material
+# Never commit credentials, signing keys or app builds
 .env
 .env.*
 !.env.example
@@ -18,13 +19,9 @@ local.properties
 *.key
 *.apk
 *.aab
+*.ipa
 .openai/
-
-# Never commit signing keys or build output
-*.pem
-*.p12
-*.keystore
-_site/
 
 # Written at build time (iOS bundled web version)
 ios/GeoZipTag/ota-version.txt
+ios/GeoZipTag.xcodeproj/

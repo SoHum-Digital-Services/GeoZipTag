@@ -7,7 +7,7 @@ on:
     branches: [main, "claude/**"]
     paths:
       - "ios/**"
-      - "android/app/src/main/assets/web/**"
+      - "web/**"
       - "android/app/src/main/assets/ota-public-key.b64"
       - "tools/ota/**"
       - ".github/workflows/ios.yml"

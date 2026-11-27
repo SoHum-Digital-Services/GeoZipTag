@@ -24,7 +24,7 @@ server=$!
 sleep 1
 
 mkdir -p "$work/bundle" "$work/roots"
-cp -R android/app/src/main/assets/web/. "$work/bundle/"
+cp -R web/. "$work/bundle/"
 printf 'old' >> "$work/bundle/camera.js"   # so the update has a changed file to download
 swiftc -O -o "$work/ota-test" ios/GeoZipTag/OtaUpdater.swift tools/ota/test/ios/main.swift
 "$work/ota-test" "http://127.0.0.1:$port/" "$work/test.b64" "$work/other.b64" "$work/bundle" "$work/roots"
