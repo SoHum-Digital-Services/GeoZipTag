@@ -223,7 +223,12 @@ public final class MainActivity extends Activity {
     /** Lifts the launch video; the view (and its video player and picture) is let go once it has faded out. */
     private void dismissSplash(boolean immediately) {
         LaunchSplash current = splash;
-        if (current != null) current.dismiss(immediately, () -> { if (splash == current) splash = null; });
+        if (current != null) current.dismiss(immediately, () -> {
+            if (splash == current) splash = null;
+            // The navy bars belong to the launch screen; the camera screen has black ones.
+            getWindow().setStatusBarColor(0xff000000);
+            getWindow().setNavigationBarColor(0xff000000);
+        });
     }
 
     private void configureCameraView() {

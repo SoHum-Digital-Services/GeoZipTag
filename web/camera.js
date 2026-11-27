@@ -1421,7 +1421,10 @@ function setZoomLabel(value) {
   }
   // Keep the active lens in the middle, as the Camera app does.
   const row = $('zoomLenses')
-  if (active) row.style.transform = `translateX(${row.offsetWidth / 2 - (active.offsetLeft + active.offsetWidth / 2)}px)`
+  if (active) {
+    const centre = active.getBoundingClientRect().left - row.getBoundingClientRect().left + active.offsetWidth / 2
+    row.style.transform = `translateX(${row.offsetWidth / 2 - centre}px)`
+  }
 }
 function buildZoomButtons(min, max, track) {
   const row = $('zoomLenses')
@@ -2766,8 +2769,12 @@ $('modeSwitch').querySelector('[data-mode="video"]').hidden = !videoCapable
 
 function centreMode() {
   const track = $('modeTrack'), active = track.querySelector('[aria-pressed=true]')
-  if (active) track.style.transform = `translateX(${track.offsetWidth / 2 - (active.offsetLeft + active.offsetWidth / 2)}px)`
+  if (!active) return
+  // Measured inside the track (both rectangles move together with the track's own transform).
+  const centre = active.getBoundingClientRect().left - track.getBoundingClientRect().left + active.offsetWidth / 2
+  track.style.transform = `translateX(${track.offsetWidth / 2 - centre}px)`
 }
+document.fonts?.ready.then(centreMode)   // the labels change width when the app font arrives
 function setMode(mode) {
   if (recording || busy || mode === captureMode || (mode === 'video' && !videoCapable)) return
   captureMode = mode
@@ -3910,11 +3917,10 @@ function renderLiveStamp() {
   const scale = Math.min(window.devicePixelRatio || 1, 3)
   // The stamp preview sits exactly where it lands on the photo, behind the see-through controls.
   const frame = video.parentElement.getBoundingClientRect()
-  const box = `${frame.top}/${frame.height}`
+  const box = `${frame.left}/${frame.top}/${frame.width}/${frame.height}`
   if (box !== liveStampBox) {   // styles are only written when they change, so the page is not re-laid out every second
     liveStampBox = box
-    liveStamp.style.top = `${frame.top}px`
-    liveStamp.style.height = `${frame.height}px`
+    Object.assign(liveStamp.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, height: `${frame.height}px` })
   }
   const width = Math.round(frame.width * scale), height = Math.round(frame.height * scale)
   if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
@@ -3948,22 +3954,29 @@ let nativeLayoutKey = ''
 function layoutFrame() {
   const root = document.documentElement.style
   if (!phoneLayout.matches) {
-    for (const name of ['--frame-top', '--frame-height', '--frame-gap']) root.removeProperty(name)
+    for (const name of ['--frame-top', '--frame-height', '--frame-left', '--frame-width', '--frame-gap']) root.removeProperty(name)
     return
   }
   const screenWidth = window.innerWidth, screenHeight = window.innerHeight
-  const height = Math.min(screenHeight, Math.round(screenWidth * shapeRatio()))
-  // The frame rests on the shutter tray (its bottom edge is where the stamp sits).
-  const trayTop = screenHeight - ($('controls').offsetHeight || 0)
-  const top = Math.max(0, Math.round(Math.min(trayTop, screenHeight) - height))
+  // The frame rests on the shutter tray: its bottom edge, where the stamp sits, must never go under the tray.
+  const trayTop = Math.min(screenHeight, screenHeight - ($('controls').offsetHeight || 0))
+  let width = screenWidth, height = Math.round(screenWidth * shapeRatio())
+  if (height > trayTop) {   // a tall shape (16:9) on a short screen: narrow the frame so all of it fits above the tray
+    height = trayTop
+    width = Math.min(screenWidth, Math.round(height / shapeRatio()))
+  }
+  const left = Math.round((screenWidth - width) / 2)
+  const top = Math.max(0, Math.round(trayTop - height))
   root.setProperty('--frame-top', `${top}px`)
   root.setProperty('--frame-height', `${height}px`)
+  root.setProperty('--frame-left', `${left}px`)
+  root.setProperty('--frame-width', `${width}px`)
   root.setProperty('--frame-gap', `${screenHeight - top - height}px`)
   // The native preview is only moved when the camera area really changed (this runs on every resize and bar change).
-  const layoutKey = `${top}/${screenWidth}/${height}`
+  const layoutKey = `${left}/${top}/${width}/${height}`
   if (layoutKey !== nativeLayoutKey) {
     nativeLayoutKey = layoutKey
-    try { nativeHost?.cameraLayout?.(0, top, screenWidth, height) } catch {}
+    try { nativeHost?.cameraLayout?.(left, top, width, height) } catch {}
   }
   coverVideo()
   updateCameraGrid()

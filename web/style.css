@@ -918,7 +918,7 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 /* Photo frame (phones): the camera area has the photo's shape (9:16, 3:4 or 1:1), full width and centred,
    so the live view shows exactly what the photo will contain. The page sets --frame-top/height/gap. */
 @media (max-width: 759px) {
-  .viewfinder:not(.photo-review) { top: var(--frame-top, 0px); bottom: auto; height: var(--frame-height, 100%); }
+  .viewfinder:not(.photo-review) { top: var(--frame-top, 0px); bottom: auto; height: var(--frame-height, 100%); left: var(--frame-left, 0px); right: auto; width: var(--frame-width, 100%); }
   .live-camera-tools { top: max(.5rem, calc(env(safe-area-inset-top) + 64px - var(--frame-top, 0px))); }
   .camera-zoom { bottom: calc(var(--stamp-clearance, 0px) + .6rem); }
   #status { bottom: max(.5rem, calc(var(--bottom-bar, 200px) + 4rem - var(--frame-gap, 0px))); }
