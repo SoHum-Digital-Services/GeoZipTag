@@ -28,7 +28,7 @@ let gridEnabled = false
 let captureMode = 'photo'   // photo | video
 let timerSeconds = 0
 const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
-  quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false,
+  quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false, reviewAfter: true,
   mirrorFront: false, showLevel: false }
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
@@ -43,6 +43,7 @@ try {
   if (saved.tapAction === 'capture') preferences.tapAction = 'capture'
   preferences.volumeShutter = saved.volumeShutter !== false
   preferences.shareAfter = saved.shareAfter === true
+  preferences.reviewAfter = saved.reviewAfter !== false   // on by default
   preferences.mirrorFront = saved.mirrorFront === true
   preferences.showLevel = saved.showLevel === true
   if (saved.sharePhotos === false) preferences.sharePhotos = false
@@ -2145,6 +2146,8 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       photoStore.put(entry)   // remembers that the app saved it (Delete then removes it from the gallery too)
     }
     if (live && preferences.shareAfter) sharePhoto(entry, true)
+    // The finished photo stays on screen until the user swipes down (or taps Camera) for the next one.
+    if (preferences.reviewAfter) showReview()
     if (!live && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
     if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
@@ -3229,6 +3232,7 @@ $('photoQuality').value = preferences.quality
 $('tapAction').value = preferences.tapAction
 $('volumeShutter').checked = preferences.volumeShutter
 $('shareAfter').checked = preferences.shareAfter
+$('reviewAfter').checked = preferences.reviewAfter
 
 $('settings').addEventListener('change', () => {
   setTimeout(renderLiveStamp)
@@ -3240,6 +3244,7 @@ $('settings').addEventListener('change', () => {
   preferences.tapAction = $('tapAction').value
   preferences.volumeShutter = $('volumeShutter').checked
   preferences.shareAfter = $('shareAfter').checked
+  preferences.reviewAfter = $('reviewAfter').checked
   applyVolumeShutter()
   savePreferences()
   layoutFrame()
