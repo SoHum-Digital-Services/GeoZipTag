@@ -6,7 +6,7 @@ Everything to copy into Play Console. The app is published by **SoHum Digital Se
 |---|---|
 | Package name (permanent) | `cc.sohum.geoziptag` |
 | Upload file | `GeoZipTag.aab`, built with `android/build-aab.sh` |
-| Version | 1.18 (version code 19) |
+| Version | 1.19 (version code 20) |
 | Privacy policy URL | https://sohum-digital-services.github.io/GeoZipTag/privacy.html |
 | Website | https://geoziptag.sohum.cc |
 | Icon (512 × 512) | `play-icon-512.png` |
@@ -154,6 +154,18 @@ Only the shared team register sends these to our server; everything else stays o
 Location coordinates are also sent to address and map services (Photon, Nominatim, Esri) to look up the
 address. Google treats this as data sent to a service provider on your behalf, which is not "sharing", so
 nothing goes under **Shared**.
+
+## Ads after the stores
+
+Until the apps are live in the stores, every build shows Google's **test** banner (safe to tap, earns nothing).
+Once the Play Store and App Store listings exist:
+
+1. In AdMob (Babitha's account) add the app **linked to its store listing**, and create one banner ad unit per app.
+2. Android: build with `ADMOB_APP_ID` and `ADMOB_BANNER_ID` set to the real IDs (see "Building a new version").
+3. iPhone: put the real IDs in `ios/project.yml` (`GADApplicationIdentifier` and `GeoZipTagBannerAdUnit`).
+4. Register your own phones as AdMob test devices, and never tap your own live ads.
+
+The banner stays in the photo view only. Nothing is shown on the splash screen or the camera screen.
 
 ## 6. Building a new version
 

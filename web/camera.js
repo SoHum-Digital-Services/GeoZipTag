@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id)
 const video = $('video')
 const file = $('file')
 const status = $('status')
+const styleTrack = $('styleTrack')   // the stamp style pills above the shutter
 const android = window.AndroidHost
 // Apps keep the launch cover (in the page) up until startup is done; the browser version has none.
 const launchCover = android ? $('launchCover') : null
@@ -13,6 +14,8 @@ let phoneRequest, phoneMetadata, lastPhoneMode
 let placeLabel = ''
 let stampNote = ''
 let stream, photoUrl, watchId, fix
+// Startup state read by the launch gate (see "Startup readiness gate" below).
+let cameraProblem, locationDenied = false, nativeFrameSeen = false
 let facing = 'user'   // GeoZiptag always opens on the front camera
 let cameraRequest = 0
 let busy = false
@@ -215,9 +218,11 @@ window.onNativeCamera = (state) => {
   done?.(state)
 }
 window.onNativePhoto = (id, ok) => nativePhotos.get(id)?.(ok)
+window.onNativeCameraFrame = () => { nativeFrameSeen = true }   // the first preview frame has arrived
 
 function openNativeCamera(nextFacing) {
   return new Promise((resolve, reject) => {
+    nativeFrameSeen = false
     clearTimeout(nativeStopTimer)   // flipping: stop and start become one switch
     nativeOpen?.(undefined)
     const timer = setTimeout(() => { nativeOpen = undefined; reject(new Error('timeout')) }, 60000)
@@ -374,6 +379,7 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
       return
     }
     stream = next
+    cameraProblem = undefined
     const track = stream.getVideoTracks()[0]
     facing = track.getSettings().facingMode || nextFacing
     document.documentElement.classList.toggle('native-camera', !!next.native)
@@ -399,8 +405,9 @@ async function startCamera(nextFacing = facing, { soft = false } = {}) {
     if (cameraRequest === request) {
       $('switchCamera').hidden = cameras.filter((device) => device.kind === 'videoinput').length < 2
     }
-  } catch {
+  } catch (error) {
     if (cameraRequest !== request) return
+    cameraProblem = error?.message === 'denied' || error?.name === 'NotAllowedError' ? 'denied' : 'failed'
     stopCamera()
     endSwitch()
     $('start').hidden = false
@@ -420,9 +427,12 @@ function resetStart() {
 }
 
 async function startLiveCamera(requestLocation = false) {
+  // Location and the camera start together: both can take a while, and neither waits for the other.
+  const wantsLocation = requestLocation || (!timestampOnly && android?.hasLocationAccess?.())
+  if (wantsLocation && !manualFix && preferences.template !== 'time' && watchId === undefined) enableLocation()
   await startCamera()
   if (!stream || manualFix || preferences.template === 'time' || watchId !== undefined) return
-  if (requestLocation || (!timestampOnly && android?.hasLocationAccess?.())) {
+  if (wantsLocation) {
     enableLocation()
     return
   }
@@ -617,6 +627,7 @@ function enableLocation() {
     // Keep the more accurate of a quick recent position and a fresh GPS reading.
     if (fix && fix.accuracy < coords.accuracy && timestamp - fix.timestamp < 10000) return
     fix = { lat: coords.latitude, lon: coords.longitude, timestamp, accuracy: coords.accuracy }
+    locationDenied = false
     if (coords.accuracy <= 100) document.documentElement.classList.remove('gps-slow')
     if (coords.accuracy > 100) setLocationStatus('Approximate GPS')
     else setLocationStatus('GPS ready', true)
@@ -641,6 +652,7 @@ function enableLocation() {
   const onError = (error) => {
     if (watchId === undefined) return
     if (error.code === 1) {
+      locationDenied = true
       stopLocation('Location denied. Allow access in your browser’s site settings, then tap Enable location.')
       if (pendingCapture) $('gpsHint').textContent = 'Location permission is off. You can still take a timestamped photo.'
       return
@@ -3082,6 +3094,7 @@ function updateTemplateLabel() {
   for (const tab of document.querySelectorAll('[data-template]')) {
     tab.setAttribute('aria-pressed', String(tab.dataset.template === preferences.template))
   }
+  if (typeof centerStylePill === 'function') centerStylePill()
   $('startWithoutLocation').hidden = preferences.template === 'time'
   updateLocationMapAction()
   if (!busy) resetStart()
@@ -3172,6 +3185,30 @@ for (const tab of document.querySelectorAll('[data-template]')) {
     radio.dispatchEvent(new Event('change'))
   })
 }
+
+// ---- Stamp style pills above the shutter: swipe left or right; the pill over the shutter is the active style ----
+function centerStylePill(smooth = true) {
+  const pill = styleTrack.querySelector('[aria-pressed=true]')
+  if (!pill || !styleTrack.clientWidth) return
+  const left = pill.offsetLeft - (styleTrack.clientWidth - pill.offsetWidth) / 2
+  if (Math.abs(styleTrack.scrollLeft - left) > 1) styleTrack.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' })
+}
+let styleSettle
+styleTrack.addEventListener('scroll', () => {
+  clearTimeout(styleSettle)
+  styleSettle = setTimeout(() => {   // the swipe has settled: the pill nearest the middle becomes the style
+    if (busy) { centerStylePill(); return }
+    const middle = styleTrack.scrollLeft + styleTrack.clientWidth / 2
+    let nearest, best = Infinity
+    for (const pill of styleTrack.children) {
+      const distance = Math.abs(pill.offsetLeft + pill.offsetWidth / 2 - middle)
+      if (distance < best) { best = distance; nearest = pill }
+    }
+    if (nearest && nearest.dataset.template !== preferences.template) nearest.click()
+  }, 140)
+}, { passive: true })
+window.addEventListener('resize', () => centerStylePill(false))
+requestAnimationFrame(() => centerStylePill(false))
 
 for (const element of document.querySelectorAll('input[name="template"]')) {
   element.checked = element.value === preferences.template
@@ -3702,15 +3739,131 @@ window.addEventListener('pageshow', event => {
   if (event.persisted) openViewfinderOnEntry()
 })
 
-// ---- Launch gate (apps): the launch cover stays until the camera is live and the location, address and
-// map are ready, so the user never sees (or waits for) startup work later. It never waits more than 8 s
-// (no GPS indoors, no network): then the camera opens anyway and the shutter has its quiet fallback. ----
+// ---- Startup readiness gate (apps) ----
+// The launch cover (on iPhone also the native launch video on top of it) stays until the app can take AND save a
+// correctly stamped photo at once. ALL of these must be true:
+//   1. camera permission granted, camera session running, first preview frame on screen
+//   2. location permission granted and a FRESH fix (determined after launch, accurate, recent), not a cached one
+//   3. the address for that fix is resolved
+//   4. the satellite map for that same fix is downloaded and decoded
+//   5. fonts, wordmark and the other stamp resources are loaded
+//   6. the shutter and the stamping pipeline are ready (a real stamp has been drawn and encoded once)
+// Nothing here ends on a timer, on the video ending, on a cached place or on the camera alone. (The one time rule:
+// the splash is never shown for less than 3 s; being ready is still required on top of that.) When something is
+// refused, fails or stalls, a recovery panel (Try again / Open Settings) appears on the cover instead; the user is
+// never left on an endless animation, and nothing is skipped or invented.
+// minSplashMs: the splash is always shown for at least 3 s (counted from when the page starts), even if the app is ready sooner.
+const startupLimits = { fixMaxAgeMs: 60000, fixMaxAccuracyM: 100, stallMs: 15000, minSplashMs: 3000 }
+const launchEpoch = Date.now()
+let launchTimer, pipelineWarm = false, pipelineWarming = false, pipelineFailed = false
+let nativeSplashActive = typeof android?.launchReady === 'function'   // iPhone: the native video is on top
+let progressKey = '', progressAt = performance.now(), shownProblem = ''
+
+function startupStatus() {
+  const now = Date.now()
+  const live = !video.hidden
+  const frame = stream?.native ? nativeFrameSeen : live && video.readyState >= 2 && video.videoWidth > 0
+  const f = fix
+  const location = !!f && f.timestamp >= launchEpoch - 1000 && f.accuracy <= startupLimits.fixMaxAccuracyM &&
+    now - f.timestamp <= startupLimits.fixMaxAgeMs
+  const entry = location && placeCache && metresBetween(f, placeCache) < 30 ? placeCache : undefined
+  const address = !!(entry?.done && entry.result?.address)
+  const map = !!(entry?.done && entry.result?.map)
+  return {
+    camera: live && frame, location, address, map,
+    placeFailed: !!(entry?.done && !(address && map)),
+    resources: stampFontsReady && document.fonts?.status !== 'loading',
+    pipeline: pipelineWarm && !$('shutter').hidden && !$('shutter').disabled && !busy
+  }
+}
+
+// Draws and encodes one real stamp (the fresh location, its address and map, the selected style) so the first
+// shutter press has nothing left to prepare. The picture is thrown away.
+async function warmUpPipeline() {
+  pipelineWarming = true
+  try {
+    const snapshot = { ...fix }
+    if (placeLabel) snapshot.name = placeLabel
+    const { address, map } = await placeFor(snapshot, 0)
+    await stampFonts
+    const canvas = document.createElement('canvas')
+    canvas.width = 540; canvas.height = 960
+    const context = canvas.getContext('2d', { alpha: false })
+    if (!context) throw new Error('canvas')
+    context.fillStyle = '#10181a'
+    context.fillRect(0, 0, 540, 960)
+    drawStamp(canvas, { snapshot, date: new Date(), picked: false, address, map, attendance: currentAttendance() })
+    const jpeg = await exportJpeg(canvas)
+    canvas.width = canvas.height = 0
+    if (!jpeg || jpeg.size < 1000) throw new Error('encode')
+    pipelineWarm = true
+  } catch {
+    pipelineFailed = true
+  } finally {
+    pipelineWarming = false
+  }
+}
+
+const startupProblems = {
+  'camera-denied': ['Camera access is off', 'GeoZiptag needs the camera to take stamped photos.', true],
+  'camera-failed': ['The camera did not start', 'Close other apps that use the camera, then try again.', false],
+  'location-denied': ['Location access is off', 'GeoZiptag stamps every photo with where it was taken.', true],
+  'location-slow': ['Still looking for your location', 'Move to an open area or near a window, then try again.', false],
+  place: ['Could not load the address and map', 'Check your internet connection, then try again.', false],
+  pipeline: ['Photo stamping did not start', 'Try again.', false],
+  slow: ['Starting is taking longer than usual', 'Try again.', false]
+}
+
+function startupProblem(s, stalled) {
+  if (!s.camera && cameraProblem === 'denied') return 'camera-denied'
+  if (!s.location && locationDenied) return 'location-denied'
+  if (!s.camera && cameraProblem) return 'camera-failed'
+  if (s.placeFailed || (s.location && !(s.address && s.map) && navigator.onLine === false)) return 'place'
+  if (pipelineFailed) return 'pipeline'
+  if (!stalled) return ''
+  if (!s.camera) return 'camera-failed'
+  if (!s.location) return 'location-slow'
+  if (!(s.address && s.map)) return 'place'
+  return 'slow'
+}
+
+function showStartupProblem(kind) {
+  if (kind === shownProblem) return
+  shownProblem = kind
+  const panel = $('launchProblem')
+  if (!kind) { panel.hidden = true; return }
+  const [title, text, needsSettings] = startupProblems[kind]
+  $('launchProblemTitle').textContent = title
+  $('launchProblemText').textContent = text
+  $('launchSettings').hidden = !(needsSettings && typeof android?.openSettings === 'function')
+  panel.hidden = false
+  if (nativeSplashActive) {   // iPhone: lift the video so the cover and its buttons can be seen
+    nativeSplashActive = false
+    try { android.launchProblem() } catch {}
+  }
+}
+
+// Try again: restart whatever is not working, and give it a fresh 15 s before judging it stalled.
+function retryStartup() {
+  cameraProblem = undefined
+  locationDenied = false
+  pipelineWarm = pipelineFailed = false
+  placeCache = undefined                       // look the address and map up again
+  progressKey = ''
+  progressAt = performance.now()
+  showStartupProblem('')
+  if (!stream) startLiveCamera(true)
+  if (watchId !== undefined) { navigator.geolocation.clearWatch(watchId); watchId = undefined }
+  fix = undefined
+  if (stream || watchId === undefined) enableLocation()
+}
+
 function releaseLaunch() {
   clearInterval(launchTimer)
   liveStampSettled = true
   liveStamp.classList.add('settled')
   renderLiveStamp()
-  if (typeof android?.launchReady === 'function') {
+  if (nativeSplashActive) {
     // iPhone: the native launch video is on top. The page's own cover goes away at once and the video
     // fades out over the finished camera.
     launchCover.remove()
@@ -3720,23 +3873,21 @@ function releaseLaunch() {
     setTimeout(() => launchCover.remove(), 400)
   }
 }
-let launchTimer, launchLiveSince
+
 if (launchCover) {
-  const launchStarted = performance.now()
+  $('launchRetry').addEventListener('click', retryStartup)
+  $('launchSettings').addEventListener('click', () => { try { android.openSettings() } catch {} })
+  // Back from Settings (or any other app): try again with whatever the user changed.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && shownProblem) retryStartup() })
   launchTimer = setInterval(() => {
+    const s = startupStatus()
+    if (s.camera && s.location && s.address && s.map && s.resources && !pipelineWarm && !pipelineWarming && !pipelineFailed) warmUpPipeline()
+    if (s.camera && s.location && s.address && s.map && s.resources && s.pipeline && performance.now() >= startupLimits.minSplashMs) { releaseLaunch(); return }
+    // Stalled = nothing has moved forward for 15 s of the app being in use (time in the background does not count).
+    const key = [s.camera, s.location, s.address, s.map, s.resources, s.pipeline, s.placeFailed, pipelineFailed].join()
     const now = performance.now()
-    const live = !video.hidden
-    if (live && launchLiveSince === undefined) launchLiveSince = now
-    // The camera is live, or the start card is showing (permission needed / no camera).
-    const cameraDone = live || (!$('start').hidden && !$('start').classList.contains('opening'))
-    let locationDone = true
-    if (live) {
-      const where = manualFix || currentFix()
-      if (where) locationDone = !!(placeCache?.done || rememberedNear(where, 200))   // address and map looked up, or remembered
-      else if (watchId === undefined) locationDone = timestampOnly || now - launchLiveSince > 1500   // location off or refused
-      else locationDone = false   // GPS is still finding the first reading
-    }
-    if ((cameraDone && locationDone && stampFontsReady) || now - launchStarted > 8000) releaseLaunch()
+    if (key !== progressKey || document.hidden) { progressKey = key; progressAt = now }
+    showStartupProblem(startupProblem(s, now - progressAt > startupLimits.stallMs))
   }, 100)
 }
 

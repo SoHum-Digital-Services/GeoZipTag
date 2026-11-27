@@ -41,6 +41,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         adShow: (x, y, w, h) => post({ type: 'adShow', x: Number(x), y: Number(y), w: Number(w), h: Number(h) }),
         adHide: () => post({ type: 'adHide' }),
         launchReady: () => post({ type: 'launchReady' }),
+        launchProblem: () => post({ type: 'launchProblem' }),
+        openSettings: () => post({ type: 'openSettings' }),
       }
     })()
     """
@@ -106,13 +108,18 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         // so the first banner in the photo view appears quickly. Nothing waits for it.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.startAds() }
 
-        // The launch video covers the page while it starts; the page ends it with "launchReady".
-        // If that message never comes (for example a script error), it is removed after 12 s.
+        // The first preview frame of the camera is reported to the page (startup waits for it).
+        camera.onFirstFrame = { [weak self] in self?.callPage("window.onNativeCameraFrame && window.onNativeCameraFrame()") }
+
+        // The launch video covers the page while it starts. The page lifts it with "launchReady" (all startup
+        // conditions met) or "launchProblem" (it shows a recovery panel on its own cover). Only if the page itself
+        // is dead (no message at all for 30 s, for example a script crash) is it removed here, so the screen
+        // is never frozen on the animation; this is not a readiness path.
         let splash = LaunchSplashView(frame: view.bounds)
         splash.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(splash)
         self.splash = splash
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.dismissSplash() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in self?.dismissSplash(immediately: true) }
 
         locationManager.requestWhenInUseAuthorization()
         startServerAndLoad()
@@ -122,8 +129,10 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     @objc private func enteredForeground() { checkForUpdates(manual: false) }
 
-    private func dismissSplash() {
-        splash?.dismiss()
+    /// Fades the launch video out. When startup is ready it still stays up to its 3 s minimum; for a problem
+    /// (recovery panel) it goes at once.
+    private func dismissSplash(immediately: Bool = false) {
+        splash?.dismiss(immediately: immediately)
         splash = nil
     }
 
@@ -340,6 +349,10 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             }
         case "launchReady":
             dismissSplash()
+        case "launchProblem":
+            dismissSplash(immediately: true)
+        case "openSettings":
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         case "adHide":
             adSlot?.isHidden = true
         case "cameraCapture":

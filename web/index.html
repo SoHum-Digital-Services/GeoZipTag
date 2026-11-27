@@ -20,6 +20,14 @@
      address and map are ready, so the camera opens complete. camera.js removes it (at once in a browser). -->
 <div id="launchCover" class="launch-cover" aria-hidden="true">
   <div class="launch-mark"><img src="assets/app-icon.png" alt="" width="120" height="120"><p class="launch-by"><span>by</span> SoHum</p></div>
+  <div id="launchProblem" class="launch-problem" role="alert" hidden>
+    <h2 id="launchProblemTitle"></h2>
+    <p id="launchProblemText"></p>
+    <div class="launch-problem-actions">
+      <button id="launchSettings" type="button" hidden>Open Settings</button>
+      <button id="launchRetry" type="button">Try again</button>
+    </div>
+  </div>
 </div>
 <svg class="icon-sprite" aria-hidden="true" focusable="false">
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.1-7-11.4a7 7 0 0 1 14 0C19 14.9 12 21 12 21Z"/><circle cx="12" cy="9.6" r="2.6"/></symbol>
@@ -138,6 +146,13 @@
       <div class="sheet-actions">
         <button id="captureWithoutLocation" type="button">Timestamp only</button>
         <button id="captureWithLocation" class="primary" type="button">Enable location</button>
+      </div>
+    </div>
+    <div id="styleStrip" class="style-strip" role="group" aria-label="Stamp style">
+      <div id="styleTrack" class="style-track">
+        <button type="button" class="style-pill" data-template="satellite" aria-pressed="true">Satellite</button>
+        <button type="button" class="style-pill" data-template="attendance" aria-pressed="false">Attendance</button>
+        <button type="button" class="style-pill" data-template="qr" aria-pressed="false">QR Location</button>
       </div>
     </div>
     <div class="capture-dock" aria-label="Capture controls">

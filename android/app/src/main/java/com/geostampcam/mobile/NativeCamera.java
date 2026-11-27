@@ -44,6 +44,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
     interface Listener {
         void onState(JSONObject state);        // reply to start(): {ok, ...} or {ok:false, error}
         void onPhoto(String id, byte[] jpeg);  // jpeg is null when the capture failed
+        void onFirstFrame();                   // the first preview frame of a started camera has been produced
     }
 
     private static final long MAX_PIXELS = 13_000_000L;   // about 12 MP: the page stamps it on a canvas
@@ -68,6 +69,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
     private Rect activeArray;
     private int sensorOrientation;
     private boolean zoomRatioSupported, brightened;
+    private boolean firstFrameSent;
     private float zoom = 1f, zoomMin = 1f, zoomMax = 1f;
     private boolean torch;
     private String flash = "off";              // off | auto | on: the photo flash
@@ -269,6 +271,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
                     session = configured;
                     applySettings(previewRequest);
                     previewRequest.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                    firstFrameSent = false;
                     repeat();
                     main.post(() -> {
                         view.setVisibility(android.view.View.VISIBLE);
@@ -354,6 +357,10 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
         try {
             session.setRepeatingRequest(previewRequest.build(), new CameraCaptureSession.CaptureCallback() {
                 @Override public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r, TotalCaptureResult result) {
+                    if (!firstFrameSent) {   // a real preview frame has been captured: the page may reveal the camera
+                        firstFrameSent = true;
+                        main.post(listener::onFirstFrame);
+                    }
                     if (++frames % 15 == 0) adjustForLight(result);
                     if (stillAfterMetering != null) checkMetering(result);
                 }

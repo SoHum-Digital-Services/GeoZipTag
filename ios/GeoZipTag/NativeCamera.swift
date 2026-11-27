@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// The iPhone's own photo camera (the one the Camera app uses), so photos get Apple's full processing:
 /// Smart HDR, Deep Fusion and low-light fusion, at full resolution. The live preview is a native layer
 /// behind the transparent page; the page drives the camera through WebViewController.
-final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
+final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
         var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
@@ -15,6 +15,11 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
     let previewView = PreviewView()
     private let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
+    // Only used to learn that the first real preview frame exists (the page waits for it); removed right after.
+    private let frameOutput = AVCaptureVideoDataOutput()
+    private var frameReported = true
+    /// Called on the main queue once, after each start, when the first preview frame has been produced.
+    var onFirstFrame: (() -> Void)?
     private let queue = DispatchQueue(label: "geoziptag.camera")
     private var input: AVCaptureDeviceInput?
     private var wideFactor: CGFloat = 1          // zoom factor of the main (1×) lens on multi-lens cameras
@@ -87,6 +92,12 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
         input = newInput
         if !session.outputs.contains(photoOutput), session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
         photoOutput.maxPhotoQualityPrioritization = .quality
+        frameReported = false
+        if !session.outputs.contains(frameOutput), session.canAddOutput(frameOutput) {
+            frameOutput.alwaysDiscardsLateVideoFrames = true
+            frameOutput.setSampleBufferDelegate(self, queue: queue)
+            session.addOutput(frameOutput)
+        }
         session.commitConfiguration()
 
         wideFactor = 1
@@ -247,6 +258,19 @@ final class NativeCamera: NSObject, AVCapturePhotoCaptureDelegate {
             self.pending[settings.uniqueID] = completion
             self.sizes[settings.uniqueID] = maxSide
             self.photoOutput.capturePhoto(with: settings, delegate: self)
+        }
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard !frameReported else { return }
+        frameReported = true
+        DispatchQueue.main.async { [weak self] in self?.onFirstFrame?() }
+        // One frame is all that is needed: take this output off the session so it costs nothing afterwards.
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.session.beginConfiguration()
+            self.session.removeOutput(self.frameOutput)
+            self.session.commitConfiguration()
         }
     }
 

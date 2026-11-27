@@ -158,6 +158,9 @@ public final class MainActivity extends Activity {
             @Override public void onState(JSONObject state) {
                 callPage("window.onNativeCamera && window.onNativeCamera(" + state + ")");
             }
+            @Override public void onFirstFrame() {
+                callPage("window.onNativeCameraFrame && window.onNativeCameraFrame()");
+            }
             @Override public void onPhoto(String id, byte[] jpeg) {
                 if (jpeg != null) {
                     synchronized (nativePhotos) {
@@ -719,6 +722,19 @@ public final class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void cameraStop() { runOnUiThread(() -> nativeCamera.stop()); }
+
+        /** Opens this app's page in the phone's Settings (where camera and location access can be turned on). */
+        @JavascriptInterface public void openSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", getPackageName(), null));
+                    startActivity(intent);
+                } catch (RuntimeException ignored) {
+                    // No Settings app to open.
+                }
+            });
+        }
 
         @JavascriptInterface public void cameraSet(String json) {
             try {

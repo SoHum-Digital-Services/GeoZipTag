@@ -107,6 +107,17 @@ dialog:focus, dialog:focus-visible { outline: none; }
 .location-button:not([data-state="ready"])::after { display: none; }
 html.gps-slow .location-button[data-state="pending"]::after { display: block; background: #f5b942; }
 .live-stamp { display: none; }
+/* Stamp style pills above the shutter row: thin, swipe left or right, the active one sits over the shutter button. */
+.style-strip { margin: 0 -1rem .3rem; }
+.style-track { display: flex; gap: .4rem; overflow-x: auto; padding: 2px calc(50% - 1.5rem); scroll-snap-type: x mandatory; scrollbar-width: none; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
+.style-track::-webkit-scrollbar { display: none; }
+.style-pill {
+  flex: none; scroll-snap-align: center; min-height: 24px; height: 24px; padding: 0 .8rem; border-radius: 999px;
+  color: rgba(255, 255, 255, .78); font-size: .7rem; font-weight: 600; letter-spacing: .02em; line-height: 1; white-space: nowrap;
+  background: rgba(12, 16, 18, .42); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .24);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); text-shadow: 0 1px 2px #0008;
+}
+.style-pill[aria-pressed=true] { background: #ffd60a; color: #151515; box-shadow: none; text-shadow: none; }
 /* Launch cover: black, the icon in the middle, "by SoHum" at the bottom (like Android's splash);
    on iOS the text sits under the icon (like the iPhone launch screen). It fades out when startup is done. */
 .launch-cover { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: #000; transition: opacity .3s ease; }
@@ -114,6 +125,14 @@ html.gps-slow .location-button[data-state="pending"]::after { display: block; ba
 .launch-mark img { display: block; width: 120px; height: 120px; border-radius: 27px; }
 .launch-by { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 48px); margin: 0; text-align: center; font: 600 17px/1.2 Inter, system-ui, sans-serif; color: #fff; }
 .launch-by span { font-weight: 400; color: #aab0b8; margin-right: .25em; }
+/* Recovery panel: only shown when startup is refused, fails or stalls. */
+.launch-cover { pointer-events: auto; }
+.launch-problem { position: fixed; left: 1.5rem; right: 1.5rem; bottom: calc(env(safe-area-inset-bottom) + 110px); text-align: center; color: #fff; }
+.launch-problem h2 { margin: 0 0 .35rem; font: 700 1.05rem/1.25 Inter, system-ui, sans-serif; }
+.launch-problem p { margin: 0 auto 1rem; max-width: 20rem; color: #aab0b8; font: 400 .88rem/1.4 Inter, system-ui, sans-serif; }
+.launch-problem-actions { display: flex; justify-content: center; gap: .6rem; }
+.launch-problem-actions button { min-height: 44px; padding: 0 1.3rem; border-radius: 999px; font: 600 .92rem Inter, system-ui, sans-serif; color: #fff; background: rgba(255, 255, 255, .14); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28); }
+.launch-problem-actions button#launchRetry { background: #ffd60a; color: #151515; box-shadow: none; }
 @supports (-webkit-touch-callout: none) {
   .launch-by { position: static; margin-top: 18px; }
   .launch-mark img { content: url(assets/app-icon-ios.png); }   /* iPhone: the new app icon */
