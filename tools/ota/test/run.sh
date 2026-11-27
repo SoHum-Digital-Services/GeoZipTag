@@ -20,3 +20,9 @@ javac --release 8 -d "$work/classes" android/app/src/main/java/com/geostampcam/m
 javac -cp "$work/classes" -d "$work/classes" tools/ota/test/OtaUpdaterTest.java
 java -cp "$work/classes" com.geostampcam.mobile.OtaUpdaterTest \
     "$work/site" "$work/private.pem" "$work/public.b64" web
+
+# The preview channel labels its update, the live one does not (Settings shows which a phone follows).
+OTA_PRIVATE_KEY=$(cat "$work/private.pem") node tools/ota/publish.mjs --out "$work/preview" --channel preview --min-apk 5 >/dev/null
+grep -q '^label .*-preview$' "$work/preview/ota/manifest.txt" && ! grep -q '^label .*-preview$' "$work/site/ota/manifest.txt" \
+    && echo "PASS the preview update is labelled -preview, the live one is not" \
+    || { echo "FAIL channel labels"; exit 1; }

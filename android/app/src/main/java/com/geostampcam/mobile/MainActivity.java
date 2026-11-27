@@ -77,7 +77,10 @@ public final class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String HOME = "https://" + HOST + "/index.html";
     // Signed web updates are published here by the GitHub Pages workflow (see tools/ota/README.md).
-    private static final String OTA_URL = "https://sohum-digital-services.github.io/GeoZipTag/ota/";
+    private static final String SITE_URL = "https://sohum-digital-services.github.io/GeoZipTag/";
+    private static final String OTA_URL = SITE_URL + "ota/";
+    // Every change on a work branch is published here instead (Settings > Preview versions); only main goes live.
+    private static final String OTA_PREVIEW_URL = SITE_URL + "preview/ota/";
     private static final long OTA_CHECK_INTERVAL = 30 * 60 * 1000L;
     private static final int CAMERA_ACCESS = 1, LOCATION_ACCESS = 2, PICKER_CAMERA_ACCESS = 3;
     private static final int CHOOSE_IMAGE = 4, SAVE_DOCUMENT = 5, PHONE_LOCATION_ACCESS = 6, STORAGE_ACCESS = 7,
@@ -146,7 +149,9 @@ public final class MainActivity extends Activity {
     private Toast saveToast;
     private AlertDialog exitDialog;
     private final ExecutorService updates = Executors.newSingleThreadExecutor();
-    private OtaUpdater ota;
+    private volatile OtaUpdater ota;           // the one in use: live or preview (each keeps its own downloads)
+    private OtaUpdater otaLive, otaPreview;
+    private String updateChannel = "live";
     private volatile File otaRoot;   // update served to the current page (null = the files bundled in the APK)
     private long lastOtaCheck;
     private String appVersionName = "";
@@ -388,8 +393,14 @@ public final class MainActivity extends Activity {
             long bundledVersion = Long.parseLong(bundled[0]);
             bundledWebLabel = bundled.length > 1 ? bundled[1] : "bundled";
             PublicKey key = OtaUpdater.parseKey(readAssetText("ota-public-key.b64"));
-            ota = new OtaUpdater(new File(getFilesDir(), "ota"), path -> getAssets().open("web/" + path),
+            OtaUpdater.Assets bundledFiles = path -> getAssets().open("web/" + path);
+            otaLive = new OtaUpdater(new File(getFilesDir(), "ota"), bundledFiles,
                     new OtaUpdater.HttpsFetcher(OTA_URL), key, code, bundledVersion, bundledWebLabel);
+            otaPreview = new OtaUpdater(new File(getFilesDir(), "ota-preview"), bundledFiles,
+                    new OtaUpdater.HttpsFetcher(OTA_PREVIEW_URL), key, code, bundledVersion, bundledWebLabel);
+            updateChannel = "preview".equals(getSharedPreferences("update", MODE_PRIVATE).getString("channel", "live"))
+                    ? "preview" : "live";
+            ota = "preview".equals(updateChannel) ? otaPreview : otaLive;
         } catch (Exception error) {
             ota = null;   // no updates in this build; the bundled web files keep working
         }
@@ -718,6 +729,7 @@ public final class MainActivity extends Activity {
                 String pending = updater != null ? updater.pendingLabel() : null;
                 json.put("pending", pending != null);
                 json.put("pendingLabel", pending == null ? "" : pending);
+                json.put("channel", updateChannel);
             } catch (JSONException ignored) {
                 // Fall through with whatever was filled in.
             }
@@ -732,6 +744,20 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void otaConfirm() {
             OtaUpdater updater = ota;
             if (updater != null) updater.confirm();
+        }
+
+        /** "live" or "preview": which published version this phone follows. Each keeps its own downloads. */
+        @JavascriptInterface public void setUpdateChannel(String channel) {
+            if (!"live".equals(channel) && !"preview".equals(channel)) return;
+            runOnUiThread(() -> {
+                if (otaLive == null || isFinishing() || isDestroyed() || channel.equals(updateChannel)) return;
+                updateChannel = channel;
+                getSharedPreferences("update", MODE_PRIVATE).edit().putString("channel", channel).apply();
+                ota = "preview".equals(channel) ? otaPreview : otaLive;
+                otaRoot = null;
+                cameraView.loadUrl(HOME);   // the page starts again on the other version's files
+                mainHandler.postDelayed(() -> runOtaCheck(true), 2500);   // then fetches that version's newest update
+            });
         }
 
         // Loads the page again, which switches to a downloaded update.

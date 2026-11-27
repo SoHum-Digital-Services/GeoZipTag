@@ -43,6 +43,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         launchReady: () => post({ type: 'launchReady' }),
         launchProblem: () => post({ type: 'launchProblem' }),
         openSettings: () => post({ type: 'openSettings' }),
+        setUpdateChannel: (channel) => post({ type: 'setUpdateChannel', channel: String(channel) }),
       }
     })()
     """
@@ -146,6 +147,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         var info: [String: Any] = ["app": "\(Self.bundleValue("CFBundleShortVersionString")) (iOS)", "updates": updater?.available == true]
         info["web"] = updater?.activeLabel ?? ""
         let pending = updater?.pendingLabel
+        info["channel"] = Self.updateChannel
         info["pending"] = pending != nil
         info["pendingLabel"] = pending ?? ""
         let data = (try? JSONSerialization.data(withJSONObject: info)) ?? Data("{}".utf8)
@@ -165,11 +167,20 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
+    /// "live" or "preview": which published version this phone follows. Each keeps its own downloads,
+    /// so switching never mixes versions. Every change on a work branch goes to the preview; only main goes live.
+    private static var updateChannel: String {
+        get { UserDefaults.standard.string(forKey: "updateChannel") == "preview" ? "preview" : "live" }
+        set { UserDefaults.standard.set(newValue, forKey: "updateChannel") }
+    }
+
     private func makeUpdater(web: URL) -> OtaUpdater? {
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         // ota-version.txt (written at build time): the version and label of the web files inside the app.
         let stamp = (Self.bundleText("ota-version.txt") ?? "").split(separator: "\n").map(String.init)
-        return OtaUpdater(root: support.appendingPathComponent("ota", isDirectory: true), bundleWeb: web,
+        let preview = Self.updateChannel == "preview"
+        return OtaUpdater(root: support.appendingPathComponent(preview ? "ota-preview" : "ota", isDirectory: true), bundleWeb: web,
+                          base: preview ? OtaUpdater.previewURL : OtaUpdater.defaultURL,
                           publicKeyBase64: Self.bundleText("ota-public-key.b64"),
                           appBuild: Int64(Self.bundleValue("CFBundleVersion")) ?? 0,
                           bundledVersion: stamp.first.flatMap { Int64($0) } ?? 0,
@@ -364,6 +375,17 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             dismissSplash()
         case "launchProblem":
             dismissSplash(immediately: true)
+        case "setUpdateChannel":
+            guard let channel = body["channel"] as? String, channel == "live" || channel == "preview",
+                  channel != Self.updateChannel, let web = Bundle.main.url(forResource: "web", withExtension: nil),
+                  let server else { return }
+            Self.updateChannel = channel
+            updater = makeUpdater(web: web)
+            server.setRoot(updater?.prepareForLaunch() ?? web)   // the other version's files
+            installShim()
+            webView.reload()
+            // Then fetch that version's newest update (the page reports it in Settings).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.checkForUpdates(manual: true) }
         case "openSettings":
             if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         case "adHide":

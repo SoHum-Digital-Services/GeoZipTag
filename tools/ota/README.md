@@ -1,5 +1,9 @@
 # Wireless app updates
 
+**Two channels.** Pushes to `main` publish the live update; pushes to any other branch publish a separate preview
+(`/preview/ota/`, labelled `-preview`). A phone follows the preview only with Settings → App updates → Preview
+versions on (app builds Android 1.23+, iPhone 1.24+). Each channel keeps its own downloads on the phone.
+
 The phone apps are thin shells around the web app in `web/` (bundled into each build). Every push
 publishes that web app, signed, to GitHub Pages. The app checks for it in the background and uses it
 from the next launch, so UI, stamp, report and logic changes arrive without installing an APK.

@@ -8,8 +8,8 @@ video, and photo reports.
 
 | Platform | Version | Where it lives | Where to bump it |
 |---|---|---|---|
-| Android | **1.22** (version code 23) | `android/` | `android/app/build.gradle` (`versionName`, `versionCode`) |
-| iPhone | **1.23** (build 24) | `ios/` | `ios/project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`) |
+| Android | **1.23** (version code 24) | `android/` | `android/app/build.gradle` (`versionName`, `versionCode`) |
+| iPhone | **1.24** (build 25) | `ios/` | `ios/project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`) |
 | Web | dated automatically, e.g. `26.11.27-1650` | `web/` | nothing to bump: each publish is stamped with its date and time |
 
 Package / bundle ID on both phones: `cc.sohum.geoziptag`. The app shows its own version and its web version in
@@ -35,6 +35,19 @@ How a change in `web/` reaches people:
 - **Installed apps:** the same files go out as a signed wireless update (see `tools/ota/README.md`); the apps pick
   it up in the background and use it on the next start.
 - **New app builds** include the latest `web/` from the start.
+
+### Live and preview
+
+Publishing is split in two (`.github/workflows/pages.yml`), so an experiment never reaches phones by accident:
+
+| Branch pushed | Published as | Who gets it |
+|---|---|---|
+| `main` | the live site and live update | every installed app, automatically |
+| any other branch | `/preview/` (site at https://sohum-digital-services.github.io/GeoZipTag/preview/, update labelled `-preview`) | only phones with **Settings → App updates → Preview versions** switched on |
+
+Each side keeps its own downloads on the phone, so switching never mixes versions. Preview is the way to try a
+change on both phones without installing anything; merge to `main` to make it live. (Needs an app build that has
+the switch: Android 1.23+, iPhone 1.24+. Older installs ignore previews and keep following live.)
 
 Native changes (anything in `android/` or `ios/`) need a new app build.
 

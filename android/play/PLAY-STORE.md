@@ -6,7 +6,7 @@ Everything to copy into Play Console. The app is published by **SoHum Digital Se
 |---|---|
 | Package name (permanent) | `cc.sohum.geoziptag` |
 | Upload file | `GeoZipTag.aab`, built with `android/build-aab.sh` |
-| Version | 1.22 (version code 23) |
+| Version | 1.23 (version code 24) |
 | Privacy policy URL | https://sohum-digital-services.github.io/GeoZipTag/privacy.html |
 | Website | https://geoziptag.sohum.cc |
 | Icon (512 × 512) | `play-icon-512.png` |
@@ -41,7 +41,7 @@ Testing → **Internal testing** (or **Closed testing** for a Personal account) 
 
 - Play App Signing: keep **"Use Google-generated key"** (Google keeps the real signing key; ours is only the
   *upload key*, and Google can reset it if it is ever lost).
-- Upload `GeoZipTag.aab`. Release name: `1.22`. Release notes:
+- Upload `GeoZipTag.aab`. Release name: `1.23`. Release notes:
   `First release: GPS map stamps, photo attendance with employee IDs, video, and a shared team register.`
 - Add testers (email list), save, **Review release → Start rollout**.
 

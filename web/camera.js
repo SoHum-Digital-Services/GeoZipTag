@@ -3991,7 +3991,7 @@ stampFonts.then(renderLiveStamp)
 if (typeof android !== 'undefined' && android && typeof android.updateInfo === 'function') {
   let info = {}
   try { info = JSON.parse(android.updateInfo()) } catch {}
-  $('appVersion').textContent = `GeoZiptag · v${info.app || '?'} · web ${info.web || ''}`.trim()
+  $('appVersion').textContent = `GeoZiptag · v${info.app || '?'} · web ${info.web || ''}${info.channel === 'preview' ? ' (preview)' : ''}`.trim()
   if (info.updates) {
     $('updatesGroup').hidden = false
     const messages = {
@@ -4008,6 +4008,20 @@ if (typeof android !== 'undefined' && android && typeof android.updateInfo === '
       $('updateReady').hidden = state !== 'ready'
     }
     if (info.pending) window.onOtaStatus('ready', info.pendingLabel)
+    // Preview versions: every change on a work branch is published to a separate preview address; this switch makes
+    // this phone follow it (and back). Each side keeps its own downloads, so switching never mixes versions.
+    // Older installs of the app do not have this call, so the row stays hidden there.
+    if (typeof android.setUpdateChannel === 'function') {
+      const toggle = $('previewChannel')
+      $('previewRow').hidden = false
+      toggle.checked = info.channel === 'preview'
+      $('previewHint').textContent = toggle.checked ? 'This phone follows the preview. Turn off to go back to the live version.' : 'Try the newest changes before they go live'
+      toggle.addEventListener('change', () => {
+        toggle.disabled = true
+        $('updateStatus').textContent = toggle.checked ? 'Switching to the preview version…' : 'Switching back to the live version…'
+        android.setUpdateChannel(toggle.checked ? 'preview' : 'live')   // the app restarts the page on the other version
+      })
+    }
     $('checkUpdates').addEventListener('click', () => android.checkForUpdates())
     $('updateReady').addEventListener('click', () => android.applyUpdate())
   }
