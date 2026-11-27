@@ -143,12 +143,32 @@ function rememberedNear(snapshot, metres) {
   const place = rememberedPlace
   return snapshot && place && metresBetween(snapshot, place) < metres ? { address: place.address, map: place.map } : undefined
 }
+// While the full-size photo is still being encoded, a small copy of the finished stamp is shown, so the photo
+// appears about a second sooner on a phone. The real photo view (showReview) replaces it when the encode is done.
+let earlyPreview = false
+function showEarlyPreview(canvas) {
+  const scale = Math.min(1, 1080 / Math.max(canvas.width, canvas.height))
+  const small = document.createElement('canvas')
+  small.width = Math.max(1, Math.round(canvas.width * scale))
+  small.height = Math.max(1, Math.round(canvas.height * scale))
+  small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height)
+  $('result').src = small.toDataURL('image/jpeg', 0.8)
+  $('result').hidden = false
+  $('result').parentElement.classList.add('photo-review')
+  earlyPreview = true
+  renderLiveStamp()   // the live card steps aside: the stamp is already on this picture
+}
+function endEarlyPreview() {
+  if (!earlyPreview) return
+  earlyPreview = false
+  if ($('review').hidden) $('result').parentElement.classList.remove('photo-review')   // the real photo view did not follow
+}
 let lastTimings = [], nativeShotAt   // [step, ms since the shutter] for the last photo, to find what is slow
 // Settings > bottom line: where the last photo's time went (each step's time since the shutter).
 function showTimings() {
   const line = $('photoTimings')
   if (!line || !lastTimings.length) return
-  const names = { shot: 'photo taken', loaded: 'loaded', draw: 'drawn', place: 'address', stamp: 'stamped', encode: 'encoded', thumbnail: 'thumbnail', saved: 'saved' }
+  const names = { shot: 'photo taken', loaded: 'loaded', draw: 'drawn', place: 'address', fonts: 'fonts', stamp: 'stamped', encode: 'encoded', thumbnail: 'thumbnail', saved: 'saved' }
   line.textContent = 'Last photo: ' + lastTimings.map(([step, ms]) => `${names[step] || step} ${(ms / 1000).toFixed(1)} s`).join(' · ')
   line.hidden = false
 }
@@ -1997,7 +2017,7 @@ window.onPhotoDeleted = (name, ok) => {
     photo.style.opacity = ''
   }
   area.addEventListener('pointerdown', (event) => {
-    if (!area.classList.contains('photo-review') || event.target.closest('button')) return
+    if (!area.classList.contains('photo-review') || earlyPreview || event.target.closest('button')) return
     if (event.pointerType === 'mouse' && event.button !== 0) return
     drag = { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now(), dy: 0, active: false }
     photo.style.transition = 'none'
@@ -2124,9 +2144,11 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     const { address, map } = await place
     mark('place')
     await stampFonts
+    mark('fonts')
     const attendance = live || phoneMode ? currentAttendance() : undefined
     drawStamp(canvas, { snapshot, date, picked, address, map, attendance })
     mark('stamp')
+    if (live && preferences.reviewAfter) showEarlyPreview(canvas)
     const jpeg = await exportJpeg(canvas)
     if (!jpeg) throw new Error('Export unavailable')
     mark('encode')
@@ -2150,6 +2172,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     }
     if (live && preferences.shareAfter) sharePhoto(entry, true)
     // The finished photo stays on screen until the user swipes down (or taps Camera) for the next one.
+    earlyPreview = false
     if (preferences.reviewAfter) showReview()
     if (!live && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
@@ -2157,6 +2180,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     else message(map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
       'Timestamp and coordinates added · map and address unavailable', 6000)
   } catch (error) {
+    endEarlyPreview()
     message(`Could not create the photo (${error?.message || 'unknown error'}). Take another photo or try the phone camera.`)
   } finally {
     // Full-resolution canvases hold about 50 MB each; free this one now (the browser caps the total).
@@ -3911,7 +3935,7 @@ const phoneLayout = window.matchMedia('(max-width: 759px)')
 let liveStampBox = '', stampClearance = ''
 function renderLiveStamp() {
   if (document.hidden) return   // nothing to see while the app is in the background (saves battery)
-  const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden
+  const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden && !earlyPreview
   liveStamp.hidden = !show
   if (!show) return
   const scale = Math.min(window.devicePixelRatio || 1, 3)
