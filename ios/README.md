@@ -1,9 +1,9 @@
-# GeoZipTag for iOS
+# GeoZiptag for iOS
 
 A native iPhone app (Swift, WKWebView) around the same web app the Android build uses. It reads the web
 files straight from `android/app/src/main/assets/web`, so there is one copy to maintain.
 
-What the app adds over the Safari version: every photo is saved automatically into a **GeoZipTag** album in
+What the app adds over the Safari version: every photo is saved automatically into an album named **GeoZipTag** in
 Photos, the Delete button removes the photo from Photos too (iOS asks you to confirm), Share opens the iOS
 share sheet, addresses also come from Apple's geocoder, and reports print or save as PDF.
 

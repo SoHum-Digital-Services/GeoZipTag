@@ -13,7 +13,7 @@ let phoneRequest, phoneMetadata, lastPhoneMode
 let placeLabel = ''
 let stampNote = ''
 let stream, photoUrl, watchId, fix
-let facing = 'user'   // GeoZipTag always opens on the front camera
+let facing = 'user'   // GeoZiptag always opens on the front camera
 let cameraRequest = 0
 let busy = false
 let fromPicker = false
@@ -1081,14 +1081,14 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, textHeight + 2 * padding + 2)
   const top = position === 'top' ? inset : h - inset - panelHeight
 
-  // Card and GeoZipTag tab are one outline, filled once so the translucent
+  // Card and GeoZiptag tab are one outline, filled once so the translucent
   // background stays even where they join. The tab rises from the card's
   // top-right corner (or hangs from the bottom-right when the stamp is at the top).
   const tabHeight = 24, iconSize = 16, markHeight = 11, tabRadius = 8, joinRadius = 5
   const { wordmark, icon } = stampBrand
   const markWidth = wordmark ? markHeight * (wordmark.naturalWidth || 437) / (wordmark.naturalHeight || 102) : 0
   ctx.font = `700 12px ${stampFace}`
-  const tabWidth = 7 + iconSize + 7 + (markWidth || ctx.measureText('GeoZipTag').width) + 11
+  const tabWidth = 7 + iconSize + 7 + (markWidth || ctx.measureText('GeoZiptag').width) + 11
   const x0 = inset, x1 = inset + width, y0 = top, y1 = top + panelHeight, tabX = x1 - tabWidth
   function cardWithTab(grow = 0) {
     const a = x0 + grow, b = x1 - grow, c = y0 + grow, d = y1 - grow, t = y0 - tabHeight + grow, tx = tabX + grow
@@ -1296,7 +1296,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.fillStyle = colors.text
     ctx.textBaseline = 'middle'
     ctx.font = `700 12px ${stampFace}`
-    ctx.fillText('GeoZipTag', markX, tabTop + tabHeight / 2)
+    ctx.fillText('GeoZiptag', markX, tabTop + tabHeight / 2)
   }
   ctx.restore()
   return position === 'top'
@@ -2502,7 +2502,7 @@ $('clearRegister').addEventListener('click', () => {
 })
 
 // ---- Shared register (online): teams join with a code; a manager PIN opens everyone's entries ----
-// Supabase: the tables are closed; these functions are the only way in (see the GeoZipTag migration).
+// Supabase: the tables are closed; these functions are the only way in (see the GeoZiptag migration).
 const teamServer = { url: 'https://ziebgspujtdzkiwyybsa.supabase.co', key: 'sb_publishable_cp3vrEcGluNQ6Cv6uXAEeQ_ZAdJ9NRv', bucket: 'geoziptag-photos' }
 const teamKey = 'geoziptagTeam', queueKey = 'geoziptagTeamQueue'
 let team = loadJson(teamKey, null)
@@ -2643,7 +2643,7 @@ $('createTeam').addEventListener('click', async () => {
   } catch (error) { $('teamStatus').textContent = error.message }
 })
 $('shareTeamCode').addEventListener('click', async () => {
-  const text = `Join our GeoZipTag attendance team "${team.name}": open GeoZipTag > Settings > Shared register and enter the code ${team.code}`
+  const text = `Join our GeoZiptag attendance team "${team.name}": open GeoZiptag > Settings > Shared register and enter the code ${team.code}`
   try { if (navigator.share) { await navigator.share({ text }); return } } catch (error) { if (error.name === 'AbortError') return }
   try { await navigator.clipboard.writeText(text); message('Team code copied.', 2500) } catch { message(`Team code: ${team.code}`, 6000) }
 })
@@ -3372,7 +3372,7 @@ $('reportPhoto').addEventListener('change', updateReportFields)
 const reportHost = typeof android === 'object' && android ? android : undefined
 const reportCss = `
 @page { size: A4; margin: 14mm 14mm 16mm;
-  @bottom-left { content: "GeoZipTag photo report"; font: 500 7.5pt Inter, system-ui, sans-serif; color: #7a8487; }
+  @bottom-left { content: "GeoZiptag photo report"; font: 500 7.5pt Inter, system-ui, sans-serif; color: #7a8487; }
   @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 500 7.5pt Inter, system-ui, sans-serif; color: #7a8487; } }
 #reportDocument { display: block; color: #1d2528; font: 9.5pt/1.45 Inter, system-ui, sans-serif;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -3534,8 +3534,8 @@ $('reportForm').addEventListener('submit', async (event) => {
     if (reportLogo || logo) {
       const image = reportElement('img', '', head, reportLogo ? 'gz-logo gz-company-logo' : 'gz-logo')
       image.src = reportLogo || logo
-      image.alt = reportLogo ? (company || 'Company logo') : 'GeoZipTag'
-    } else reportElement('strong', 'GeoZipTag', head)
+      image.alt = reportLogo ? (company || 'Company logo') : 'GeoZiptag'
+    } else reportElement('strong', 'GeoZiptag', head)
     const meta = reportElement('div', '', head, 'gz-head-meta')
     reportElement('span', kind, meta, 'gz-kicker')
     reportElement('span', `Prepared ${reportDay.format(new Date())}`, meta)
@@ -3576,7 +3576,7 @@ $('reportForm').addEventListener('submit', async (event) => {
       image.alt = label
       const caption = reportElement('figcaption', '', figure)
       reportElement('span', label, caption, 'gz-label')
-      if (captured) reportElement('span', 'Stamped by GeoZipTag at capture', caption)
+      if (captured) reportElement('span', 'Stamped by GeoZiptag at capture', caption)
       else if (file.name) reportElement('span', file.name, caption)
       if (reportHost) image.src = await readPhotoBlob(file)
       else {
@@ -3593,7 +3593,7 @@ $('reportForm').addEventListener('submit', async (event) => {
       reportElement('p', notes, section)
     }
 
-    const fileTitle = ['GeoZipTag', project || kind, new Date().toISOString().slice(0, 10)].join(' - ')
+    const fileTitle = ['GeoZiptag', project || kind, new Date().toISOString().slice(0, 10)].join(' - ')
     $('reportStatus').textContent = 'Choose Save as PDF in the print dialog to keep a copy.'
     if (reportHost) {
       const fontFace = font ? `@font-face { font-family: Inter; src: url(${font}) format("woff2"); font-weight: 400 700; }` : ''
@@ -3799,7 +3799,7 @@ stampFonts.then(renderLiveStamp)
 if (typeof android !== 'undefined' && android && typeof android.updateInfo === 'function') {
   let info = {}
   try { info = JSON.parse(android.updateInfo()) } catch {}
-  $('appVersion').textContent = `GeoZipTag · v${info.app || '?'} · web ${info.web || ''}`.trim()
+  $('appVersion').textContent = `GeoZiptag · v${info.app || '?'} · web ${info.web || ''}`.trim()
   if (info.updates) {
     $('updatesGroup').hidden = false
     const messages = {
@@ -3820,7 +3820,7 @@ if (typeof android !== 'undefined' && android && typeof android.updateInfo === '
     $('updateReady').addEventListener('click', () => android.applyUpdate())
   }
 } else {
-  $('appVersion').textContent = 'GeoZipTag · web version'
+  $('appVersion').textContent = 'GeoZiptag · web version'
 }
 // The page started properly: an update being served is good (otherwise it is rolled back).
 try { android?.otaConfirm?.() } catch {}

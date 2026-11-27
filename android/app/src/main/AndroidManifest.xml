@@ -11,7 +11,7 @@
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    <application android:label="GeoZipTag" android:icon="@mipmap/geoziptag_launcher" android:roundIcon="@mipmap/geoziptag_launcher"
+    <application android:label="GeoZiptag" android:icon="@mipmap/geoziptag_launcher" android:roundIcon="@mipmap/geoziptag_launcher"
         android:theme="@style/AppTheme" android:usesCleartextTraffic="false" android:allowBackup="false"
         android:enableOnBackInvokedCallback="true">
         <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${admobAppId}" />

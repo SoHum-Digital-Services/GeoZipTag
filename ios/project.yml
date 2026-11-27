@@ -7,9 +7,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.19"
+    MARKETING_VERSION: "1.20"
     # Never below android/ota-min-apk.txt: update lists name one minimum native build ("min-apk") for both apps.
-    CURRENT_PROJECT_VERSION: "20"
+    CURRENT_PROJECT_VERSION: "21"
 # Google's ads SDK (banner in the photo view).
 packages:
   GoogleMobileAds:
@@ -33,7 +33,7 @@ targets:
     info:
       path: GeoZipTag/Info.plist
       properties:
-        CFBundleDisplayName: GeoZipTag
+        CFBundleDisplayName: GeoZiptag
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen:
@@ -47,11 +47,11 @@ targets:
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UIViewControllerBasedStatusBarAppearance: true
         ITSAppUsesNonExemptEncryption: false
-        NSCameraUsageDescription: GeoZipTag uses the camera to take photos that get a location and time stamp.
-        NSMicrophoneUsageDescription: GeoZipTag records sound with your videos.
-        NSLocationWhenInUseUsageDescription: GeoZipTag uses your location to stamp the address and coordinates onto your photos.
-        NSPhotoLibraryAddUsageDescription: GeoZipTag saves your stamped photos to your Photos library.
-        NSPhotoLibraryUsageDescription: GeoZipTag keeps its photos in a GeoZipTag album and lets you delete them from there.
+        NSCameraUsageDescription: GeoZiptag uses the camera to take photos that get a location and time stamp.
+        NSMicrophoneUsageDescription: GeoZiptag records sound with your videos.
+        NSLocationWhenInUseUsageDescription: GeoZiptag uses your location to stamp the address and coordinates onto your photos.
+        NSPhotoLibraryAddUsageDescription: GeoZiptag saves your stamped photos to your Photos library.
+        NSPhotoLibraryUsageDescription: GeoZiptag keeps its photos in its own album (named GeoZipTag) and lets you delete them from there.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         # AdMob: Google's public test IDs until the real ones are set.

@@ -1,6 +1,6 @@
-# GeoZipTag for Android
+# GeoZiptag for Android
 
-An Android host for the bundled GeoZipTag interface. The build opens its live viewfinder on launch. The phone’s built-in camera is also available in Camera settings, and its photos are processed locally on return. The build includes satellite and QR stamps, manual location, original photo export, sharing, and photo reports. Minimum Android version is 8.0 (API 26). Android System WebView should be current for the device.
+An Android host for the bundled GeoZiptag interface. The build opens its live viewfinder on launch. The phone’s built-in camera is also available in Camera settings, and its photos are processed locally on return. The build includes satellite and QR stamps, manual location, original photo export, sharing, and photo reports. Minimum Android version is 8.0 (API 26). Android System WebView should be current for the device.
 
 ## Build
 

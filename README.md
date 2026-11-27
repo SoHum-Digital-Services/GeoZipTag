@@ -1,4 +1,4 @@
-# GeoZipTag
+# GeoZiptag
 
 GPS photo camera with a satellite map, location details, coordinates, date and time embedded into captured photos.
 
@@ -27,7 +27,7 @@ For a satellite stamp, allow location access and wait for GPS ready. The camera 
 
 ## Build Android
 
-Version 1.17, version code 18. Supports Android 8.0 and later, with minimum API 26 and target SDK 36.
+Version 1.18, version code 19. Supports Android 8.0 and later, with minimum API 26 and target SDK 36.
 
 Install Android SDK platform 36, build-tools 36.0.0, JDK 17 or newer, Bash and zip. Set ANDROID_HOME, GEOSTAMP_KEYSTORE and GEOSTAMP_SIGNING_PASSWORD_FILE to your local SDK and signing configuration, then run
 

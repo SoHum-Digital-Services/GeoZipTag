@@ -668,7 +668,7 @@ private final class ReportPrinter: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         let info = UIPrintInfo(dictionary: nil)
         info.outputType = .general
-        info.jobName = "GeoZipTag report"
+        info.jobName = "GeoZiptag report"
         let controller = UIPrintInteractionController.shared
         controller.printInfo = info
         controller.printFormatter = webView.viewPrintFormatter()

@@ -1,4 +1,4 @@
-# Publishing GeoZipTag on Google Play
+# Publishing GeoZiptag on Google Play
 
 Everything to copy into Play Console. The app is published by **SoHum Digital Services**.
 
@@ -6,7 +6,7 @@ Everything to copy into Play Console. The app is published by **SoHum Digital Se
 |---|---|
 | Package name (permanent) | `cc.sohum.geoziptag` |
 | Upload file | `GeoZipTag.aab`, built with `android/build-aab.sh` |
-| Version | 1.17 (version code 18) |
+| Version | 1.18 (version code 19) |
 | Privacy policy URL | https://sohum-digital-services.github.io/GeoZipTag/privacy.html |
 | Website | https://geoziptag.sohum.cc |
 | Icon (512 × 512) | `play-icon-512.png` |
@@ -30,7 +30,7 @@ Everything to copy into Play Console. The app is published by **SoHum Digital Se
 
 Play Console → **Create app**:
 
-- App name: **GeoZipTag by SoHum**
+- App name: **GeoZiptag by SoHum**
 - Default language: **English (India) – en-IN**
 - App or game: **App** · Free or paid: **Free**
 - Tick the declarations and **Create app**.
@@ -53,7 +53,7 @@ Grow → Store presence → **Main store listing**
 
 **App name** (30 max)
 ```
-GeoZipTag by SoHum
+GeoZiptag by SoHum
 ```
 
 **Short description** (80 max)
@@ -63,7 +63,7 @@ GPS map stamp camera with photo attendance log in and log out for teams
 
 **Full description**
 ```
-GeoZipTag stamps every photo with where and when it was taken: the place, full address, GPS coordinates, a satellite map, date and time. Made for field work, site visits, inspections and staff attendance.
+GeoZiptag stamps every photo with where and when it was taken: the place, full address, GPS coordinates, a satellite map, date and time. Made for field work, site visits, inspections and staff attendance.
 
 GPS MAP STAMP
 • Place name, address, latitude and longitude, and a satellite map on every photo
@@ -93,7 +93,7 @@ PRIVATE BY DESIGN
 • Photos stay on your phone until you share them
 • Location is used only while the app is open
 
-GeoZipTag is made by SoHum Digital Services.
+GeoZiptag is made by SoHum Digital Services.
 ```
 
 **Graphics**

@@ -1161,7 +1161,7 @@ public final class MainActivity extends Activity {
                 printed = true;
                 PrintManager manager = (PrintManager) getSystemService(PRINT_SERVICE);
                 if (manager == null) { notifyUser("Printing is unavailable."); return; }
-                manager.print("GeoZipTag report", view.createPrintDocumentAdapter("GeoZipTag report"),
+                manager.print("GeoZiptag report", view.createPrintDocumentAdapter("GeoZiptag report"),
                         new PrintAttributes.Builder().build());
             }
         });
@@ -1199,7 +1199,7 @@ public final class MainActivity extends Activity {
         if (exitDialog != null && exitDialog.isShowing()) return;
         int theme = R.style.ExitDialog;
         exitDialog = new AlertDialog.Builder(this, theme != 0 ? theme : android.R.style.Theme_Material_Dialog_Alert)
-                .setTitle("Exit GeoZipTag?")
+                .setTitle("Exit GeoZiptag?")
                 .setMessage("Photos you took are already saved.")
                 .setPositiveButton("Exit", (dialog, which) -> finish())
                 .setNegativeButton("Cancel", null)

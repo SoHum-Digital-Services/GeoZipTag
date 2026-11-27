@@ -1,6 +1,6 @@
 {
-  "name": "GeoZipTag",
-  "short_name": "GeoZipTag",
+  "name": "GeoZiptag",
+  "short_name": "GeoZiptag",
   "description": "Take a photo and save it with a timestamp and optional GPS map.",
   "start_url": "./index.html",
   "scope": "./",

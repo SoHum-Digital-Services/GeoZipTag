@@ -116,6 +116,7 @@ html.gps-slow .location-button[data-state="pending"]::after { display: block; ba
 .launch-by span { font-weight: 400; color: #aab0b8; margin-right: .25em; }
 @supports (-webkit-touch-callout: none) {
   .launch-by { position: static; margin-top: 18px; }
+  .launch-mark img { content: url(assets/app-icon-ios.png); }   /* iPhone: the new app icon */
 }
 
 /* ---------- Camera layout ---------- */
