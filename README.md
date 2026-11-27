@@ -1,55 +1,68 @@
-# GeoZipTag
+# GeoZiptag
 
-GPS photo camera with a satellite map, location details, coordinates, date and time embedded into captured photos.
+A GPS photo camera by SoHum Digital Services. Every photo is stamped with the place, address, coordinates,
+a satellite map, date and time. It also includes photo attendance with employee IDs, a shared team register,
+video, and photo reports.
 
-Includes a browser app and an Android WebView host with native photo saving, sharing, system-camera integration and report printing.
+## Versions
 
-## Project structure
+| Platform | Version | Where it lives | Where to bump it |
+|---|---|---|---|
+| Android | **1.21** (version code 22) | `android/` | `android/app/build.gradle` (`versionName`, `versionCode`) |
+| iPhone | **1.23** (build 24) | `ios/` | `ios/project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`) |
+| Web | dated automatically, e.g. `26.11.27-1650` | `web/` | nothing to bump: each publish is stamped with its date and time |
 
-- `web/` contains the standalone HTML, CSS, JavaScript, fonts, branding and QR generator.
-- `android/` contains the Android application, build script and bundled web interface.
+Package / bundle ID on both phones: `cc.sohum.geoziptag`. The app shows its own version and its web version in
+Settings.
 
-The Android interface includes a native JavaScript bridge for saving, sharing and printing.
+## How the repository is organised
 
-## Run the web app
-
-From the repository root, run
-
-```sh
-python3 -m http.server 8080 --directory web
+```
+web/        The app itself (HTML, CSS, JavaScript, fonts, icons). The ONE copy, used by all three versions.
+android/    Android app: a native shell (camera, saving, sharing, ads, launch video) around web/.
+ios/        iPhone app: the same native shell in Swift around web/.
+tools/ota/  Signed wireless updates of web/ for the installed apps, and their tests.
+design/     Icon masters (design/app-icon/).
+.github/    Builds: the iPhone app (ios.yml) and the web site + wireless update (pages.yml).
 ```
 
-Open http://localhost:8080.
+Both phone apps bundle `web/` when they are built: Android copies it into the APK (Gradle task `bundleWebApp`),
+iPhone adds it as a folder (`ios/project.yml`). Edit the screens only in `web/`; never copy files by hand.
 
-Camera and location access require permission and a secure browser context. Use HTTPS when opening the app on a phone over the network. Browsers generally treat localhost as a secure context for local development.
+How a change in `web/` reaches people:
 
-For a satellite stamp, allow location access and wait for GPS ready. The camera screen includes an Add location & map action that can switch from a saved date-and-time template.
+- **Browser:** published to https://sohum-digital-services.github.io/GeoZipTag/ on every push.
+- **Installed apps:** the same files go out as a signed wireless update (see `tools/ota/README.md`); the apps pick
+  it up in the background and use it on the next start.
+- **New app builds** include the latest `web/` from the start.
 
-## Build Android
+Native changes (anything in `android/` or `ios/`) need a new app build.
 
-Version 1.7, version code 8. Supports Android 8.0 and later, with minimum API 26 and target SDK 36.
+## Building
 
-Install Android SDK platform 36, build-tools 36.0.0, JDK 17 or newer, Bash and zip. Set ANDROID_HOME, GEOSTAMP_KEYSTORE and GEOSTAMP_SIGNING_PASSWORD_FILE to your local SDK and signing configuration, then run
+**Web**, locally: `python3 -m http.server 8080 --directory web`, then open http://localhost:8080.
+Camera and location need a secure context (localhost, or HTTPS on a phone).
 
-```sh
-cd android
-bash build-apk.sh
-```
+**Android:** see `android/README.md`. In short: Android SDK 36, JDK 17+, a signing key, then
+`bash android/build-apk.sh` (test/sideload APK) or `bash android/build-aab.sh` (Google Play bundle).
+Google Play publishing steps: `android/play/PLAY-STORE.md`.
 
-The output is `android/build/GeoZipTag.apk`. The script also accepts explicit ANDROID_SDK_JAR and ANDROID_BUILD_TOOLS paths. ECJ_JAR can select the Eclipse Java compiler.
+**iPhone:** built on GitHub's Mac runners by `.github/workflows/ios.yml` on every change. The unsigned IPA is at
+https://github.com/SoHum-Digital-Services/GeoZipTag/releases/download/ios-latest/GeoZipTag-unsigned.ipa
+See `ios/README.md` for signing and installing.
 
-An update to an existing Android installation requires the same signing certificate used for that installation.
+## Releasing a new version
+
+1. Bump the version of each phone app you are releasing (table above). Play and the App Store refuse a build
+   number they have already seen.
+2. If the new `web/` needs new native code, set `android/ota-min-apk.txt` to the new Android version code, so
+   older installed apps keep their current screens until they are updated.
+3. Update the version table in this file.
 
 ## Services and data
 
-Reverse geocoding uses Photon. Satellite tiles use Esri Wayback World Imagery, release identifier 32246. QR location links open Google Maps.
-
-Location lookup and satellite imagery require an internet connection. Coordinates are sent to the location and imagery services when those features are used. Photo processing runs on the device. Preferences use browser localStorage.
-
-Asset and bundled-library licenses are included alongside their files.
-
-## Verification status
-
-The latest update passed automated camera-entry, location-mode, photo-stamp, QR, report and Android bridge checks. A live imagery test rendered a complete satellite square into the stamp at the saved test coordinates. The Android APK built successfully and its signing certificate was verified.
-
-Physical-device validation remains pending. The managed browser preview encountered a relay timeout during the latest update.
+Addresses come from the phone's own geocoder (Apple or Google), Photon and Nominatim; satellite imagery from
+Esri World Imagery (Wayback release 32246). Coordinates (never photos) are sent to those services. Photos
+are processed on the phone. Ads: Google AdMob, one banner in the photo view (test ads until the store listings
+exist). Privacy policy: `web/privacy.html`. Licences of bundled libraries, fonts and media are kept next to
+their files.

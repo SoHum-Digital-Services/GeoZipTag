@@ -1,0 +1,64 @@
+# Generate the Xcode project with:  xcodegen generate   (see ios/README.md)
+name: GeoZipTag
+options:
+  bundleIdPrefix: cc.sohum
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.23"
+    # Never below android/ota-min-apk.txt: update lists name one minimum native build ("min-apk") for both apps.
+    CURRENT_PROJECT_VERSION: "24"
+# Google's ads SDK (banner in the photo view).
+packages:
+  GoogleMobileAds:
+    url: https://github.com/googleads/swift-package-manager-google-mobile-ads
+    from: 12.0.0
+targets:
+  GeoZipTag:
+    type: application
+    platform: iOS
+    dependencies:
+      - package: GoogleMobileAds
+    sources:
+      - path: GeoZipTag
+        excludes: ["Info.plist"]
+      # The web app from the repository's web/ folder: the one copy shared with Android and the browser.
+      - path: ../web
+        type: folder
+      # Public half of the update signing key (same as Android's).
+      - path: ../android/app/src/main/assets/ota-public-key.b64
+        buildPhase: resources
+    info:
+      path: GeoZipTag/Info.plist
+      properties:
+        CFBundleDisplayName: GeoZiptag
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchStoryboardName: LaunchScreen
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: true
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: GeoZiptag uses the camera to take photos that get a location and time stamp.
+        NSMicrophoneUsageDescription: GeoZiptag records sound with your videos.
+        NSLocationWhenInUseUsageDescription: GeoZiptag uses your location to stamp the address and coordinates onto your photos.
+        NSPhotoLibraryAddUsageDescription: GeoZiptag saves your stamped photos to your Photos library.
+        NSPhotoLibraryUsageDescription: GeoZiptag keeps its photos in its own album (named GeoZipTag) and lets you delete them from there.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # AdMob: Google's public test IDs until the real ones are set.
+        GADApplicationIdentifier: ca-app-pub-3940256099942544~1458002511
+        GeoZipTagBannerAdUnit: ca-app-pub-3940256099942544/2934735716
+        SKAdNetworkItems:
+          - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cc.sohum.geoziptag
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO

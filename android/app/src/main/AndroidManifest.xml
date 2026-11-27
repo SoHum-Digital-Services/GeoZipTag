@@ -1,25 +1,29 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.geostampcam.mobile" android:versionCode="8" android:versionName="1.7">
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+<!-- Package ID (cc.sohum.geoziptag), versions and SDK levels are set in app/build.gradle. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    <application android:label="GeoZipTag" android:icon="@mipmap/geoziptag_launcher" android:roundIcon="@mipmap/geoziptag_launcher"
-        android:theme="@style/AppTheme" android:usesCleartextTraffic="false" android:allowBackup="false">
+    <application android:label="GeoZiptag" android:icon="@mipmap/geoziptag_launcher" android:roundIcon="@mipmap/geoziptag_launcher"
+        android:theme="@style/AppTheme" android:usesCleartextTraffic="false" android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true">
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${admobAppId}" />
         <activity android:name=".MainActivity" android:exported="true"
+            android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <provider android:name=".CacheImageProvider" android:authorities="com.geostampcam.mobile.images"
+        <provider android:name=".CacheImageProvider" android:authorities="cc.sohum.geoziptag.images"
             android:exported="false" android:grantUriPermissions="true" />
     </application>
 </manifest>

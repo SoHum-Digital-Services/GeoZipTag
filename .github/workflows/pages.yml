@@ -1,0 +1,49 @@
+# Publishes the browser version of the app and the signed Android web update to GitHub Pages
+# (the gh-pages branch). Setup: see tools/ota/README.md.
+name: Publish web app and app updates
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "web/**"
+      - "android/ota-min-apk.txt"
+      - "tools/ota/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Never publish an update if the update logic itself is broken.
+      - name: Test the update logic
+        run: bash tools/ota/test/run.sh
+
+      - name: Build the site and the signed update
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
+        run: node tools/ota/publish.mjs --out _site
+
+      - name: Publish to the gh-pages branch
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" gh-pages
