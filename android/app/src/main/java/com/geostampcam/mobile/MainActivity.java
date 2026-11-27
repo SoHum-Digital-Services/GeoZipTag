@@ -93,6 +93,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService lookups = Executors.newSingleThreadExecutor();
     private WebView cameraView;
     private FrameLayout root;
+    private LaunchSplash splash;
     // The banner ad: a native view over the page, only where the page puts its ad slot (the photo view).
     private FrameLayout adSlot;
     private AdView banner;
@@ -174,6 +175,10 @@ public final class MainActivity extends Activity {
         root.addView(nativeCamera.view, new FrameLayout.LayoutParams(-1, -1));
         cameraView = new WebView(this);
         root.addView(cameraView, new FrameLayout.LayoutParams(-1, -1));
+        splash = new LaunchSplash(this);
+        root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+        // Failsafe: if the page itself never loads (so it can never report ready or a problem), do not hide it forever.
+        root.postDelayed(() -> { if (splash != null) splash.dismiss(true); }, 30000);
         setContentView(root);
         // Start the ads SDK in the background a moment after launch (after the camera has started),
         // so the first banner in the photo view appears quickly. Nothing waits for it.
@@ -723,6 +728,16 @@ public final class MainActivity extends Activity {
 
         @JavascriptInterface public void cameraStop() { runOnUiThread(() -> nativeCamera.stop()); }
 
+        /** The page finished its startup checks: the launch video leaves (after its 3 s minimum). */
+        @JavascriptInterface public void launchReady() {
+            runOnUiThread(() -> { if (splash != null) splash.dismiss(false); });
+        }
+
+        /** Startup is stuck: the video leaves at once so the page's recovery panel (Retry / Open Settings) can be seen. */
+        @JavascriptInterface public void launchProblem() {
+            runOnUiThread(() -> { if (splash != null) splash.dismiss(true); });
+        }
+
         /** Opens this app's page in the phone's Settings (where camera and location access can be turned on). */
         @JavascriptInterface public void openSettings() {
             runOnUiThread(() -> {
@@ -1271,6 +1286,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onPause() {
         if (banner != null) banner.pause();
+        if (splash != null) splash.pause();
         nativeCamera.pause();
         cameraView.onPause();
         super.onPause();
@@ -1280,6 +1296,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         cameraView.onResume();
         nativeCamera.resume();
+        if (splash != null) splash.resume();
         if (banner != null) banner.resume();
         runOtaCheck(false);
     }
