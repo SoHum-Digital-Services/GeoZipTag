@@ -3710,8 +3710,15 @@ function releaseLaunch() {
   liveStampSettled = true
   liveStamp.classList.add('settled')
   renderLiveStamp()
-  launchCover.classList.add('done')
-  setTimeout(() => launchCover.remove(), 400)
+  if (typeof android?.launchReady === 'function') {
+    // iPhone: the native launch video is on top. The page's own cover goes away at once and the video
+    // fades out over the finished camera.
+    launchCover.remove()
+    try { android.launchReady() } catch {}
+  } else {
+    launchCover.classList.add('done')
+    setTimeout(() => launchCover.remove(), 400)
+  }
 }
 let launchTimer, launchLiveSince
 if (launchCover) {

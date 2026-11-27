@@ -29,3 +29,7 @@ Apple only runs signed apps, so the unsigned .ipa must be signed with an Apple I
 ## Not verified on a real device
 Camera, location, saving to Photos and deleting have only been compiled and smoke-tested in the simulator
 (which has no camera). Try them on a phone before relying on them.
+
+## Launch video
+
+See `ios/splash/README.md`: the app opens with a short native video (`LaunchSplashView.swift`) that the page dismisses when startup is done.

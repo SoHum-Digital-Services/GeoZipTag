@@ -40,6 +40,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         printReport: (html) => post({ type: 'printReport', html }),
         adShow: (x, y, w, h) => post({ type: 'adShow', x: Number(x), y: Number(y), w: Number(w), h: Number(h) }),
         adHide: () => post({ type: 'adHide' }),
+        launchReady: () => post({ type: 'launchReady' }),
       }
     })()
     """
@@ -50,6 +51,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private var adSlot: UIView?
     private var banner: BannerView?
     private var adsStarted = false
+    // The launch video: on top of everything until the page says the camera, location, address and map are ready.
+    private var splash: LaunchSplashView?
     private var volumeInteraction: UIInteraction?
     private var videoParts: [String: (name: String, url: URL, handle: FileHandle)] = [:]
     private var server: LocalServer?
@@ -103,6 +106,14 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         // so the first banner in the photo view appears quickly. Nothing waits for it.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.startAds() }
 
+        // The launch video covers the page while it starts; the page ends it with "launchReady".
+        // If that message never comes (for example a script error), it is removed after 12 s.
+        let splash = LaunchSplashView(frame: view.bounds)
+        splash.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(splash)
+        self.splash = splash
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.dismissSplash() }
+
         locationManager.requestWhenInUseAuthorization()
         startServerAndLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(enteredForeground),
@@ -110,6 +121,11 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     @objc private func enteredForeground() { checkForUpdates(manual: false) }
+
+    private func dismissSplash() {
+        splash?.dismiss()
+        splash = nil
+    }
 
     /// The page reads update details synchronously, so they are injected before each load.
     private func installShim() {
@@ -322,6 +338,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                let w = (body["w"] as? NSNumber)?.doubleValue, let h = (body["h"] as? NSNumber)?.doubleValue, w > 0, h > 0 {
                 showBanner(in: webView.convert(CGRect(x: x, y: y, width: w, height: h), to: view))
             }
+        case "launchReady":
+            dismissSplash()
         case "adHide":
             adSlot?.isHidden = true
         case "cameraCapture":

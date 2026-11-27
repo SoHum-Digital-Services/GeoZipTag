@@ -1,0 +1,7 @@
+NASA Blue Marble Earth texture
+Texture filename in rendering source: earth-blue-marble.jpg
+Source: three-globe example texture distribution, based on NASA Visible Earth Blue Marble imagery. NASA imagery is generally not copyrighted in the United States; follow NASA media usage guidelines. No endorsement by NASA is implied.
+https://visibleearth.nasa.gov/collection/1484/blue-marble
+https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+This is a brand illustration, not current satellite imagery or a source for GPS coordinates.
