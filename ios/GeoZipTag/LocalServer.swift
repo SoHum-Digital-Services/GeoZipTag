@@ -101,7 +101,7 @@ final class LocalServer {
         }
         let file = root.appendingPathComponent(String(path.dropFirst())).standardizedFileURL
         guard file.path.hasPrefix(root.path + "/"),
-              let body = try? Data(contentsOf: file) else {
+              let body = try? Data(contentsOf: file, options: .mappedIfSafe) else {
             send(connection, status: "404 Not Found", type: "text/plain", body: Data())
             return
         }
@@ -113,9 +113,14 @@ final class LocalServer {
         let head = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\n"
             + "Content-Security-Policy: \(Self.csp)\r\nX-Content-Type-Options: nosniff\r\n"
             + "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
-        var out = Data(head.utf8)
-        if !headOnly { out.append(body) }
-        connection.send(content: out, contentContext: .finalMessage, isComplete: true,
-                        completion: .contentProcessed { _ in connection.cancel() })
+        // The header and the file go out as two sends, so a large file (a full-size photo) is not copied first.
+        let done: NWConnection.SendCompletion = .contentProcessed { _ in connection.cancel() }
+        if headOnly || body.isEmpty {
+            connection.send(content: Data(head.utf8), contentContext: .finalMessage, isComplete: true, completion: done)
+        } else {
+            // Same message for both parts (the header is not complete on its own), so they go out in order.
+            connection.send(content: Data(head.utf8), contentContext: .finalMessage, isComplete: false, completion: .idempotent)
+            connection.send(content: body, contentContext: .finalMessage, isComplete: true, completion: done)
+        }
     }
 }

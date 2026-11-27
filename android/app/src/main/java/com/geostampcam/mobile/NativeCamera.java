@@ -62,6 +62,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
     private CameraDevice device;
     private CameraCaptureSession session;
     private ImageReader reader;
+    private Surface previewSurface;            // released with the session, so restarts don't leak surfaces
     private CaptureRequest.Builder previewRequest;
     private CameraCharacteristics characteristics;
     private String facing = "environment";
@@ -219,6 +220,8 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
         device = null;
         if (reader != null) reader.close();
         reader = null;
+        if (previewSurface != null) previewSurface.release();
+        previewSurface = null;
         previewRequest = null;
         while (!pendingPhotos.isEmpty()) listener.onPhoto(pendingPhotos.poll(), null);
     }
@@ -263,7 +266,8 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
             SurfaceTexture texture = view.getSurfaceTexture();
             if (texture == null || device == null) { if (reply) fail("unavailable"); return; }
             texture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
-            Surface previewSurface = new Surface(texture);
+            if (previewSurface != null) previewSurface.release();
+            previewSurface = new Surface(texture);
             previewRequest = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             previewRequest.addTarget(previewSurface);
             device.createCaptureSession(Arrays.asList(previewSurface, reader.getSurface()), new CameraCaptureSession.StateCallback() {

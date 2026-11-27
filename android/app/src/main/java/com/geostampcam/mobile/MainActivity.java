@@ -89,6 +89,23 @@ public final class MainActivity extends Activity {
             + "img-src 'self' blob: data: https://ziebgspujtdzkiwyybsa.supabase.co; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; "
             + "connect-src 'self' blob: https://photon.komoot.io https://nominatim.openstreetmap.org https://*.arcgis.com https://ziebgspujtdzkiwyybsa.supabase.co; "
             + "frame-src 'none'; base-uri 'none'; form-action 'self'";
+    // The same headers go with every app file, so they are built once.
+    private static final Map<String, String> WEB_HEADERS;
+    static {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", CSP);
+        headers.put("X-Content-Type-Options", "nosniff");
+        WEB_HEADERS = java.util.Collections.unmodifiableMap(headers);
+    }
+    // Checks for names and ids that come from the page (compiled once instead of on every call).
+    private static final java.util.regex.Pattern ID = java.util.regex.Pattern.compile("[A-Za-z0-9_-]{1,40}");
+    private static final java.util.regex.Pattern MEDIA_NAME = java.util.regex.Pattern.compile("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.(jpg|mp4|webm)");
+    private static final java.util.regex.Pattern PHOTO_NAME = java.util.regex.Pattern.compile("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.jpg");
+    private static final java.util.regex.Pattern VIDEO_NAME = java.util.regex.Pattern.compile("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.(mp4|webm)");
+    private static final java.util.regex.Pattern CSV_NAME = java.util.regex.Pattern.compile("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.csv");
+    private static boolean valid(java.util.regex.Pattern pattern, String value) {
+        return value != null && pattern.matcher(value).matches();
+    }
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
     private final ExecutorService lookups = Executors.newSingleThreadExecutor();
     private WebView cameraView;
@@ -178,8 +195,11 @@ public final class MainActivity extends Activity {
         splash = new LaunchSplash(this);
         root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
         // Failsafe: if the page itself never loads (so it can never report ready or a problem), do not hide it forever.
-        root.postDelayed(() -> { if (splash != null) splash.dismiss(true); }, 30000);
+        root.postDelayed(() -> dismissSplash(true), 30000);
         setContentView(root);
+        // The launch picture in the window background was only for the first moment (the splash view now shows it).
+        // A plain colour frees the decoded picture and saves drawing it under every frame.
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xff000000));
         // Start the ads SDK in the background a moment after launch (after the camera has started),
         // so the first banner in the photo view appears quickly. Nothing waits for it.
         root.postDelayed(this::startAds, 2000);
@@ -198,6 +218,12 @@ public final class MainActivity extends Activity {
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
         }
         storage.execute(this::removeExpiredCache);
+    }
+
+    /** Lifts the launch video; the view (and its video player and picture) is let go once it has faded out. */
+    private void dismissSplash(boolean immediately) {
+        LaunchSplash current = splash;
+        if (current != null) current.dismiss(immediately, () -> { if (splash == current) splash = null; });
     }
 
     private void configureCameraView() {
@@ -309,10 +335,7 @@ public final class MainActivity extends Activity {
         if (OtaUpdater.isWebPath(path)) {
             String mime = assetType(path);
             try {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("Content-Security-Policy", CSP);
-                headers.put("X-Content-Type-Options", "nosniff");
-                return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, openWebFile(path));
+                return new WebResourceResponse(mime, "UTF-8", 200, "OK", WEB_HEADERS, openWebFile(path));
             } catch (IOException ignored) {
                 // Return a local 404 so the WebView never loads remote app code.
             }
@@ -385,10 +408,7 @@ public final class MainActivity extends Activity {
     }
 
     private void sendOtaStatus(String state, String detail) {
-        String script = "window.onOtaStatus && window.onOtaStatus(" + JSONObject.quote(state) + "," + JSONObject.quote(detail) + ")";
-        runOnUiThread(() -> {
-            if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
-        });
+        callPage("window.onOtaStatus && window.onOtaStatus(" + JSONObject.quote(state) + "," + JSONObject.quote(detail) + ")");
     }
 
     /** Grants the page the camera, and the microphone when it asked for it and Android allows it. */
@@ -730,12 +750,12 @@ public final class MainActivity extends Activity {
 
         /** The page finished its startup checks: the launch video leaves (after its 3 s minimum). */
         @JavascriptInterface public void launchReady() {
-            runOnUiThread(() -> { if (splash != null) splash.dismiss(false); });
+            runOnUiThread(() -> dismissSplash(false));
         }
 
         /** Startup is stuck: the video leaves at once so the page's recovery panel (Retry / Open Settings) can be seen. */
         @JavascriptInterface public void launchProblem() {
-            runOnUiThread(() -> { if (splash != null) splash.dismiss(true); });
+            runOnUiThread(() -> dismissSplash(true));
         }
 
         /** Opens this app's page in the phone's Settings (where camera and location access can be turned on). */
@@ -798,7 +818,7 @@ public final class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void cameraCapture(String id) {
-            if (id == null || !id.matches("[A-Za-z0-9_-]{1,40}")) return;
+            if (!valid(ID, id)) return;
             nativeCamera.capture(id);
         }
 
@@ -806,8 +826,7 @@ public final class MainActivity extends Activity {
 
         // ---- Videos: the page sends the recording in base64 pieces; the app saves it to the gallery ----
         @JavascriptInterface public void videoBegin(String id, String filename) {
-            if (id == null || !id.matches("[A-Za-z0-9_-]{1,40}") || filename == null
-                    || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.(mp4|webm)")) return;
+            if (!valid(ID, id) || !valid(VIDEO_NAME, filename)) return;
             storage.execute(() -> {
                 try {
                     File folder = new File(getCacheDir(), "videos");
@@ -832,7 +851,7 @@ public final class MainActivity extends Activity {
 
         /** The attendance register as a CSV file, handed to the share sheet (Drive, WhatsApp, email, Files…). */
         @JavascriptInterface public void exportText(String action, String filename, String text) {
-            if (!"share".equals(action) || filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.csv")
+            if (!"share".equals(action) || !valid(CSV_NAME, filename)
                     || text == null || text.length() > MAX_PAYLOAD) return;
             storage.execute(() -> {
                 File file = new File(CacheImageProvider.folder(MainActivity.this, "shared"), filename);
@@ -891,21 +910,18 @@ public final class MainActivity extends Activity {
 
         /** Deletes a photo (and its "-original" twin) that this app saved into Pictures/GeoZipTag. */
         @JavascriptInterface public void deletePhoto(String filename) {
-            if (filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.(jpg|mp4|webm)")) return;
+            if (!valid(MEDIA_NAME, filename)) return;
             storage.execute(() -> {
                 boolean ok = true;
                 for (String name : new String[]{filename, filename.replace(".jpg", "-original.jpg")}) {
                     ok &= deleteSaved(name);
                 }
-                String script = "window.onPhotoDeleted && window.onPhotoDeleted(" + JSONObject.quote(filename) + "," + ok + ")";
-                runOnUiThread(() -> {
-                    if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
-                });
+                callPage("window.onPhotoDeleted && window.onPhotoDeleted(" + JSONObject.quote(filename) + "," + ok + ")");
             });
         }
 
         @JavascriptInterface public void exportPhoto(String action, String filename, String encoded) {
-            if (filename == null || !filename.matches("GeoZipTag-[A-Za-z0-9_-]{1,95}\\.jpg")
+            if (!valid(PHOTO_NAME, filename)
                     || encoded == null || encoded.length() > MAX_PAYLOAD) {
                 notifyUser("Could not export this photo.");
                 return;
@@ -937,7 +953,7 @@ public final class MainActivity extends Activity {
          * answers through window.onPhoneAddress(requestId, address-or-null).
          */
         @JavascriptInterface public void reverseGeocode(String requestId, double lat, double lon) {
-            if (requestId == null || !requestId.matches("[A-Za-z0-9_-]{1,40}")
+            if (!valid(ID, requestId)
                     || Double.isNaN(lat) || Double.isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
                 return;
             }
@@ -1001,10 +1017,7 @@ public final class MainActivity extends Activity {
                 // Send no phone address; the page keeps the Photon result.
             }
         }
-        String script = "window.onPhoneAddress && window.onPhoneAddress(" + JSONObject.quote(requestId) + "," + payload + ")";
-        runOnUiThread(() -> {
-            if (!isFinishing() && !isDestroyed()) cameraView.evaluateJavascript(script, null);
-        });
+        callPage("window.onPhoneAddress && window.onPhoneAddress(" + JSONObject.quote(requestId) + "," + payload + ")");
     }
 
     private void saveToGallery(String filename, byte[] bytes) throws IOException {

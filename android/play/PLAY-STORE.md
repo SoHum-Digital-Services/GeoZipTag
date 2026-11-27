@@ -6,7 +6,7 @@ Everything to copy into Play Console. The app is published by **SoHum Digital Se
 |---|---|
 | Package name (permanent) | `cc.sohum.geoziptag` |
 | Upload file | `GeoZipTag.aab`, built with `android/build-aab.sh` |
-| Version | 1.20 (version code 21) |
+| Version | 1.21 (version code 22) |
 | Privacy policy URL | https://sohum-digital-services.github.io/GeoZipTag/privacy.html |
 | Website | https://geoziptag.sohum.cc |
 | Icon (512 × 512) | `play-icon-512.png` |

@@ -131,14 +131,19 @@ final class LaunchSplash extends FrameLayout {
         }
     }
 
-    /** Fades out and removes the splash after the 3 s minimum, unless `immediately` (a recovery panel must be seen). */
-    void dismiss(boolean immediately) {
+    /**
+     * Fades out and removes the splash after the 3 s minimum, unless `immediately` (a recovery panel must be seen).
+     * `gone` runs once it has been removed.
+     */
+    void dismiss(boolean immediately, Runnable gone) {
         if (dismissing) return;
         dismissing = true;
         long wait = immediately ? 0 : Math.max(0, MINIMUM_MS - (SystemClock.elapsedRealtime() - shownAt));
         animate().alpha(0f).setStartDelay(wait).setDuration(300).withEndAction(() -> {
             release();
             if (getParent() instanceof FrameLayout) ((FrameLayout) getParent()).removeView(this);
+            poster.setImageDrawable(null);   // lets the 1080 x 1800 picture go
+            if (gone != null) gone.run();
         }).start();
     }
 }

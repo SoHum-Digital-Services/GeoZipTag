@@ -57,6 +57,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private var splash: LaunchSplashView?
     private var volumeInteraction: UIInteraction?
     private var videoParts: [String: (name: String, url: URL, handle: FileHandle)] = [:]
+    // Big pieces of work from the page (decoding photos and video pieces, writing files) run here, in order,
+    // so the screen never stutters while a photo or video is being handed over.
+    private let work = DispatchQueue(label: "geoziptag.work", qos: .userInitiated)
     private var server: LocalServer?
     private var updater: OtaUpdater?
     private var lastUpdateCheck = Date.distantPast
@@ -298,14 +301,24 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
               let type = body["type"] as? String else { return }
         switch type {
         case "exportPhoto":
+            // utf16.count is instant for the page's strings (count walks every character of a 30 MB photo).
             guard let action = body["action"] as? String, let filename = body["filename"] as? String,
-                  let encoded = body["data"] as? String, Self.validName(filename), encoded.count <= Self.maxPayload,
-                  action == "save" || action == "share",
-                  let data = Data(base64Encoded: encoded), data.count > 3, data[0] == 0xff, data[1] == 0xd8 else {
+                  let encoded = body["data"] as? String, Self.validName(filename), encoded.utf16.count <= Self.maxPayload,
+                  action == "save" || action == "share" else {
                 showToast("Could not export this photo.")
                 return
             }
-            if action == "share" { share(filename: filename, data: data) } else { enqueueSave(filename: filename, data: data) }
+            work.async { [weak self] in
+                let decoded = Data(base64Encoded: encoded)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    guard let data = decoded, data.count > 3, data[0] == 0xff, data[1] == 0xd8 else {
+                        self.showToast("Could not export this photo.")
+                        return
+                    }
+                    if action == "share" { self.share(filename: filename, data: data) } else { self.enqueueSave(filename: filename, data: data) }
+                }
+            }
         case "deletePhoto":
             if let filename = body["filename"] as? String, Self.validName(filename) { enqueueDelete(filename: filename) }
         case "reverseGeocode":
@@ -365,7 +378,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         case "exportText":
             guard body["action"] as? String == "share", let name = body["name"] as? String, let text = body["text"] as? String,
                   name.range(of: "^GeoZipTag-[A-Za-z0-9_-]{1,95}\\.csv$", options: .regularExpression) != nil,
-                  text.count <= Self.maxPayload else { return }
+                  text.utf16.count <= Self.maxPayload else { return }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
             do { try Data(text.utf8).write(to: url, options: .atomic) } catch { showToast("Could not export the register."); return }
             let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
@@ -378,20 +391,26 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             FileManager.default.createFile(atPath: url.path, contents: nil)
             if let handle = try? FileHandle(forWritingTo: url) { videoParts[id] = (name, url, handle) }
         case "videoChunk":
-            if let id = body["id"] as? String, let part = videoParts[id], let text = body["data"] as? String,
-               let data = Data(base64Encoded: text) {
-                part.handle.write(data)
+            if let id = body["id"] as? String, let part = videoParts[id], let text = body["data"] as? String {
+                work.async { if let data = Data(base64Encoded: text) { part.handle.write(data) } }
             }
         case "videoEnd":
             guard let id = body["id"] as? String, let part = videoParts.removeValue(forKey: id) else { return }
-            try? part.handle.close()
-            if body["action"] as? String == "share" {
-                let sheet = UIActivityViewController(activityItems: [part.url], applicationActivities: nil)
-                sheet.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: part.url) }
-                sheet.popoverPresentationController?.sourceView = view
-                present(sheet, animated: true)
-            } else {
-                enqueueVideoSave(name: part.name, url: part.url)
+            let wantsShare = body["action"] as? String == "share"
+            // Runs after every piece already queued has been written.
+            work.async { [weak self] in
+                try? part.handle.close()
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if wantsShare {
+                        let sheet = UIActivityViewController(activityItems: [part.url], applicationActivities: nil)
+                        sheet.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: part.url) }
+                        sheet.popoverPresentationController?.sourceView = self.view
+                        self.present(sheet, animated: true)
+                    } else {
+                        self.enqueueVideoSave(name: part.name, url: part.url)
+                    }
+                }
             }
         case "setVolumeShutter":
             setVolumeShutter(body["on"] as? Bool == true)
@@ -399,7 +418,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         case "applyUpdate": applyUpdate()
         case "otaConfirm": updater?.confirm()
         case "printReport":
-            if let html = body["html"] as? String, html.count <= Self.maxPayload { printReport(html) }
+            if let html = body["html"] as? String, html.utf16.count <= Self.maxPayload { printReport(html) }
             else { showToast("This report is too large. Use smaller photos.") }
         default: break
         }

@@ -3901,15 +3901,21 @@ if (launchCover) {
 const liveStamp = $('liveStamp')
 let liveStampSettled = false, liveStampSince = performance.now()
 const phoneLayout = window.matchMedia('(max-width: 759px)')
+let liveStampBox = '', stampClearance = ''
 function renderLiveStamp() {
+  if (document.hidden) return   // nothing to see while the app is in the background (saves battery)
   const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden
   liveStamp.hidden = !show
   if (!show) return
   const scale = Math.min(window.devicePixelRatio || 1, 3)
   // The stamp preview sits exactly where it lands on the photo, behind the see-through controls.
   const frame = video.parentElement.getBoundingClientRect()
-  liveStamp.style.top = `${frame.top}px`
-  liveStamp.style.height = `${frame.height}px`
+  const box = `${frame.top}/${frame.height}`
+  if (box !== liveStampBox) {   // styles are only written when they change, so the page is not re-laid out every second
+    liveStampBox = box
+    liveStamp.style.top = `${frame.top}px`
+    liveStamp.style.height = `${frame.height}px`
+  }
   const width = Math.round(frame.width * scale), height = Math.round(frame.height * scale)
   if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
   liveStamp.getContext('2d').clearRect(0, 0, width, height)
@@ -3926,12 +3932,17 @@ function renderLiveStamp() {
   const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width, attendance: currentAttendance() })
   // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
   const stampTop = frame.top + edges.top / scale
-  document.documentElement.style.setProperty('--stamp-clearance',
-    preferences.position === 'top' ? '0px' : `${Math.max(0, frame.bottom - stampTop)}px`)
+  const clearance = preferences.position === 'top' ? '0px' : `${Math.max(0, frame.bottom - stampTop)}px`
+  if (clearance !== stampClearance) {
+    stampClearance = clearance
+    document.documentElement.style.setProperty('--stamp-clearance', clearance)
+  }
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) renderLiveStamp() })
 setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
 
+let nativeLayoutKey = ''
 // Phones: the camera area takes the photo's shape, full width and centred, so the live view shows exactly
 // what the photo will contain (the camera image fills it, cropped at the centre like the photo).
 function layoutFrame() {
@@ -3948,7 +3959,12 @@ function layoutFrame() {
   root.setProperty('--frame-top', `${top}px`)
   root.setProperty('--frame-height', `${height}px`)
   root.setProperty('--frame-gap', `${screenHeight - top - height}px`)
-  try { nativeHost?.cameraLayout?.(0, top, screenWidth, height) } catch {}
+  // The native preview is only moved when the camera area really changed (this runs on every resize and bar change).
+  const layoutKey = `${top}/${screenWidth}/${height}`
+  if (layoutKey !== nativeLayoutKey) {
+    nativeLayoutKey = layoutKey
+    try { nativeHost?.cameraLayout?.(0, top, screenWidth, height) } catch {}
+  }
   coverVideo()
   updateCameraGrid()
   renderLiveStamp()
