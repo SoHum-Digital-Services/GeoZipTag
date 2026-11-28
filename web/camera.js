@@ -1094,7 +1094,9 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const time = zoned.time.format(date)
   if (attendanceCard) {
     // Attendance: who (large), their name, where, the coordinates and when.
-    add(snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
+    const status = attendance?.status
+    const statusColor = { late: '#f0a15e', early: '#f0a15e', weekoff: '#7fb6ff', ontime: '#5fd391' }[status?.kind] || colors.brand
+    add(`${snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE'}${status ? ` · ${status.label}` : ''}`, 8.5, statusColor, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
     add(attendance?.id || 'No employee ID', 19, attendance?.id ? colors.text : colors.muted, 700, { maxLines: 1, tracking: 0.3, gapAfter: 1 })
     if (attendance?.name) add(attendance.name, 13, colors.muted, 600, { maxLines: 1, gapAfter: 3 })
     else if (!attendance?.id) add('Choose one with the ID button', 11.5, colors.muted, 500, { maxLines: 1, gapAfter: 3 })
@@ -2310,14 +2312,17 @@ function saveEmployees() {
 }
 // The next action for an ID: Log in unless their last entry today was a Log in.
 function suggestedLog(id) {
-  const today = new Date().toDateString()
-  const last = [...register].reverse().find(row => row.id === id)
-  return last && new Date(last.time).toDateString() === today && last.action === 'in' ? 'out' : 'in'
+  const now = new Date(), last = [...register].reverse().find(row => row.id === id)
+  const person = allEmployees().find(entry => entry.id === id)
+  // With a shift (which can run past midnight): Log out if the last entry is a Log in from within the last 20 hours.
+  if (person?.shift) return last && last.action === 'in' && now - new Date(last.time) < 20 * 3600e3 ? 'out' : 'in'
+  return last && new Date(last.time).toDateString() === now.toDateString() && last.action === 'in' ? 'out' : 'in'
 }
 function currentAttendance() {
   if (preferences.template !== 'attendance' || !selectedEmployeeId) return undefined
-  const person = employeeById(selectedEmployeeId)
-  return { id: person.id, name: person.name || '', action: logOverride || suggestedLog(person.id) }
+  const person = allEmployees().find(entry => entry.id === selectedEmployeeId) || employeeById(selectedEmployeeId)
+  const action = logOverride || suggestedLog(person.id)
+  return { id: person.id, name: person.name || '', action, status: attendanceStatus(person, action, new Date()) }
 }
 function recordAttendance(attendance, { date, snapshot, address, file, photo }) {
   const zoned = timeAt(snapshot)
@@ -2325,7 +2330,9 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
     id: attendance.id, name: attendance.name, action: attendance.action, time: date.toISOString(),
     date: zoned.csvDate.format(date), clock: zoned.csvTime.format(date),
     place: snapshot ? placeHeading(snapshot, address) : '', address: address ? fullAddress(address) : '',
-    lat: snapshot?.lat, lon: snapshot?.lon, file
+    lat: snapshot?.lat, lon: snapshot?.lon, file,
+    shift: (() => { const shift = allEmployees().find(entry => entry.id === attendance.id)?.shift; return shift ? `${shift.start}-${shift.end}` : '' })(),
+    status: attendance.status?.label || ''
   }
   register.push(row)
   const queued = queueForTeam(row, photo)
@@ -2336,15 +2343,28 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
   setTimeout(renderLiveStamp)
   return { row, queued }
 }
+// The undo message is a popover, so it shows above the full-screen pages (a plain fixed element would sit behind them).
+function toastShow(toast) {
+  // A modal page makes everything outside it unclickable, so the message moves into the page that is open.
+  const host = [...document.querySelectorAll('dialog[open]')].pop() || document.body
+  if (toast.parentElement !== host) { try { if (toast.matches(':popover-open')) toast.hidePopover() } catch {} host.append(toast) }
+  toast.hidden = false
+  toast.classList.toggle('over-hub', !!document.querySelector('dialog.hub[open]'))
+  try { if (!toast.matches(':popover-open')) toast.showPopover() } catch {}
+}
+function toastHide(toast) {
+  toast.hidden = true
+  try { if (toast.matches(':popover-open')) toast.hidePopover() } catch {}
+}
 // After an attendance photo: "Logged in 10:14 · Undo" for a few seconds. Undo removes that entry and its photo.
 let undoTimer
 function showUndo(attendance, entry, { row, queued }) {
   const toast = $('undoToast')
   clearTimeout(undoTimer)
   $('undoText').textContent = `${attendance.action === 'out' ? 'Logged out' : 'Logged in'} · ${row.clock.slice(0, 5)} · ${attendance.id}`
-  toast.hidden = false
+  toastShow(toast)
   $('undoButton').onclick = async () => {
-    toast.hidden = true
+    toastHide(toast)
     clearTimeout(undoTimer)
     const at = register.indexOf(row)
     if (at >= 0) register.splice(at, 1)
@@ -2361,7 +2381,7 @@ function showUndo(attendance, entry, { row, queued }) {
     updateEmployeeSummary(); showLogChoice(); renderLiveStamp()
     message(sent ? 'Removed here. It was already sent to your team’s register.' : `${attendance.action === 'out' ? 'Log out' : 'Log in'} undone`, sent ? 5000 : 2500)
   }
-  undoTimer = setTimeout(() => { toast.hidden = true }, 7000)
+  undoTimer = setTimeout(() => toastHide(toast), 7000)
 }
 function updateEmployeeSummary() {
   const count = allEmployees().length
@@ -2404,54 +2424,13 @@ function wheelList() {
   }
   for (const [prefix, list] of groups) {
     for (const entry of list) {
+      if (entry.active === false && entry.id !== selectedEmployeeId) continue
       if (!query || entry.id.toLowerCase().includes(query) || (entry.name || '').toLowerCase().includes(query)) entries.push({ kind: 'emp', ...entry })
     }
     const next = nextId(prefix, new Set(all.map(entry => entry.id)))
     if (!query && next) entries.push({ kind: 'add', id: '', name: '', prefix, next })   // "+" below the last ID of each series
   }
   return entries
-}
-// One pencil, to the left of the selected (middle) row: edit that row's ID and name right there.
-let rowEditing = false
-function editSelectedRow() {
-  const index = Math.round($('employeeWheel').scrollTop / wheelItem), entry = wheelEntries[index]
-  if (!entry || entry.kind !== 'emp') return
-  const idItem = $('employeeWheel').children[index], nameItem = $('nameWheel').children[index]
-  const make = (item, value, placeholder, label, upper) => {
-    const input = document.createElement('input')
-    input.className = 'wheel-input'; input.value = value; input.placeholder = placeholder; input.spellcheck = false
-    input.maxLength = upper ? 40 : 60; input.setAttribute('aria-label', label)
-    if (upper) input.autocapitalize = 'characters'
-    item.classList.add('editing'); item.style.transform = 'none'; item.style.opacity = '1'
-    item.replaceChildren(input)
-    return input
-  }
-  const idInput = make(idItem, entry.id, 'ID', 'Employee ID', true), nameInput = make(nameItem, entry.name || '', 'Add name', 'Name', false)
-  rowEditing = true
-  $('wheelRows').classList.add('editing-row')
-  const pencil = $('wheelEdit')
-  pencil.querySelector('use').setAttribute('href', '#i-check'); pencil.setAttribute('aria-label', 'Save'); pencil.classList.add('ok')
-  let done = false
-  const finish = (save) => {
-    if (done) return
-    done = true
-    rowEditing = false
-    $('wheelRows').classList.remove('editing-row')
-    pencil.querySelector('use').setAttribute('href', '#i-edit'); pencil.setAttribute('aria-label', 'Edit this employee'); pencil.classList.remove('ok')
-    if (save) {
-      const id = cleanId(idInput.value) || entry.id, name = nameInput.value.trim()
-      if (id !== entry.id && allEmployees().some(other => other.id === id)) message(`${id} is already in the list.`, 3000)
-      else if (id !== entry.id || name !== (entry.name || '')) renameEmployee(entry.id, id, name)
-    }
-    pencil.onclick = null
-    prepareEmployeePicker(true)
-  }
-  for (const input of [idInput, nameInput]) {
-    input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); finish(true) } else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(false) } })   // cancel the edit, not the whole sheet
-    input.addEventListener('focusout', event => { if (!event.relatedTarget || !event.relatedTarget.closest('#wheelRows')) setTimeout(() => finish(true), 0) })
-  }
-  pencil.onclick = (event) => { event.stopPropagation(); finish(true) }
-  nameInput.focus(); nameInput.select()
 }
 function prepareEmployeePicker(keepPlace = false) {
   // Picking an employee is attendance: switch the stamp to the Attendance style.
@@ -2464,13 +2443,7 @@ function prepareEmployeePicker(keepPlace = false) {
   wheelEntries = wheelList()
   const [idWheel, nameWheel, actionWheel] = wheelIds()
   const click = (wheel, index) => item => item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
-  const addNext = (entry) => {
-    employees.list.push({ id: entry.next, name: '' })
-    persistEmployees()
-    selectedEmployeeId = entry.next; logOverride = undefined
-    prepareEmployeePicker(true)
-    setTimeout(editSelectedRow, 60)   // the new row is in the middle: ready to type its name
-  }
+  const addNext = (entry) => openEmpEdit(undefined, { prefill: entry.next })   // the editor opens with the next ID; the check mark adds it
   idWheel.replaceChildren(...wheelEntries.map((entry, index) => {
     const item = makeWheelItem(entry.kind === 'add' ? `+ Add ${entry.next}` : entry.id || 'No ID', { none: entry.kind !== 'emp' })
     if (entry.kind === 'add') { item.classList.add('add'); item.addEventListener('click', () => addNext(entry)); return item }
@@ -2493,6 +2466,11 @@ function prepareEmployeePicker(keepPlace = false) {
   styleWheels()
   showLogChoice()
 }
+$('wheelEditButton').addEventListener('click', () => {
+  const entry = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]
+  if (entry?.kind === 'emp') openEmpEdit(allEmployees().find(item => item.id === entry.id))
+})
+$('wheelClose').addEventListener('click', () => $('employeePicker').close())
 // The magnifier in the picker's header: filter the wheels by ID or name.
 $('wheelSearchToggle').addEventListener('click', () => {
   const row = $('wheelSearchRow')
@@ -2510,9 +2488,8 @@ $('wheelSearch').addEventListener('input', () => {
     styleWheels(); showLogChoice(); updateEmployeeSummary(); renderLiveStamp()
   }
 })
-$('wheelEdit').addEventListener('click', () => { if (!rowEditing) editSelectedRow() })
 function styleWheels() {
-  if (!rowEditing) $('wheelEdit').hidden = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]?.kind !== 'emp'   // only an employee row can be edited
+  $('wheelEditButton').disabled = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]?.kind !== 'emp'   // only an employee row can be edited
   for (const wheel of wheelIds()) {
     const centre = wheel.scrollTop / wheelItem
     ;[...wheel.children].forEach((item, index) => {
@@ -2607,7 +2584,7 @@ function parseEmployees(text) {
 function listText(list) {
   return list.map(entry => entry.name ? `${entry.id}, ${entry.name}` : entry.id).join('\n')
 }
-// ---- The employee list: grouped by ID format (the letters before the number), edited in place ----
+// ---- Employees, shifts and week offs; the Attendance area (Employees · Shifts · Register · Team) ----
 // "ENDWEMP20161" -> prefix "ENDWEMP", number 20161. "+" adds the next number of that format, keeping the zero padding.
 const splitId = (id) => { const m = /^(.*?)(\d+)$/.exec(id); return m ? { prefix: m[1], digits: m[2] } : { prefix: id, digits: '' } }
 function nextId(prefix, taken) {
@@ -2618,7 +2595,6 @@ function nextId(prefix, taken) {
   while (taken.has(prefix + String(number).padStart(width, '0'))) number++   // skip numbers already used
   return prefix + String(number).padStart(width, '0')
 }
-let editingId, empFilter = ''
 const cleanId = (value) => value.trim().toUpperCase().replace(/\s+/g, '')
 function persistEmployees() {
   saveEmployees()
@@ -2630,137 +2606,421 @@ function empIcon(name) {
   const use = document.createElementNS('http://www.w3.org/2000/svg', 'use'); use.setAttribute('href', `#i-${name}`)
   svg.append(use); return svg
 }
-function empButton(icon, label, handler, extra = '') {
-  const button = document.createElement('button')
-  button.type = 'button'; button.className = `emp-btn ${extra}`.trim(); button.setAttribute('aria-label', label)
-  button.append(empIcon(icon)); button.addEventListener('click', handler); return button
-}
-function empRow(entry, fresh) {
-  const row = document.createElement('div')
-  row.className = 'emp-row'
-  if (editingId === entry.id) {
-    row.classList.add('editing')
-    const idInput = document.createElement('input'), nameInput = document.createElement('input')
-    idInput.value = entry.id; idInput.setAttribute('aria-label', 'Employee ID'); idInput.autocapitalize = 'characters'; idInput.spellcheck = false; idInput.maxLength = 40
-    nameInput.value = entry.name || ''; nameInput.setAttribute('aria-label', 'Name'); nameInput.placeholder = 'Add name'; nameInput.maxLength = 60
-    const finish = () => {
-      const id = cleanId(idInput.value), name = nameInput.value.trim()
-      if (!id) { $('employeeStatus').textContent = 'An employee ID cannot be empty.'; idInput.focus(); return }
-      if (id !== entry.id && allEmployees().some(other => other.id === id)) { $('employeeStatus').textContent = `${id} is already in the list.`; idInput.focus(); return }
-      renameEmployee(entry.id, id, name)
-      editingId = undefined
-      $('employeeStatus').textContent = ''
-      renderEmployeeList()
-    }
-    for (const input of [idInput, nameInput]) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); finish() } })
-    row.append(idInput, nameInput, empButton('check', 'Save', finish, 'ok'))
-    if (fresh) setTimeout(() => nameInput.focus())
-    return row
-  }
-  const mine = employees.me === entry.id
-  const star = empButton('star', mine ? 'This is my ID' : 'Make this my ID', () => { employees.me = mine ? '' : entry.id; persistEmployees(); renderEmployeeList() }, mine ? 'mine' : '')
-  const text = document.createElement('div')
-  text.className = 'emp-text'
-  const strong = document.createElement('strong'); strong.textContent = entry.id
-  const small = document.createElement('button'); small.type = 'button'; small.textContent = entry.name || 'Add name'
-  small.setAttribute('aria-label', `Edit the name of ${entry.id}`); small.addEventListener('click', () => { editingId = entry.id; renderEmployeeList() })
-  if (!entry.name) small.className = 'none'
-  text.append(strong, small)
-  row.append(star, text, empButton('edit', `Edit ${entry.id}`, () => { editingId = entry.id; renderEmployeeList() }))
-  return row
-}
-function renameEmployee(oldId, id, name) {
+const tidy = (entry) => Object.fromEntries(Object.entries(entry).filter(([, value]) => value !== undefined && !(Array.isArray(value) && !value.length)))
+// Changes an employee (ID, name, week off, shift, active); keeps "my ID" and the selection with them.
+function updateEmployee(oldId, patch) {
   const wasMine = employees.me === oldId, wasSelected = selectedEmployeeId === oldId
   const index = employees.list.findIndex(entry => entry.id === oldId)
-  if (index >= 0) employees.list[index] = { id, name }
-  else employees.list.push({ id, name })   // "my ID" that was only implied until now
-  if (wasMine) employees.me = id
-  if (wasSelected) selectedEmployeeId = id
+  const current = index >= 0 ? employees.list[index] : { id: oldId, name: '' }   // "my ID" that was only implied until now
+  const next = tidy({ ...current, ...patch })
+  if (index >= 0) employees.list[index] = next
+  else employees.list.push(next)
+  if (wasMine) employees.me = next.id
+  if (wasSelected) selectedEmployeeId = next.id
   persistEmployees()   // earlier register entries keep the ID they were made with
+  return next
 }
-function renderEmployeeList(freshId) {
-  const box = $('empList'), query = empFilter.trim().toLowerCase()
-  const all = allEmployees()
-  $('employeeCount').textContent = all.length ? `(${all.length})` : ''
-  const matches = (entry) => !query || entry.id.toLowerCase().includes(query) || (entry.name || '').toLowerCase().includes(query)
+function removeEmployee(id) {
+  const index = employees.list.findIndex(entry => entry.id === id)
+  const removed = index >= 0 ? employees.list.splice(index, 1)[0] : { id, name: '' }
+  const wasMine = employees.me === id
+  if (wasMine) employees.me = ''
+  if (selectedEmployeeId === id) { selectedEmployeeId = employees.me || ''; logOverride = undefined }
+  persistEmployees()
+  return { removed, index, wasMine }
+}
+
+// Shifts: named, with a start and end time (an end before the start means it runs past midnight).
+const shiftKey = 'geoziptagShifts'
+let shifts = loadJson(shiftKey, [])
+if (!Array.isArray(shifts)) shifts = []
+const saveShifts = () => { try { localStorage.setItem(shiftKey, JSON.stringify(shifts)) } catch {} }
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'], DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const clock12 = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return { time: `${h % 12 || 12}:${String(m).padStart(2, '0')}`, ap: h >= 12 ? 'PM' : 'AM' } }
+const timeLabel = (hhmm) => { const c = clock12(hhmm); return `${c.time} ${c.ap}` }
+const shiftLabel = (shift) => shift ? `${timeLabel(shift.start)} – ${timeLabel(shift.end)}` : ''
+const offLabel = (off) => !off?.length ? 'No week off' : off.length === 7 ? 'Every day off' : `Off ${[...off].sort().map(day => DAY_NAMES[day]).join(', ')}`
+const minutesOf = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
+const GRACE_MINUTES = 10
+// The shift that "now" belongs to: yesterday's, today's or tomorrow's, whichever starts nearest (within 4 h of its hours).
+function shiftInstance(shift, now) {
+  const s = minutesOf(shift.start), e = minutesOf(shift.end), overnight = e <= s
+  const midnight = new Date(now); midnight.setHours(0, 0, 0, 0)
+  let best, nearest, nearestGap = Infinity, bestGap = Infinity
+  for (const offset of [-1, 0, 1]) {
+    const day = new Date(midnight); day.setDate(day.getDate() + offset)
+    const start = new Date(day); start.setMinutes(s)
+    const end = new Date(day); end.setMinutes(overnight ? e + 1440 : e)
+    const gap = Math.abs(now - start)
+    if (now >= start.getTime() - 4 * 3600e3 && now <= end.getTime() + 4 * 3600e3 && gap < bestGap) { best = { start, end }; bestGap = gap }
+    if (gap < nearestGap) { nearest = { start, end }; nearestGap = gap }
+  }
+  return best || nearest
+}
+const minutesText = (minutes) => minutes < 60 ? `${minutes} MIN` : `${Math.floor(minutes / 60)} H${minutes % 60 ? ` ${minutes % 60} MIN` : ''}`
+// How a Log in / Log out compares with the person's shift and week off.
+function attendanceStatus(person, action, now) {
+  if (!person) return undefined
+  const instance = person.shift ? shiftInstance(person.shift, now) : undefined
+  const weekday = (instance ? instance.start : now).getDay()
+  if (person.off?.includes(weekday)) return { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 }
+  if (!instance) return undefined
+  if (action === 'out') {
+    const early = Math.round((instance.end - now) / 60000)
+    return early > GRACE_MINUTES ? { kind: 'early', label: `EARLY ${minutesText(early)}`, minutes: early } : { kind: 'ontime', label: 'ON TIME', minutes: 0 }
+  }
+  const late = Math.round((now - instance.start) / 60000)
+  return late > GRACE_MINUTES ? { kind: 'late', label: `LATE ${minutesText(late)}`, minutes: late } : { kind: 'ontime', label: 'ON TIME', minutes: 0 }
+}
+
+// A time wheel like the iPhone alarm's: hour, minute and AM / PM.
+function timeWheel(host, onChange) {
+  host.replaceChildren()
+  host.className = 'wheel-wrap time-wheel'
+  const columns = [Array.from({ length: 12 }, (_, i) => String(i + 1)), Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')), ['AM', 'PM']]
+  const wheels = columns.map(items => {
+    const wheel = document.createElement('div')
+    wheel.className = 'wheel'; wheel.setAttribute('role', 'listbox')
+    items.forEach((text, index) => {
+      const item = document.createElement('div')
+      item.className = 'wheel-item'; item.textContent = text; item.setAttribute('role', 'option')
+      item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+      wheel.append(item)
+    })
+    host.append(wheel)
+    return wheel
+  })
+  const paint = (wheel) => {
+    const centre = wheel.scrollTop / wheelItem
+    ;[...wheel.children].forEach((item, index) => {
+      const distance = index - centre
+      item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.32))
+      item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
+      item.setAttribute('aria-selected', String(Math.round(centre) === index))
+    })
+  }
+  const read = () => {
+    const [h, m, a] = wheels.map(wheel => Math.round(wheel.scrollTop / wheelItem))
+    return `${String((h + 1) % 12 + (a === 1 ? 12 : 0)).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  }
+  let timer, quiet = false
+  wheels.forEach(wheel => wheel.addEventListener('scroll', () => {
+    paint(wheel)
+    if (quiet) return
+    clearTimeout(timer)
+    timer = setTimeout(() => { onChange?.(read()); haptic() }, 120)
+  }))
+  return {
+    get: read,
+    set(hhmm) {   // call when the wheel is visible
+      const [h, m] = hhmm.split(':').map(Number)
+      quiet = true
+      wheels[0].scrollTop = ((h % 12 || 12) - 1) * wheelItem
+      wheels[1].scrollTop = m * wheelItem
+      wheels[2].scrollTop = (h >= 12 ? 1 : 0) * wheelItem
+      wheels.forEach(paint)
+      setTimeout(() => { quiet = false }, 220)
+    }
+  }
+}
+// "Starts" and "Ends" rows that open a time wheel when tapped (one open at a time), shared by both editors.
+function timeSection(prefix, onChange) {
+  const rows = { start: $(`${prefix}StartRow`), end: $(`${prefix}EndRow`) }
+  const hosts = { start: $(`${prefix}StartWheel`), end: $(`${prefix}EndWheel`) }
+  const texts = { start: $(`${prefix}StartText`), end: $(`${prefix}EndText`) }
+  const state = { start: '09:00', end: '18:00' }
+  const wheels = {}
+  for (const key of ['start', 'end']) {
+    wheels[key] = timeWheel(hosts[key], value => { state[key] = value; texts[key].textContent = timeLabel(value); onChange?.() })
+    rows[key].addEventListener('click', () => {
+      const open = hosts[key].hidden
+      for (const other of ['start', 'end']) { hosts[other].hidden = true; rows[other].setAttribute('aria-expanded', 'false') }
+      if (open) { hosts[key].hidden = false; rows[key].setAttribute('aria-expanded', 'true'); requestAnimationFrame(() => wheels[key].set(state[key])) }
+    })
+  }
+  return {
+    set(start, end) {
+      state.start = start; state.end = end
+      for (const key of ['start', 'end']) { texts[key].textContent = timeLabel(state[key]); hosts[key].hidden = true; rows[key].setAttribute('aria-expanded', 'false') }
+    },
+    get: () => ({ start: state.start, end: state.end })
+  }
+}
+
+// ---- The employee editor (laid out like the iPhone's Edit Alarm) ----
+let editState
+const empTimes = timeSection('ee', () => { if (editState) { editState.shift = { ...(editState.shift || {}), ...empTimes.get(), id: undefined, name: '' } } })
+function drawDays() {
+  const box = $('eeDays')
+  box.replaceChildren()
+  DAY_LETTERS.forEach((letter, day) => {
+    const button = document.createElement('button')
+    button.type = 'button'; button.className = 'day'; button.textContent = letter
+    button.setAttribute('aria-label', DAY_NAMES[day]); button.setAttribute('aria-pressed', String(editState.off.has(day)))
+    button.addEventListener('click', () => { editState.off.has(day) ? editState.off.delete(day) : editState.off.add(day); button.setAttribute('aria-pressed', String(editState.off.has(day))); haptic() })
+    box.append(button)
+  })
+}
+function fillShiftChoices() {
+  const select = $('eeShift')
+  select.replaceChildren(new Option('No shift', ''), ...shifts.map(shift => new Option(`${shift.name || 'Shift'} · ${shiftLabel(shift)}`, shift.id)), new Option('Custom times…', 'custom'))
+  const shift = editState.shift
+  select.value = !shift ? '' : shift.id && shifts.some(item => item.id === shift.id) ? shift.id : 'custom'
+  $('eeCustom').hidden = select.value !== 'custom'
+  select.closest('.row').classList.toggle('last', $('eeCustom').hidden)
+  if (select.value === 'custom') empTimes.set(shift.start, shift.end)
+}
+function openEmpEdit(entry, { prefill = '' } = {}) {
+  const isNew = !entry
+  editState = { orig: entry, isNew, off: new Set(entry?.off || []), shift: entry?.shift ? { ...entry.shift } : undefined }
+  $('empEditTitle').textContent = isNew ? 'New Employee' : 'Edit Employee'
+  $('eeId').value = entry?.id || prefill
+  $('eeName').value = entry?.name || ''
+  $('eeActive').checked = entry?.active !== false
+  $('eeMine').checked = !!entry && employees.me === entry.id
+  $('eeDelete').hidden = isNew
+  drawDays()
+  fillShiftChoices()
+  $('empEdit').showModal()
+  $('empEdit').querySelector('.hub-body').scrollTop = 0
+  if (isNew) setTimeout(() => $('eeName').focus(), 80)
+}
+$('eeShift').addEventListener('change', () => {
+  const value = $('eeShift').value
+  $('eeCustom').hidden = value !== 'custom'
+  $('eeShift').closest('.row').classList.toggle('last', value !== 'custom')
+  if (!value) editState.shift = undefined
+  else if (value === 'custom') { const base = editState.shift || { start: '09:00', end: '18:00' }; editState.shift = { start: base.start, end: base.end }; empTimes.set(base.start, base.end) }
+  else { const preset = shifts.find(shift => shift.id === value); editState.shift = { id: preset.id, name: preset.name, start: preset.start, end: preset.end } }
+})
+function afterEmployeesChanged() {
+  updateEmployeeSummary(); showLogChoice(); renderLiveStamp()
+  if ($('attendanceHub').open) renderHub()
+  if ($('employeePicker').open) prepareEmployeePicker(true)
+}
+$('eeSave').addEventListener('click', () => {
+  const id = cleanId($('eeId').value), name = $('eeName').value.trim()
+  if (!id) { message('An employee ID cannot be empty.', 3000); $('eeId').focus(); return }
+  const orig = editState.orig
+  if ((!orig || id !== orig.id) && allEmployees().some(other => other.id === id)) { message(`${id} is already in the list.`, 3500); $('eeId').focus(); return }
+  const shift = editState.shift && !editState.shift.id ? { ...editState.shift, ...empTimes.get() } : editState.shift
+  const patch = { id, name, off: [...editState.off].sort(), shift, active: $('eeActive').checked ? undefined : false }
+  if (editState.orig) {
+    updateEmployee(orig.id, { ...patch, off: patch.off.length ? patch.off : undefined })
+  } else {
+    employees.list.push(tidy(patch)); selectedEmployeeId = id; logOverride = undefined; persistEmployees()
+  }
+  if ($('eeMine').checked) employees.me = id
+  else if (employees.me === id) employees.me = ''
+  saveEmployees()
+  $('empEdit').close()
+  afterEmployeesChanged()
+})
+$('eeCancel').addEventListener('click', () => $('empEdit').close())
+$('eeDelete').addEventListener('click', () => {
+  const id = editState.orig.id
+  $('empEdit').close()
+  deleteWithUndo(id)
+})
+function deleteWithUndo(id) {
+  const { removed, index, wasMine } = removeEmployee(id)
+  afterEmployeesChanged()
+  undoToast(`${id} deleted`, () => {
+    employees.list.splice(Math.max(0, Math.min(index, employees.list.length)), 0, removed)
+    if (wasMine) employees.me = id
+    persistEmployees(); afterEmployeesChanged()
+  })
+}
+
+// ---- The shift editor ----
+let shiftState
+const shiftTimes = timeSection('se')
+function openShiftEdit(shift) {
+  shiftState = { orig: shift, isNew: !shift }
+  $('shiftEditTitle').textContent = shift ? 'Edit Shift' : 'New Shift'
+  $('seName').value = shift?.name || ''
+  shiftTimes.set(shift?.start || '09:00', shift?.end || '18:00')
+  $('seDelete').hidden = !shift
+  $('shiftEdit').showModal()
+  $('shiftEdit').querySelector('.hub-body').scrollTop = 0
+}
+$('seSave').addEventListener('click', () => {
+  const { start, end } = shiftTimes.get(), name = $('seName').value.trim() || 'Shift'
+  if (shiftState.orig) {
+    Object.assign(shiftState.orig, { name, start, end })
+    for (const person of employees.list) if (person.shift?.id === shiftState.orig.id) person.shift = { ...person.shift, name, start, end }   // everyone on this shift follows
+    saveEmployees()
+  } else shifts.push({ id: `s${Date.now().toString(36)}`, name, start, end })
+  saveShifts()
+  $('shiftEdit').close()
+  renderHub(); renderLiveStamp()
+})
+$('seCancel').addEventListener('click', () => $('shiftEdit').close())
+$('seDelete').addEventListener('click', () => {
+  const shift = shiftState.orig
+  $('shiftEdit').close()
+  shifts = shifts.filter(item => item !== shift); saveShifts()
+  for (const person of employees.list) if (person.shift?.id === shift.id) person.shift = { name: '', start: person.shift.start, end: person.shift.end }   // they keep their times, as custom
+  saveEmployees()
+  renderHub()
+  undoToast(`${shift.name} deleted`, () => { shifts.push(shift); saveShifts(); renderHub() })
+})
+
+// ---- The Attendance area ----
+const hubPages = { employees: 'Employees', shifts: 'Shifts', register: 'Register', team: 'Team' }
+let hubPage = 'employees', hubEditing = false
+function hubGroupHeading(text) {
+  const heading = document.createElement('h4'); heading.className = 'hub-section'; heading.textContent = text; return heading
+}
+function swipeRow(row, onDelete) {
+  let start, shown = false
+  const setOffset = (offset, animate) => { row.firstElementChild.style.transition = animate ? 'transform .2s ease' : 'none'; row.firstElementChild.style.transform = offset ? `translateX(${offset}px)` : '' }
+  row.addEventListener('pointerdown', event => { if (event.target.closest('.switch-wrap, .row-delete')) return; start = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false } })
+  row.addEventListener('pointermove', event => {
+    if (!start || start.id !== event.pointerId) return
+    const dx = event.clientX - start.x, dy = event.clientY - start.y
+    if (!start.moved && (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx))) { start = undefined; return }
+    if (Math.abs(dx) > 8) { start.moved = true; setOffset(Math.max(-88, Math.min(0, (shown ? -88 : 0) + dx)), false) }
+  })
+  const finish = event => {
+    if (!start || start.id !== event.pointerId) return
+    const dx = event.clientX - start.x
+    const moved = start.moved
+    start = undefined
+    if (!moved) return
+    shown = (shown ? -88 : 0) + dx < -44
+    setOffset(shown ? -88 : 0, true)
+    row.dataset.swiped = '1'
+    setTimeout(() => { delete row.dataset.swiped }, 50)
+  }
+  row.addEventListener('pointerup', finish)
+  row.addEventListener('pointercancel', finish)
+  row.querySelector('.row-delete').addEventListener('click', event => { event.stopPropagation(); onDelete() })
+}
+function renderHubEmployees() {
+  const box = $('hubEmpList'), all = allEmployees()
+  box.replaceChildren()
+  box.classList.toggle('editing', hubEditing)
+  if (!all.length) {
+    const empty = document.createElement('p'); empty.className = 'hint hub-empty'
+    empty.textContent = 'No employees yet. Tap + to add the first one, or import a file below.'
+    box.append(empty)
+    return
+  }
   const groups = new Map()
   for (const entry of all) {
     const key = splitId(entry.id).prefix
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(entry)
   }
-  box.replaceChildren()
-  if (!all.length) {
-    const empty = document.createElement('p'); empty.className = 'hint emp-empty'
-    empty.textContent = 'No IDs yet. Tap "+ New ID format" and type the first one, for example EMP001.'
-    box.append(empty)
-  }
-  let shown = 0
   for (const [prefix, entries] of groups) {
-    const visible = entries.filter(matches)
-    if (!visible.length) continue
-    const group = document.createElement('section'); group.className = 'emp-group'
-    if (groups.size > 1 || prefix) {
-      const heading = document.createElement('h4'); heading.textContent = prefix || 'IDs'; group.append(heading)
+    if (groups.size > 1 || prefix) box.append(hubGroupHeading(prefix || 'IDs'))
+    const list = document.createElement('div'); list.className = 'alarm-list'
+    for (const entry of entries) {
+      const row = document.createElement('div')
+      row.className = `alarm-row${entry.active === false ? ' dim' : ''}`
+      const main = document.createElement('div'); main.className = 'alarm-content'
+      const text = document.createElement('div'); text.className = 'alarm-main'
+      const big = document.createElement('div'); big.className = 'alarm-time'
+      const id = document.createElement('span'); id.textContent = entry.id
+      const name = document.createElement('small'); name.textContent = entry.name || 'Add name'; if (!entry.name) name.className = 'none'
+      big.append(id, name)
+      if (employees.me === entry.id) { const mine = empIcon('star'); mine.classList.add('mine'); big.append(mine) }
+      const sub = document.createElement('div'); sub.className = 'alarm-sub'
+      sub.textContent = [entry.shift ? shiftLabel(entry.shift) : 'No shift', offLabel(entry.off)].join(' · ')
+      text.append(big, sub)
+      const wrap = document.createElement('label'); wrap.className = 'switch-wrap'; wrap.setAttribute('aria-label', `${entry.id} active`)
+      const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.className = 'switch'; toggle.checked = entry.active !== false
+      toggle.addEventListener('change', () => { updateEmployee(entry.id, { active: toggle.checked ? undefined : false }); row.classList.toggle('dim', !toggle.checked); afterEmployeesChanged(); haptic() })
+      wrap.append(toggle)
+      main.append(text, wrap)
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'row-delete'; del.textContent = 'Delete'
+      row.append(main, del)
+      row.addEventListener('click', event => { if (event.target.closest('.switch-wrap, .row-delete') || row.dataset.swiped) return; openEmpEdit(entry) })
+      swipeRow(row, () => deleteWithUndo(entry.id))
+      list.append(row)
     }
-    for (const entry of visible) { group.append(empRow(entry, entry.id === freshId)); shown++ }
-    const next = nextId(prefix, new Set(all.map(entry => entry.id)))
-    if (!query && next) {
-      const add = document.createElement('button'); add.type = 'button'; add.className = 'emp-add'
-      add.append(empIcon('plus-sm'), document.createTextNode(` Add ${next}`))
-      add.addEventListener('click', () => {
-        employees.list.push({ id: next, name: '' })
-        editingId = next
-        persistEmployees()
-        renderEmployeeList(next)
-      })
-      group.append(add)
-    }
-    box.append(group)
-  }
-  if (draftRow) box.append(draftEmployeeRow())
-  if (query && !shown) {
-    const none = document.createElement('p'); none.className = 'hint emp-empty'; none.textContent = `No ID or name matches "${empFilter.trim()}".`; box.append(none)
+    box.append(list)
   }
 }
-function fillEmployeesSheet() {
-  editingId = undefined
-  draftRow = false
-  empFilter = ''
-  $('empSearch').value = ''
-  $('employeeStatus').textContent = ''
-  renderEmployeeList()
-}
-$('empSearch').addEventListener('input', () => { empFilter = $('empSearch').value; renderEmployeeList() })
-// A new ID format: a blank row at the bottom of the list; type its first ID (for example TMPLEMP001), then "+" continues it.
-let draftRow = false
-function draftEmployeeRow() {
-  const row = document.createElement('div')
-  row.className = 'emp-row editing draft'
-  const idInput = document.createElement('input'), nameInput = document.createElement('input')
-  idInput.placeholder = 'First ID, e.g. TMPLEMP001'; idInput.setAttribute('aria-label', 'First employee ID of the new format'); idInput.autocapitalize = 'characters'; idInput.spellcheck = false; idInput.maxLength = 40
-  nameInput.placeholder = 'Add name'; nameInput.setAttribute('aria-label', 'Name'); nameInput.maxLength = 60
-  const finish = () => {
-    const id = cleanId(idInput.value)
-    if (!id) { $('employeeStatus').textContent = 'Type the first ID of the new format.'; idInput.focus(); return }
-    if (allEmployees().some(entry => entry.id === id)) { $('employeeStatus').textContent = `${id} is already in the list.`; idInput.focus(); return }
-    employees.list.push({ id, name: nameInput.value.trim() })
-    draftRow = false
-    persistEmployees()
-    $('employeeStatus').textContent = ''
-    renderEmployeeList()
+function renderHubShifts() {
+  const box = $('hubShiftList')
+  box.replaceChildren()
+  box.classList.toggle('editing', hubEditing)
+  if (!shifts.length) {
+    const empty = document.createElement('p'); empty.className = 'hint hub-empty'
+    empty.textContent = 'No shifts yet. Tap + to add one, for example General 9:00 AM – 6:00 PM. Then give it to employees.'
+    box.append(empty)
+    return
   }
-  for (const input of [idInput, nameInput]) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); finish() } })
-  row.append(idInput, nameInput, empButton('check', 'Add', finish, 'ok'))
-  setTimeout(() => idInput.focus())
-  return row
+  box.append(hubGroupHeading('Shifts'))
+  const list = document.createElement('div'); list.className = 'alarm-list'
+  for (const shift of shifts) {
+    const row = document.createElement('div'); row.className = 'alarm-row'
+    const main = document.createElement('div'); main.className = 'alarm-content'
+    const text = document.createElement('div'); text.className = 'alarm-main'
+    const big = document.createElement('div'); big.className = 'alarm-time'
+    const a = clock12(shift.start), b = clock12(shift.end)
+    big.append(...[[a.time, a.ap], ['–', ''], [b.time, b.ap]].flatMap(([t, ap]) => { const span = document.createElement('span'); span.textContent = t; const out = [span]; if (ap) { const small = document.createElement('small'); small.textContent = ap; out.push(small) } return out }))
+    const people = employees.list.filter(person => person.shift?.id === shift.id).length
+    const sub = document.createElement('div'); sub.className = 'alarm-sub'; sub.textContent = `${shift.name} · ${people} employee${people === 1 ? '' : 's'}`
+    text.append(big, sub)
+    const chevron = empIcon('chevron'); chevron.classList.add('row-chevron')
+    main.append(text, chevron)
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'row-delete'; del.textContent = 'Delete'
+    row.append(main, del)
+    row.addEventListener('click', () => { if (row.dataset.swiped) return; openShiftEdit(shift) })
+    swipeRow(row, () => {
+      shifts = shifts.filter(item => item !== shift); saveShifts()
+      for (const person of employees.list) if (person.shift?.id === shift.id) person.shift = { name: '', start: person.shift.start, end: person.shift.end }
+      saveEmployees(); renderHub()
+      undoToast(`${shift.name} deleted`, () => { shifts.push(shift); saveShifts(); renderHub() })
+    })
+    list.append(row)
+  }
+  box.append(list)
 }
-$('empNewSeries').addEventListener('click', () => {
-  draftRow = true
-  $('empSearch').value = ''; empFilter = ''
-  renderEmployeeList()
-  $('empList').lastElementChild?.scrollIntoView({ block: 'nearest' })
+function renderHub() {
+  if (hubPage === 'employees') renderHubEmployees()
+  if (hubPage === 'shifts') renderHubShifts()
+  $('hubEdit').classList.toggle('active', hubEditing)
+  $('hubEdit').textContent = hubEditing ? 'Done' : 'Edit'
+}
+function showHubPage(page, { quiet = false } = {}) {
+  hubPage = page; hubEditing = false
+  for (const [key, title] of Object.entries(hubPages)) {
+    $(`hub${key[0].toUpperCase()}${key.slice(1)}`).hidden = key !== page
+    if (key === page) { $('hubTitle').textContent = title; $('hubSmallTitle').textContent = title }
+  }
+  const tabs = [...document.querySelectorAll('.hub-tabs [data-tab]')]
+  tabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.tab === page)))
+  const active = tabs.find(tab => tab.dataset.tab === page)
+  if (active) { $('hubHighlight').style.width = `${active.offsetWidth}px`; $('hubHighlight').style.transform = `translateX(${active.offsetLeft}px)` }
+  $('hubEdit').hidden = !(page === 'employees' || page === 'shifts')
+  $('hubAdd').hidden = !(page === 'employees' || page === 'shifts')
+  $('hubScroll').scrollTop = 0; $('attendanceHub').classList.remove('collapsed')
+  if (page === 'register') renderRegister()
+  if (page === 'team') updateTeamSummary()
+  renderHub()
+  if (!quiet) haptic()
+}
+function openHub(page = 'employees') {
+  document.querySelector('dialog[open]:not(#attendanceHub)')?.close()
+  if (!$('attendanceHub').open) $('attendanceHub').showModal()
+  requestAnimationFrame(() => showHubPage(page, { quiet: true }))
+}
+for (const tab of document.querySelectorAll('.hub-tabs [data-tab]')) tab.addEventListener('click', () => showHubPage(tab.dataset.tab))
+$('hubClose').addEventListener('click', () => $('attendanceHub').close())
+$('hubEdit').addEventListener('click', () => { hubEditing = !hubEditing; renderHub() })
+$('hubAdd').addEventListener('click', () => {
+  if (hubPage === 'shifts') { openShiftEdit(); return }
+  // A new employee gets the next ID of the series you used last.
+  const all = allEmployees(), last = all.find(entry => entry.id === selectedEmployeeId) || all[all.length - 1]
+  openEmpEdit(undefined, { prefill: last ? nextId(splitId(last.id).prefix, new Set(all.map(entry => entry.id))) : '' })
 })
+$('hubScroll').addEventListener('scroll', () => $('attendanceHub').classList.toggle('collapsed', $('hubScroll').scrollTop > 36), { passive: true })
+$('attendanceHub').addEventListener('close', () => { $('managerPin').value = ''; hubEditing = false })
+function fillEmployeesSheet() { openHub('employees') }
 $('employeeFile').addEventListener('change', async () => {
   const fileChosen = $('employeeFile').files?.[0]
   $('employeeFile').value = ''
@@ -2770,20 +3030,31 @@ $('employeeFile').addEventListener('change', async () => {
     const text = /\.pdf$/i.test(fileChosen.name) || fileChosen.type === 'application/pdf' ? await pdfText(fileChosen) : await fileChosen.text()
     const imported = parseEmployees(text)
     if (!imported.length) { $('employeeStatus').textContent = 'No employee IDs found in that file.'; return }
-    const known = new Map(allEmployees().map(entry => [entry.id, entry.name]))
+    const known = new Map(allEmployees().map(entry => [entry.id, entry]))
     let added = 0
     for (const entry of imported) {
-      if (!known.has(entry.id)) added++
-      if (!known.get(entry.id)) known.set(entry.id, entry.name)
+      const have = known.get(entry.id)
+      if (!have) { added++; known.set(entry.id, { id: entry.id, name: entry.name }) }
+      else if (!have.name && entry.name) have.name = entry.name
     }
-    employees.list = [...known].map(([id, name]) => ({ id, name }))
+    employees.list = [...known.values()]
     persistEmployees()
-    renderEmployeeList()
+    renderHub()
     $('employeeStatus').textContent = `Found ${imported.length} IDs (${added} new), saved.`
   } catch {
     $('employeeStatus').textContent = 'That file could not be read. Try a text or CSV file.'
   }
 })
+// A short message with an Undo button (deleting an employee or a shift).
+function undoToast(text, undo) {
+  const toast = $('undoToast')
+  clearTimeout(undoTimer)
+  $('undoText').textContent = text
+  toastShow(toast)
+  $('undoButton').onclick = () => { toastHide(toast); clearTimeout(undoTimer); undo() }
+  undoTimer = setTimeout(() => toastHide(toast), 7000)
+}
+
 // PDF text with pdf.js (loaded only when a PDF is imported), rebuilt into lines by position.
 let pdfLibrary
 async function pdfText(fileChosen) {
@@ -2839,7 +3110,9 @@ function renderRegister() {
     log.textContent = row.action === 'out' ? 'LOG OUT' : 'LOG IN'
     const place = document.createElement('small')
     place.textContent = row.place || row.address || 'No location'
-    item.append(time, who, log, place)
+    item.append(time, who, log)
+    if (row.status) { const status = document.createElement('em'); status.className = 'status-chip'; status.textContent = row.status; item.append(status) }
+    item.append(place)
     list.append(item)
   }
   $('exportRegister').disabled = $('clearRegister').disabled = !register.length
@@ -2852,8 +3125,9 @@ function toCsv(header, rows) {
   return '\ufeff' + [header, ...rows].map(row => row.map(cell).join(',')).join('\r\n') + '\r\n'
 }
 $('exportRegister').addEventListener('click', () => exportCsv(`GeoZipTag-attendance-${new Date().toISOString().slice(0, 10)}.csv`,
-  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo'],
+  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Shift', 'Status', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo'],
   register.map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+    row.shift ? `${timeLabel(row.shift.split('-')[0])} – ${timeLabel(row.shift.split('-')[1])}` : '', row.status,
     row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), row.file])))
 async function exportCsv(name, header, rows) {
   const csv = toCsv(header, rows)
@@ -2981,7 +3255,7 @@ setTimeout(syncTeam, 4000)
 
 function updateTeamSummary() {
   $('teamSummary').textContent = team ? `${team.name} · ${teamQueue.length ? `${teamQueue.length} waiting to send` : 'all sent'}` : 'Send attendance to your team online'
-  if (!$('teamSheet').open) return
+  if (!$('attendanceHub').open || hubPage !== 'team') return
   $('teamJoined').hidden = !team
   $('teamNotJoined').hidden = !!team
   if (!team) return
@@ -2992,7 +3266,6 @@ function updateTeamSummary() {
     ? `${teamQueue.length} entr${teamQueue.length === 1 ? 'y is' : 'ies are'} waiting${lastSyncError ? `: ${lastSyncError}` : navigator.onLine === false ? ' for the internet' : ''}.`
     : lastSyncAt ? `Everything is sent (last at ${lastSyncAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).` : 'Everything is sent.'
 }
-$('teamSheet').addEventListener('close', () => { $('managerPin').value = '' })
 function joinedTeam(result) {
   team = { code: result.code, name: result.name, team: result.team }
   try { localStorage.setItem(teamKey, JSON.stringify(team)) } catch {}
@@ -3101,7 +3374,7 @@ $('openTeamRegister').addEventListener('click', async () => {
   $('teamEmployeeFilter').value = ''
   if (await loadTeamRegister()) {
     $('managerStatus').textContent = ''
-    $('teamSheet').close()
+    $('attendanceHub').close()
     $('teamRegisterSheet').showModal()
   } else $('managerStatus').textContent = $('teamRegisterSummary').textContent
 })
@@ -4093,9 +4366,10 @@ for (const button of document.querySelectorAll('[data-open]')) {
       $('pinStatus').textContent = 'Enter coordinates or use a GPS fix, then preview the pin.'
     }
     if (panel === 'employeePicker') setTimeout(prepareEmployeePicker)
-    if (panel === 'employeesSheet') fillEmployeesSheet()
-    if (panel === 'registerSheet') renderRegister()
-    if (panel === 'teamSheet') setTimeout(updateTeamSummary)
+    if (panel === 'employeesSheet' || panel === 'registerSheet' || panel === 'teamSheet') {   // these three now live in the Attendance area
+      openHub({ employeesSheet: 'employees', registerSheet: 'register', teamSheet: 'team' }[panel])
+      return
+    }
     if (panel === 'reports') {
       $('reportSource').textContent = lastPhoto ? 'The latest stamped photo is ready to use.' : 'Take a photo first or select one below.'
       updateReportFields()
@@ -4113,7 +4387,7 @@ for (const sheet of document.querySelectorAll('dialog')) {
   sheet.addEventListener('close', reset)
   sheet.addEventListener('touchstart', event => {
     startY = undefined
-    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range], .wheel, .register-list, .emp-list')) return
+    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range], .wheel, .register-list, .hub-scroll, .hub-body')) return
     if (sheet.scrollTop > 0 && !event.target.closest('.sheet-head')) return
     startY = event.touches[0].clientY
     startTime = performance.now()
