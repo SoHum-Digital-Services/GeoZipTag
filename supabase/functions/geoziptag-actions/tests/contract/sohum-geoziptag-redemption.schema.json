@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SoHum-Digital-Services/sohum-contracts/schemas/sohum-geoziptag-redemption.schema.json",
+  "title": "sohum.geoziptag.redemption/1",
+  "description": "One use of a redeem code, as the console's log shows it. The install id is masked; no IP address, device detail or location is kept. See docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md.",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "code_id",
+    "entitlement_id",
+    "install_id_masked",
+    "redeemed_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "sohum.geoziptag.redemption/1"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "code_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "entitlement_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "install_id_masked": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{4}…[0-9a-f]{4}$",
+      "description": "First four and last four characters of the install id."
+    },
+    "redeemed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

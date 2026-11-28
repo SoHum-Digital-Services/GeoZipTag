@@ -1,0 +1,728 @@
+{
+  "product": "geoziptag",
+  "version": "1.1",
+  "display": {
+    "name_en": "GeoZipTag",
+    "category": "Apps",
+    "icon": "camera"
+  },
+  "health": "/geoziptag-actions/health",
+  "actions": [
+    {
+      "name": "list_entitlements",
+      "kind": "read",
+      "scope": "admin",
+      "description": "List GeoZipTag Pro entitlements, newest first. Install ids are masked in the reply.",
+      "method": "GET",
+      "path": "/geoziptag-actions/list_entitlements",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "subject_kind": {
+            "enum": [
+              "install",
+              "team",
+              "account"
+            ]
+          },
+          "subject_id": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "source": {
+            "enum": [
+              "paid",
+              "store",
+              "coupon",
+              "trial",
+              "team",
+              "admin"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "active_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.entitlement/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "get_entitlement",
+      "kind": "read",
+      "scope": "admin",
+      "description": "Get one entitlement by id.",
+      "method": "GET",
+      "path": "/geoziptag-actions/get_entitlement",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "entitlement_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "entitlement_id"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.entitlement/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "list_redeem_codes",
+      "kind": "read",
+      "scope": "admin",
+      "description": "List coupon and trial codes with their usage. Readable codes are never returned, only a hint.",
+      "method": "GET",
+      "path": "/geoziptag-actions/list_redeem_codes",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "coupon",
+              "trial"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.redeem_code/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "list_redemptions",
+      "kind": "read",
+      "scope": "admin",
+      "description": "The redemption log: who used which code when, install ids masked.",
+      "method": "GET",
+      "path": "/geoziptag-actions/list_redemptions",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "code_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.redemption/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "list_team_plans",
+      "kind": "read",
+      "scope": "admin",
+      "description": "List teams in the shared register with their plan. Member counts under 10 are left out.",
+      "method": "GET",
+      "path": "/geoziptag-actions/list_team_plans",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "enum": [
+              "free",
+              "pro"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.team_plan/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "list_team_members",
+      "kind": "read",
+      "scope": "admin",
+      "description": "List a team's signed-in members, account ids masked.",
+      "method": "GET",
+      "path": "/geoziptag-actions/list_team_members",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "status": {
+            "enum": [
+              "active",
+              "removed"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.team_member/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "grant_entitlement",
+      "kind": "write",
+      "scope": "admin",
+      "description": "Give Pro to an install or account for a period (source paid or admin). Team plans are set with change_team_plan.",
+      "propose": {
+        "method": "POST",
+        "path": "/geoziptag-actions/grant_entitlement/propose"
+      },
+      "confirm": {
+        "method": "POST",
+        "path": "/geoziptag-actions/grant_entitlement/confirm"
+      },
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "subject_kind": {
+            "enum": [
+              "install",
+              "team",
+              "account"
+            ]
+          },
+          "subject_id": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "source": {
+            "enum": [
+              "paid",
+              "admin"
+            ]
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 280
+          }
+        },
+        "required": [
+          "subject_kind",
+          "subject_id",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.entitlement/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "revoke_entitlement",
+      "kind": "write",
+      "scope": "admin",
+      "description": "End an entitlement now (sets its end to the time of confirm). The history is kept.",
+      "propose": {
+        "method": "POST",
+        "path": "/geoziptag-actions/revoke_entitlement/propose"
+      },
+      "confirm": {
+        "method": "POST",
+        "path": "/geoziptag-actions/revoke_entitlement/confirm"
+      },
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "entitlement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 280
+          }
+        },
+        "required": [
+          "entitlement_id"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.entitlement/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "set_entitlement_enabled",
+      "kind": "write",
+      "scope": "admin",
+      "description": "Disable or re-enable an entitlement without changing its dates. A disabled one brings the banner back at the phone's next check.",
+      "propose": {
+        "method": "POST",
+        "path": "/geoziptag-actions/set_entitlement_enabled/propose"
+      },
+      "confirm": {
+        "method": "POST",
+        "path": "/geoziptag-actions/set_entitlement_enabled/confirm"
+      },
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "entitlement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 280
+          }
+        },
+        "required": [
+          "entitlement_id",
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.entitlement/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "create_redeem_code",
+      "kind": "write",
+      "scope": "admin",
+      "description": "Create a coupon or free-trial code: days of Pro, an expiry for the code and how many times it can be used. The readable code is in the confirm result once and never again.",
+      "propose": {
+        "method": "POST",
+        "path": "/geoziptag-actions/create_redeem_code/propose"
+      },
+      "confirm": {
+        "method": "POST",
+        "path": "/geoziptag-actions/create_redeem_code/confirm"
+      },
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "kind": {
+            "enum": [
+              "coupon",
+              "trial"
+            ]
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "max_redemptions": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "label",
+          "kind",
+          "days",
+          "max_redemptions"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.redeem_code.created/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "set_redeem_code_enabled",
+      "kind": "write",
+      "scope": "admin",
+      "description": "Disable or re-enable a redeem code. Disabling stops new uses; entitlements already given stay until ended separately.",
+      "propose": {
+        "method": "POST",
+        "path": "/geoziptag-actions/set_redeem_code_enabled/propose"
+      },
+      "confirm": {
+        "method": "POST",
+        "path": "/geoziptag-actions/set_redeem_code_enabled/confirm"
+      },
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "code_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code_id",
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.redeem_code/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "change_team_plan",
+      "kind": "write",
+      "scope": "admin",
+      "description": "Set a team's plan (free or pro) and its period.",
+      "propose": {
+        "method": "POST",
+        "path": "/geoziptag-actions/change_team_plan/propose"
+      },
+      "confirm": {
+        "method": "POST",
+        "path": "/geoziptag-actions/change_team_plan/confirm"
+      },
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "plan": {
+            "enum": [
+              "free",
+              "pro"
+            ]
+          },
+          "ends_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "team_id",
+          "plan"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.team_plan/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "remove_team_member",
+      "kind": "write",
+      "scope": "admin",
+      "description": "Remove a member from a team. Their inherited entitlement ends at their next check.",
+      "propose": {
+        "method": "POST",
+        "path": "/geoziptag-actions/remove_team_member/propose"
+      },
+      "confirm": {
+        "method": "POST",
+        "path": "/geoziptag-actions/remove_team_member/confirm"
+      },
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "membership_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "membership_id"
+        ],
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.team_member/1",
+      "requires": {
+        "auth": true,
+        "roles": [
+          "owner",
+          "operator"
+        ]
+      },
+      "assistant": false
+    },
+    {
+      "name": "redeem_code",
+      "kind": "write",
+      "scope": "user",
+      "description": "App only. The person types a code; the server returns a signed entitlement or one generic error. Not propose and confirm: pressing Redeem is the confirmation, and a repeat by the same install with the same code returns the same entitlement (idempotent). Carries method and path like Darshan's one-time action.",
+      "method": "POST",
+      "path": "/geoziptag-actions/redeem_code",
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "install_id",
+          "code"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "install_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Random, made by the app once. Not a hardware, advertising or account id."
+          },
+          "code": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 40,
+            "description": "As typed. The server ignores case, spaces and hyphens."
+          }
+        }
+      },
+      "returns": "sohum.geoziptag.entitlement.signed/1",
+      "requires": {
+        "auth": false,
+        "roles": []
+      },
+      "assistant": false
+    },
+    {
+      "name": "check_entitlement",
+      "kind": "read",
+      "scope": "user",
+      "description": "App only. About once a day the app asks for a fresh signed entitlement for its install id; a signed-in team member also sends the SoHum bearer token so the team's plan applies. Replies with a signed entitlement, or none.",
+      "method": "POST",
+      "path": "/geoziptag-actions/check_entitlement",
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "install_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "install_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "store_receipt": {
+            "type": "string",
+            "maxLength": 8192,
+            "writeOnly": true,
+            "description": "Later (store billing is not in the first build). The store's receipt or purchase token for the server to verify. Never logged."
+          }
+        },
+        "description": "The daily re-check. For a signed-in team member the app also sends the SoHum bearer token in the Authorization header (not in the body); the server then adds the team's plan to what it signs. Without a token only the install's own entitlement applies."
+      },
+      "returns": "sohum.geoziptag.entitlement.signed/1",
+      "requires": {
+        "auth": false,
+        "roles": []
+      },
+      "assistant": false
+    },
+    {
+      "name": "get_public_keys",
+      "kind": "read",
+      "scope": "user",
+      "description": "App and operators. The public verification keys. No secret.",
+      "method": "GET",
+      "path": "/geoziptag-actions/get_public_keys",
+      "params_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "returns": "sohum.geoziptag.public_keys/1",
+      "requires": {
+        "auth": false,
+        "roles": []
+      },
+      "assistant": false
+    },
+    {
+      "name": "join_team",
+      "kind": "write",
+      "scope": "user",
+      "description": "App only. A signed-in person joins a team with its code; the team's plan is then inherited at their next check. Needs the SoHum bearer token. Like redeem_code it is not propose and confirm (pressing Join is the confirmation) and says so; a repeat returns the same membership.",
+      "method": "POST",
+      "path": "/geoziptag-actions/join_team",
+      "params_schema": {
+        "type": "object",
+        "description": "Body of join_team. Needs the SoHum bearer token. The code is the team's existing code from the shared register.",
+        "required": [
+          "install_id",
+          "team_code"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "install_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "team_code": {
+            "type": "string",
+            "maxLength": 40
+          }
+        }
+      },
+      "returns": "sohum.geoziptag.team_member/1",
+      "requires": {
+        "auth": true,
+        "roles": []
+      },
+      "assistant": false
+    }
+  ]
+}

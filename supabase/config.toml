@@ -1,0 +1,7 @@
+# Supabase CLI config, only what the GeoZipTag actions function needs. Hosted project: `sohum`.
+# Not applied by anything in this repository.
+
+[functions.geoziptag-actions]
+# The console and the app send no Supabase JWT. The function authenticates for itself:
+# HMAC for admin calls, a verified SoHum token for join_team, rate limits for the public calls.
+verify_jwt = false

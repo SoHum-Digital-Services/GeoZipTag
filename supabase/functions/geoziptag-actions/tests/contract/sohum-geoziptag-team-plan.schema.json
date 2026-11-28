@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SoHum-Digital-Services/sohum-contracts/schemas/sohum-geoziptag-team-plan.schema.json",
+  "title": "sohum.geoziptag.team_plan/1",
+  "description": "The plan of one team in the shared register, as the console shows and changes it. team_id is the existing team's id. Members who signed in with SoHum inherit the plan; removing a member removes their entitlement at their next check (decided 2026-11-28). See docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md.",
+  "type": "object",
+  "required": [
+    "schema",
+    "team_id",
+    "team_name",
+    "plan",
+    "enabled"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "sohum.geoziptag.team_plan/1"
+    },
+    "team_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "team_name": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "The team's own name (an organisation, not a person)."
+    },
+    "plan": {
+      "enum": [
+        "free",
+        "pro"
+      ]
+    },
+    "starts_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ends_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "member_count": {
+      "type": "integer",
+      "minimum": 10,
+      "description": "Phones that joined. Left out when fewer than 10 (console rule: aggregates hide groups under 10)."
+    },
+    "entitlement_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The entitlement that carries the plan."
+    }
+  }
+}

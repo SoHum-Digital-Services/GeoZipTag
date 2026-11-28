@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SoHum-Digital-Services/sohum-contracts/schemas/sohum-geoziptag-redeem-code.schema.json",
+  "title": "sohum.geoziptag.redeem_code/1",
+  "description": "A coupon or free-trial code. Only a hash is stored; the readable code is shown once, in the confirm result of create_redeem_code ($defs/created). Carries no personal data. See docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md.",
+  "$ref": "#/$defs/record",
+  "$defs": {
+    "record": {
+      "type": "object",
+      "required": [
+        "schema",
+        "id",
+        "label",
+        "kind",
+        "days",
+        "valid_until",
+        "max_redemptions",
+        "redeemed_count",
+        "enabled",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "sohum.geoziptag.redeem_code/1"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "The admin's own name for it, for example 'Launch week'."
+        },
+        "kind": {
+          "enum": [
+            "coupon",
+            "trial"
+          ],
+          "description": "Becomes the entitlement's source."
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650,
+          "description": "How long Pro lasts from redemption: 7 for a week, 30 for a month, or any number."
+        },
+        "valid_until": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "The code cannot be redeemed after this time. null: no expiry."
+        },
+        "max_redemptions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The usage limit. Several people may use one code up to this number; 1 is a single-use code (decided 2026-11-28). One install redeems a given code once. Every redemption is recorded (sohum.geoziptag.redemption/1)."
+        },
+        "redeemed_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "code_hint": {
+          "type": "string",
+          "maxLength": 8,
+          "description": "The last four characters, so an operator can recognise a code."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_by": {
+          "type": "string",
+          "maxLength": 80
+        }
+      }
+    },
+    "created": {
+      "type": "object",
+      "description": "The confirm result of create_redeem_code. The only time the readable code exists.",
+      "required": [
+        "schema",
+        "code",
+        "redeem_code"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "sohum.geoziptag.redeem_code.created/1"
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "redeem_code": {
+          "$ref": "#/$defs/record"
+        }
+      }
+    }
+  }
+}

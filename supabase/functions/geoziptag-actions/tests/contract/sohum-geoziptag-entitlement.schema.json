@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SoHum-Digital-Services/sohum-contracts/schemas/sohum-geoziptag-entitlement.schema.json",
+  "title": "sohum.geoziptag.entitlement/1",
+  "description": "A GeoZipTag Pro entitlement. The root is the stored record the console reads and changes. $defs/payload is what the server signs for the app, $defs/signed is the signed envelope the app receives, $defs/public_keys is the key set, and $defs/redeem_request, $defs/check_request and $defs/join_request are the app's calls. Carries no name, email, phone, location or advertising id. See docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md.",
+  "$ref": "#/$defs/record",
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "install",
+            "team",
+            "account"
+          ],
+          "description": "install: a random id the app makes once on the phone; the default for everyone (decided 2026-11-28). account: a SoHum Account (Supabase sub), used only for team plans and memberships. team: the team itself, which holds a team plan (the plan is inherited by its members, never applied to a phone by team code alone)."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      }
+    },
+    "source": {
+      "enum": [
+        "paid",
+        "store",
+        "coupon",
+        "trial",
+        "team",
+        "admin"
+      ],
+      "description": "coupon: from a redeem code (first build). trial: a free trial from a redeem code (first build). admin: granted by hand in the console (first build). team: inherited from a team plan by a signed-in member. paid: sold outside the app and granted by an admin; kept in the shape, not in the first build. store: bought through Apple or Google in-app billing; later, not in the first build (the owner's order, 2026-11-28)."
+    },
+    "store": {
+      "type": "object",
+      "description": "Only when source is store. The server verified the purchase with the store. No card, Apple ID or Google account data is kept.",
+      "required": [
+        "platform",
+        "product_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "enum": [
+            "apple",
+            "google"
+          ]
+        },
+        "product_id": {
+          "type": "string",
+          "maxLength": 120
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "schema",
+        "id",
+        "subject",
+        "plan",
+        "source",
+        "starts_at",
+        "ends_at",
+        "enabled",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "sohum.geoziptag.entitlement/1"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "plan": {
+          "enum": [
+            "pro"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ends_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "null means no end date."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false: disabled by an admin. A disabled entitlement is signed as enabled:false so the app brings the banner back at once."
+        },
+        "redeemed_code_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The redeem code this came from, when source is coupon or trial."
+        },
+        "store": {
+          "$ref": "#/$defs/store"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 280,
+          "description": "Free text for operators. Must not hold personal data."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_by": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Console actor id for an admin grant; absent for a redeem or a store purchase."
+        },
+        "team_id": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "The team a plan or an inherited entitlement comes from (source team)."
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "schema",
+        "subject",
+        "plan",
+        "source",
+        "starts_at",
+        "ends_at",
+        "enabled",
+        "issued_at",
+        "check_after",
+        "grace_until",
+        "key_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "sohum.geoziptag.entitlement.payload/1"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "plan": {
+          "enum": [
+            "pro"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ends_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "check_after": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The app asks again after this time (about daily)."
+        },
+        "grace_until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Offline, the app honours the entitlement until this time (issued_at plus 7 days), never past ends_at."
+        },
+        "key_id": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "team_id": {
+          "type": "string",
+          "maxLength": 80
+        }
+      }
+    },
+    "signed": {
+      "type": "object",
+      "description": "What redeem and check return. The signature is over the exact bytes of payload_b64 (decoded), so nothing needs canonical JSON. The app verifies the signature with a bundled public key, then parses the payload, then checks the dates against its clock.",
+      "required": [
+        "schema",
+        "alg",
+        "key_id",
+        "payload_b64",
+        "signature_b64"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "sohum.geoziptag.entitlement.signed/1"
+        },
+        "alg": {
+          "enum": [
+            "ES256"
+          ],
+          "description": "ECDSA P-256 with SHA-256, as the wireless updates already use. Other values may be added later."
+        },
+        "key_id": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "payload_b64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "base64url (no padding) of the UTF-8 JSON of $defs/payload."
+        },
+        "signature_b64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "base64url (no padding), raw r||s (64 bytes)."
+        }
+      }
+    },
+    "public_keys": {
+      "type": "object",
+      "description": "The verification keys. The app ships with them. A key id the app does not hold is untrusted; a new key reaches the app in an app update, never from the network alone.",
+      "required": [
+        "schema",
+        "keys"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "sohum.geoziptag.public_keys/1"
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "key_id",
+              "alg",
+              "public_key_b64",
+              "not_before"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "key_id": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "alg": {
+                "enum": [
+                  "ES256"
+                ]
+              },
+              "public_key_b64": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/=]+$",
+                "description": "Standard base64 of the DER SubjectPublicKeyInfo. A public key; never the private key."
+              },
+              "not_before": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "retired_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    },
+    "redeem_request": {
+      "type": "object",
+      "required": [
+        "install_id",
+        "code"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "install_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Random, made by the app once. Not a hardware, advertising or account id."
+        },
+        "code": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 40,
+          "description": "As typed. The server ignores case, spaces and hyphens."
+        }
+      }
+    },
+    "check_request": {
+      "type": "object",
+      "required": [
+        "install_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "install_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "store_receipt": {
+          "type": "string",
+          "maxLength": 8192,
+          "writeOnly": true,
+          "description": "Later (store billing is not in the first build). The store's receipt or purchase token for the server to verify. Never logged."
+        }
+      },
+      "description": "The daily re-check. For a signed-in team member the app also sends the SoHum bearer token in the Authorization header (not in the body); the server then adds the team's plan to what it signs. Without a token only the install's own entitlement applies."
+    },
+    "join_request": {
+      "type": "object",
+      "description": "Body of join_team. Needs the SoHum bearer token. The code is the team's existing code from the shared register.",
+      "required": [
+        "install_id",
+        "team_code"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "install_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "team_code": {
+          "type": "string",
+          "maxLength": 40
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "sohum.geoziptag.entitlement/1",
+  "id": "3f2b8c1e-5d4a-4b7e-9a10-6c2d9e8f7a11",
+  "subject": {
+    "kind": "install",
+    "id": "7b0f1d52-3c1e-4c0a-9f2e-5a6d8e1b2c34"
+  },
+  "plan": "pro",
+  "source": "coupon",
+  "starts_at": "2026-12-01T09:30:00Z",
+  "ends_at": "2026-12-08T09:30:00Z",
+  "enabled": true,
+  "redeemed_code_id": "9a1c7e42-0b3d-4f5a-8e66-2d7b1c4a9f30",
+  "created_at": "2026-12-01T09:30:00Z"
+}
