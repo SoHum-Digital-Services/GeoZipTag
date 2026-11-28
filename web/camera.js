@@ -1586,8 +1586,18 @@ $('zoomSlider').addEventListener('change', async event => {
   setZoomLabel(slider.valueAsNumber)
 })
 
+let lastTap = { time: 0, x: 0, y: 0 }
 video.addEventListener('click', async event => {
   if (pinch || Date.now() - pinchEndedAt < 400 || Date.now() - modeSwipedAt < 400) return
+  // Double-tap the picture: flip between the front and back camera (not when a tap takes the photo).
+  const now = Date.now()
+  if (preferences.tapAction !== 'capture' && now - lastTap.time < 320 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 40) {
+    lastTap.time = 0
+    const flip = $('switchCamera')
+    if (!flip.hidden && !flip.disabled && !busy && !recording) { flip.click(); haptic() }
+    return
+  }
+  lastTap = { time: now, x: event.clientX, y: event.clientY }
   if (preferences.tapAction === 'capture') {
     if (!busy && countdownTimer === undefined) $('shutter').click()
     return
@@ -1982,6 +1992,8 @@ function hideReview() {
 
 // Leaving the photo view: back to the live camera.
 function closePhotoView() {
+  const newest = photoHistory[photoHistory.length - 1]
+  if (newest && lastPhoto !== newest) { setCurrentPhoto(newest); showThumbnail(newest) }   // after browsing older photos
   hideReview()
   if (!stream) startLiveCamera()
 }
@@ -1996,16 +2008,21 @@ $('deletePhoto').addEventListener('click', () => {
   $('deleteConfirm').showModal()
 })
 $('cancelDelete').addEventListener('click', () => $('deleteConfirm').close())
-$('confirmDelete').addEventListener('click', async () => {
-  $('deleteConfirm').close()
-  const entry = lastPhoto
-  if (!entry) return
+// Removes a photo from the app and, where the app can, from the Gallery. Returns whether the Gallery copy went too.
+async function deleteEntry(entry) {
   const fromDevice = hostSaves && entry.saved && typeof android.deletePhoto === 'function'
   if (fromDevice) {
     try { await entry.saving } catch {}   // let the automatic save finish first, so no file is left behind
     android.deletePhoto(entry.name)
   }
   removePhoto(entry)
+  return fromDevice
+}
+$('confirmDelete').addEventListener('click', async () => {
+  $('deleteConfirm').close()
+  const entry = lastPhoto
+  if (!entry) return
+  const fromDevice = await deleteEntry(entry)
   closePhotoView()
   message(hostSaves && entry.saved && !fromDevice ? 'Removed from the app. It is still in your Gallery.' : 'Photo deleted',
     hostSaves && entry.saved && !fromDevice ? 5000 : 2000)
@@ -2063,6 +2080,28 @@ window.onPhotoDeleted = (name, ok) => {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !$('review').hidden && !document.querySelector('dialog[open]')) closePhotoView()
 })
+// ---- Swipe sideways in the photo view to browse the last photos (left: the next, newer one; right: the older one) ----
+{
+  const area = $('result').parentElement
+  let start
+  area.addEventListener('pointerdown', event => {
+    if (!area.classList.contains('photo-review') || earlyPreview || event.target.closest('button')) return
+    start = { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now() }
+  })
+  area.addEventListener('pointerup', event => {
+    if (!start || start.id !== event.pointerId) return
+    const dx = event.clientX - start.x, dy = event.clientY - start.y, quick = performance.now() - start.time < 800
+    start = undefined
+    if (!quick || Math.abs(dx) < 60 || Math.abs(dx) < 1.5 * Math.abs(dy) || busy) return
+    const index = photoHistory.indexOf(lastPhoto)
+    const target = photoHistory[index + (dx < 0 ? 1 : -1)]
+    if (index < 0 || !target?.url) return   // already at the newest / oldest photo
+    setCurrentPhoto(target)
+    showReview()
+    haptic()
+  })
+  area.addEventListener('pointercancel', () => { start = undefined })
+}
 
 function cancelCountdown() {
   clearInterval(countdownTimer)
@@ -2169,7 +2208,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       url: URL.createObjectURL(jpeg), originalUrl: original ? URL.createObjectURL(original) : undefined
     }
     rememberPhoto(entry)
-    if (attendance) recordAttendance(attendance, { date, snapshot, address, file: name, photo: proofCopy(canvas) })
+    const logged = attendance ? recordAttendance(attendance, { date, snapshot, address, file: name, photo: proofCopy(canvas) }) : undefined
     // The photo is ready: the thumbnail updates at once and the viewfinder stays on screen.
     updateThumbnail(canvas, entry)
     mark('thumbnail')
@@ -2182,6 +2221,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     // The finished photo stays on screen until the user swipes down (or taps Camera) for the next one.
     earlyPreview = false
     if (preferences.reviewAfter) showReview()
+    if (logged) showUndo(attendance, entry, logged)
     if (!live && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
     if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
@@ -2288,12 +2328,40 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
     lat: snapshot?.lat, lon: snapshot?.lon, file
   }
   register.push(row)
-  queueForTeam(row, photo)
+  const queued = queueForTeam(row, photo)
   if (register.length > 5000) register = register.slice(-5000)
   try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
   logOverride = undefined   // the next photo for this ID suggests the opposite action
   updateEmployeeSummary()
   setTimeout(renderLiveStamp)
+  return { row, queued }
+}
+// After an attendance photo: "Logged in 10:14 · Undo" for a few seconds. Undo removes that entry and its photo.
+let undoTimer
+function showUndo(attendance, entry, { row, queued }) {
+  const toast = $('undoToast')
+  clearTimeout(undoTimer)
+  $('undoText').textContent = `${attendance.action === 'out' ? 'Logged out' : 'Logged in'} · ${row.clock.slice(0, 5)} · ${attendance.id}`
+  toast.hidden = false
+  $('undoButton').onclick = async () => {
+    toast.hidden = true
+    clearTimeout(undoTimer)
+    const at = register.indexOf(row)
+    if (at >= 0) register.splice(at, 1)
+    try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
+    let sent = true
+    if (queued) {
+      const index = teamQueue.indexOf(queued)
+      if (index >= 0) { teamQueue.splice(index, 1); saveQueue(); photoStore.removeUpload(queued.ref); updateTeamSummary(); sent = false }
+    } else sent = false
+    if (photoHistory.includes(entry)) {
+      await deleteEntry(entry)
+      if (!$('review').hidden) closePhotoView()
+    }
+    updateEmployeeSummary(); showLogChoice(); renderLiveStamp()
+    message(sent ? 'Removed here. It was already sent to your team’s register.' : `${attendance.action === 'out' ? 'Log out' : 'Log in'} undone`, sent ? 5000 : 2500)
+  }
+  undoTimer = setTimeout(() => { toast.hidden = true }, 7000)
 }
 function updateEmployeeSummary() {
   const count = allEmployees().length
@@ -2775,6 +2843,7 @@ function queueForTeam(row, photo) {
     }, 'image/jpeg', 0.7)
   } else syncTeam()
   updateTeamSummary()
+  return item
 }
 // Sends what is waiting: photos first (their links go with the rows), then up to 200 rows in one call.
 async function syncTeam() {
@@ -3256,7 +3325,42 @@ function exportJpeg(canvas) {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', preferences.quality === 'standard' ? 0.85 : 0.94))
 }
 
+// Hold the shutter to record a video (let go to stop), then the camera returns to Photo. A normal tap still takes a photo.
+{
+  const shutter = $('shutter')
+  let holdTimer, holding = false, down = false
+  const waitFor = async (ready, ms) => { const end = Date.now() + ms; while (Date.now() < end && !ready()) await new Promise(r => setTimeout(r, 100)); return ready() }
+  shutter.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    down = true
+    if (captureMode !== 'photo' || recording || busy || !videoCapable || countdownTimer !== undefined) return
+    holdTimer = setTimeout(async () => {
+      holding = true
+      holdSuppressClick = true
+      shutter.classList.add('holding')
+      haptic()
+      setMode('video')   // the camera restarts in video mode; recording starts as soon as it is ready
+      if (await waitFor(() => stream && !stream.native && video.videoWidth > 0 && !busy, 6000) && down && holding) { startRecording(); haptic() }
+    }, 450)
+  })
+  const release = async () => {
+    down = false
+    clearTimeout(holdTimer)
+    if (!holding) return
+    holding = false
+    shutter.classList.remove('holding')
+    if (recording) await stopRecording()
+    await waitFor(() => !recording && !busy, 4000)
+    setMode('photo')
+    setTimeout(() => { holdSuppressClick = false }, 300)
+  }
+  shutter.addEventListener('pointerup', release)
+  shutter.addEventListener('pointercancel', release)
+  shutter.addEventListener('contextmenu', event => { if (holding) event.preventDefault() })   // no menu while holding on a touch screen
+}
+let holdSuppressClick = false
 $('shutter').addEventListener('click', () => {
+  if (holdSuppressClick) { holdSuppressClick = false; return }   // the release of a hold is not a tap
   if (captureMode === 'video') { toggleRecording(); return }
   if (countdownTimer !== undefined) cancelCountdown()
   else requestCapture(takeLivePhoto)

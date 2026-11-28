@@ -789,6 +789,13 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> dismissSplash(true));
         }
 
+        /** A light tick when a swipe or wheel clicks into place (no permission needed). */
+        @JavascriptInterface public void haptic() {
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed()) cameraView.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+            });
+        }
+
         /** Opens this app's page in the phone's Settings (where camera and location access can be turned on). */
         @JavascriptInterface public void openSettings() {
             runOnUiThread(() -> {

@@ -44,12 +44,14 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         launchProblem: () => post({ type: 'launchProblem' }),
         openSettings: () => post({ type: 'openSettings' }),
         setUpdateChannel: (channel) => post({ type: 'setUpdateChannel', channel: String(channel) }),
+        haptic: () => post({ type: 'haptic' }),
       }
     })()
     """
 
     private var webView: WKWebView!
     private let camera = NativeCamera()
+    private let tick = UISelectionFeedbackGenerator()
     // The banner ad: a native view over the page, only where the page puts its ad slot (the photo view).
     private var adSlot: UIView?
     private var banner: BannerView?
@@ -386,6 +388,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             webView.reload()
             // Then fetch that version's newest update (the page reports it in Settings).
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.checkForUpdates(manual: true) }
+        case "haptic":
+            tick.selectionChanged()   // a light tick when a swipe or wheel clicks into place
+            tick.prepare()
         case "openSettings":
             if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         case "adHide":
