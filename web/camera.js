@@ -1044,13 +1044,15 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   if (weekOff) snapshot = undefined, map = undefined   // Week Off: no place, no map, no coordinates
   const attendanceCard = template === 'attendance' || weekOff
   const calendar = !snapshot && !attendanceCard
-  if (attendanceCard) map = undefined   // the status tile takes the map's place
+  const sideMap = attendanceCard && !weekOff ? map : undefined   // Attendance: the satellite map goes on the right
+  if (attendanceCard) map = undefined   // the status tile takes the left
   const mapSize = map || calendar || attendanceCard ? 92 : 0
   const codeSize = template === 'qr' && snapshot ? 84 : 0
+  const sideSize = sideMap ? 84 : 0
   const accentBar = mapSize ? 0 : 3
   const width = Math.min(w - 2 * inset, mapSize ? 540 : 450)
   const textX = inset + padding + (mapSize ? mapSize + padding + 2 : accentBar + padding)
-  const textWidth = inset + width - padding - (codeSize ? codeSize + padding : 0) - textX
+  const textWidth = inset + width - padding - (codeSize || sideSize ? (codeSize || sideSize) + padding : 0) - textX
   const colors = {
     text: '#fbf8f2', muted: '#c9cfd1', coordinate: '#8fdcd8', brand: '#f47a67',
     card: 'rgba(9, 13, 14, 0.88)', accent: '#f2634e'
@@ -1110,7 +1112,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
       add(placeHeading(snapshot, address) || 'GPS location', 12.5, colors.muted, 500, { maxLines: 1 })
       add(formatCoordinates(snapshot), 11, colors.coordinate, 600, { maxLines: 1 })
     } else add('Location unavailable', 12, colors.muted, 500, { maxLines: 1 })
-    add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
+    add(`${sideMap ? dateLabel.replace(/^[^,]*,\s*/, '') : dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })   // with the map on the right there is less room: no weekday
   } else if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
   if (attendanceCard) {
     // (drawn above)
@@ -1127,7 +1129,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   }
   if (note) add(`Note: ${note}`, 11.5, colors.muted, 500, { maxLines: 2 })
   const textHeight = lines.reduce((sum, item) => sum + item.height, 0) - 2
-  const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, textHeight + 2 * padding + 2)
+  const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, sideSize + 2 * padding, textHeight + 2 * padding + 2)
   const top = position === 'top' ? inset : h - inset - panelHeight
 
   // Card and GeoZiptag tab are one outline, filled once so the translucent
@@ -1241,35 +1243,36 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.restore()
   }
 
-  if (map) {
-    const mapX = inset + padding
-    const mapTop = top + (panelHeight - mapSize) / 2
+  if (map || sideMap) {
+    const tileSize = map ? mapSize : sideSize, tileImage = map || sideMap
+    const mapX = map ? inset + padding : inset + width - padding - tileSize
+    const mapTop = top + (panelHeight - tileSize) / 2
     ctx.save()
-    rounded(mapX, mapTop, mapSize, mapSize, 8)
+    rounded(mapX, mapTop, tileSize, tileSize, 8)
     ctx.clip()
-    ctx.drawImage(map, mapX, mapTop, mapSize, mapSize)
+    ctx.drawImage(tileImage, mapX, mapTop, tileSize, tileSize)
     if (!example) {
       // Imagery credit (required by Esri): one small line on a faint strip, so the map stays visible.
       const credit = '© Esri, Vantor, Earthstar Geographics'
       let size = 5.6
       ctx.font = `500 ${size}px ${stampFace}`
-      const room = mapSize - 6
+      const room = tileSize - 6
       if (ctx.measureText(credit).width > room) {
         size *= room / ctx.measureText(credit).width
         ctx.font = `500 ${size}px ${stampFace}`
       }
       const stripHeight = size + 4
-      const strip = ctx.createLinearGradient(0, mapTop + mapSize - stripHeight - 3, 0, mapTop + mapSize)
+      const strip = ctx.createLinearGradient(0, mapTop + tileSize - stripHeight - 3, 0, mapTop + tileSize)
       strip.addColorStop(0, 'rgba(0, 0, 0, 0)')
       strip.addColorStop(1, 'rgba(0, 0, 0, 0.55)')
       ctx.fillStyle = strip
-      ctx.fillRect(mapX, mapTop + mapSize - stripHeight - 3, mapSize, stripHeight + 3)
+      ctx.fillRect(mapX, mapTop + tileSize - stripHeight - 3, tileSize, stripHeight + 3)
       ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
-      ctx.fillText(credit, mapX + 3, mapTop + mapSize - size - 2)
+      ctx.fillText(credit, mapX + 3, mapTop + tileSize - size - 2)
     }
     ctx.restore()
 
-    const x = mapX + mapSize / 2, y = mapTop + mapSize / 2
+    const x = mapX + tileSize / 2, y = mapTop + tileSize / 2
     ctx.save()
     ctx.shadowColor = 'rgba(0, 0, 0, 0.45)'
     ctx.shadowBlur = 4
