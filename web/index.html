@@ -372,6 +372,16 @@
       </button>
     </div>
   </section>
+  <section id="proGroup" class="settings-group" aria-labelledby="settingsPro" hidden>
+    <h3 id="settingsPro">Pro</h3>
+    <div class="settings-list">
+      <button id="proRow" class="setting-row setting-link" type="button" data-open="redeemSheet">
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-star"/></svg>
+        <span class="row-text"><strong>Redeem code</strong><small id="proSummary">Enter a code to turn ads off</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+    </div>
+  </section>
   <section id="updatesGroup" class="settings-group" aria-labelledby="settingsUpdates" hidden>
     <h3 id="settingsUpdates">App updates</h3>
     <div class="settings-list">
@@ -592,6 +602,18 @@
   </div>
 </dialog>
 
+<dialog id="redeemSheet" aria-labelledby="redeemTitle" autofocus>
+  <div class="sheet-head"><h2 id="redeemTitle">Redeem code</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <form id="redeemForm" class="settings-group" autocomplete="off">
+    <p class="hint">Have a Pro code or trial code from SoHum? Enter it to turn off the banner ad. The camera and everything else work the same with or without it.</p>
+    <label class="field"><span>Code</span><input id="redeemCode" type="text" maxlength="40" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. HQ7K-M2WD"></label>
+    <div class="sheet-actions stacked">
+      <button id="redeemButton" class="primary" type="submit">Redeem</button>
+    </div>
+    <p id="redeemStatus" class="hint" role="status"></p>
+  </form>
+</dialog>
+
 <dialog id="privacySheet" class="info-sheet" aria-labelledby="privacyTitle" autofocus>
   <div class="sheet-head"><h2 id="privacyTitle">Privacy policy</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
   <div class="info-text">
@@ -604,6 +626,8 @@
     <p>Employee IDs and the attendance register stay on your phone. Only if you join a team, each entry (ID, name, log in or out, time, place and a small copy of the photo) is also sent to that team's shared register, which only the manager PIN can open. Leave the team to stop.</p>
     <h3>Ads</h3>
     <p>The Android and iPhone apps show a small banner ad from Google AdMob in the photo view, never on the camera screen. Google may use your phone's advertising ID to show it. Your photos, location and attendance are never shared with the ad network.</p>
+    <h3>Pro codes</h3>
+    <p>If you redeem a Pro or trial code, the app makes a random install ID (not your name, phone, location, advertising ID or contact detail) and sends it to SoHum with the code you typed, and about once a day to check that your Pro is still on. SoHum keeps the code you redeemed and when, nothing else. A valid code or Pro plan only turns the banner ad off.</p>
     <h3>Reports</h3>
     <p>Reports, logos and notes are made on your phone and are not uploaded anywhere.</p>
     <h3>Updates</h3>

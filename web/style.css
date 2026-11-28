@@ -1254,3 +1254,6 @@ dialog.hub .switch:checked::before { background: #151515; }
 
 /* iPhone Safari sizes date and number fields by their own intrinsic width: keep them inside their row. */
 dialog input[type=date], dialog input[type=number], dialog input[type=time] { min-width: 0; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none; }
+
+.field { display: grid; gap: .35rem; margin: .5rem 0; }
+.field span { font-size: .85rem; color: var(--text-2); }
