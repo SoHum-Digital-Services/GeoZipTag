@@ -314,6 +314,7 @@ final class NativeCamera implements TextureView.SurfaceTextureListener {
                     .put("height", Math.max(photoSize.getWidth(), photoSize.getHeight()))
                     .put("zoom", (double) zoom).put("zoomMin", (double) zoomMin).put("zoomMax", (double) zoomMax)
                     .put("hasTorch", flash != null && flash)
+                    .put("screenFlash", "user".equals(facing) && (flash == null || !flash))   // no flash unit: the page lights the screen instead
                     .put("flashModes", flash != null && flash ? new org.json.JSONArray(Arrays.asList("off", "auto", "on"))
                             : new org.json.JSONArray(Arrays.asList("off")))
                     .put("exposureMin", (double) Math.max(-2f, evStep() * aeRange().getLower()))

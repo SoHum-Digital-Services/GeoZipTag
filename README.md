@@ -8,7 +8,7 @@ video, and photo reports.
 
 | Platform | Version | Where it lives | Where to bump it |
 |---|---|---|---|
-| Android | **1.24** (version code 25) | `android/` | `android/app/build.gradle` (`versionName`, `versionCode`) |
+| Android | **1.25** (version code 26) | `android/` | `android/app/build.gradle` (`versionName`, `versionCode`) |
 | iPhone | **1.25** (build 26) | `ios/` | `ios/project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`) |
 | Web | dated automatically, e.g. `26.11.27-1650` | `web/` | nothing to bump: each publish is stamped with its date and time |
 

@@ -272,13 +272,14 @@ function nativeStream(state) {
   const settings = { facingMode: state.facing, zoom: state.zoom ?? 1, torch: false, flash: 'off', exposure: 0 }
   const track = {
     native: true,
+    screenFlash: !!state.screenFlash && typeof nativeHost.setScreenBrightness === 'function',
     width: state.width,
     height: state.height,
     lenses: Array.isArray(state.lenses) ? state.lenses : undefined,
     getCapabilities: () => ({
       zoom: state.zoomMax > state.zoomMin ? { min: state.zoomMin, max: state.zoomMax, step: 0.01 } : undefined,
       torch: !!state.hasTorch,
-      flash: Array.isArray(state.flashModes) && state.flashModes.length > 1 ? state.flashModes : undefined,
+      flash: Array.isArray(state.flashModes) && state.flashModes.length > 1 ? state.flashModes : state.screenFlash ? ['off', 'on'] : undefined,   // no flash unit but a front camera: the screen lights up instead
       exposure: state.exposureMax > state.exposureMin ? { min: state.exposureMin, max: state.exposureMax } : undefined,
       focusMode: state.canFocus ? ['single-shot'] : []
     }),
@@ -302,6 +303,18 @@ function nativeStream(state) {
   return { native: true, cameras: state.cameras || 1, getTracks: () => [track], getVideoTracks: () => [track] }
 }
 
+// Display flash (Android front camera): the screen goes white at full brightness while the photo is taken.
+function lightScreenIfNeeded() {
+  const track = stream?.getVideoTracks?.()[0]
+  if (!track?.screenFlash || track.getSettings().flash !== 'on') return false
+  $('screenFlash').hidden = false
+  try { nativeHost.setScreenBrightness(1) } catch {}
+  return new Promise(resolve => setTimeout(() => resolve(true), 350))   // a moment for the camera to adjust to the light
+}
+function endScreenFlash() {
+  $('screenFlash').hidden = true
+  try { nativeHost.setScreenBrightness(-1) } catch {}
+}
 function takeNativePhoto() {
   return new Promise((resolve, reject) => {
     const id = `photo${Date.now()}x${++nativePhotoCount}`
@@ -2185,7 +2198,8 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
   const place = placeFor(snapshot)   // runs while the camera takes the photo
   try {
     if (live && stream?.native) {
-      source = await takeNativePhoto()   // full-quality photo from the phone's camera
+      const screenLit = await lightScreenIfNeeded()
+      try { source = await takeNativePhoto() } finally { if (screenLit) endScreenFlash() }   // full-quality photo from the phone's camera
       imageFile = true
       if (nativeShotAt) lastTimings.push(['shot', Math.round(nativeShotAt - t0)])
       mark('loaded')
