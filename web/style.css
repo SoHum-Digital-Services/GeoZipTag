@@ -1075,3 +1075,12 @@ body.video-mode .shutter::before { background: #ff3b30; }
 .register-row.team-row { grid-template-columns: 1fr auto; }
 .register-row.team-row.with-photo { grid-template-columns: 52px 1fr auto; }
 .register-row.team-row small { white-space: normal; }
+
+/* Attendance: tap the LOG IN / LOG OUT tile on the live card to choose (an invisible button sits over the tile). */
+.log-tap { position: fixed; z-index: 4; padding: 0; background: transparent; border-radius: 10px; -webkit-tap-highlight-color: transparent; }
+.log-choice { position: fixed; z-index: 7; display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; padding: .45rem; border-radius: 16px; background: rgba(28, 28, 30, .94); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 8px 28px rgba(0, 0, 0, .5); }
+.log-choice[hidden] { display: none; }
+.log-choice button { min-height: 40px; padding: 0 1rem; border-radius: 11px; background: rgba(255, 255, 255, .1); color: #fff; font-size: .85rem; font-weight: 700; }
+.log-choice button[aria-pressed=true][data-choose=in] { background: #1f8a52; }
+.log-choice button[aria-pressed=true][data-choose=out] { background: #d9772b; }
+.log-choice small { grid-column: 1 / -1; text-align: center; color: rgba(255, 255, 255, .6); font-size: .68rem; }

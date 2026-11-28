@@ -3950,7 +3950,7 @@ function renderLiveStamp() {
   if (document.hidden) return   // nothing to see while the app is in the background (saves battery)
   const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden && !earlyPreview
   liveStamp.hidden = !show
-  if (!show) return
+  if (!show) { $('logTap').hidden = true; $('logChoice').hidden = true; return }
   const scale = Math.min(window.devicePixelRatio || 1, 3)
   // The stamp preview sits exactly where it lands on the photo, behind the see-through controls.
   const frame = video.parentElement.getBoundingClientRect()
@@ -3973,6 +3973,7 @@ function renderLiveStamp() {
     if (liveStampSettled) liveStamp.classList.add('settled')
   }
   const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width, attendance: currentAttendance() })
+  placeLogTap(frame, edges, scale)
   // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
   const stampTop = frame.top + edges.top / scale
   const clearance = preferences.position === 'top' ? '0px' : `${Math.max(0, frame.bottom - stampTop)}px`
@@ -3981,6 +3982,39 @@ function renderLiveStamp() {
     document.documentElement.style.setProperty('--stamp-clearance', clearance)
   }
 }
+// Attendance: an invisible button over the card's LOG IN / LOG OUT tile; tapping it offers Log in or Log out
+// (for the next photo only; after that the app goes back to choosing by itself).
+function placeLogTap(frame, edges, scale) {
+  const tap = $('logTap'), attendance = preferences.template === 'attendance'
+  tap.hidden = !attendance
+  if (!attendance) { $('logChoice').hidden = true; return }
+  const unit = frame.width / 460   // the stamp is drawn in units of a 460th of its width
+  Object.assign(tap.style, { left: `${frame.left + 10 * unit}px`, top: `${frame.top + edges.top / scale}px`, width: `${104 * unit}px`, height: `${(edges.bottom - edges.top) / scale}px` })
+  tap.dataset.top = String(frame.top + edges.top / scale)
+}
+function closeLogChoice() { $('logChoice').hidden = true }
+$('logTap').addEventListener('click', event => {
+  event.stopPropagation()
+  if (!selectedEmployeeId) { $('employeeButton').click(); return }   // no ID yet: pick one first
+  const choice = $('logChoice')
+  if (!choice.hidden) { closeLogChoice(); return }
+  const current = currentAttendance()?.action
+  for (const button of choice.querySelectorAll('[data-choose]')) button.setAttribute('aria-pressed', String(button.dataset.choose === current))
+  choice.hidden = false
+  const rect = $('logTap').getBoundingClientRect()
+  choice.style.left = `${Math.max(8, Math.min(window.innerWidth - choice.offsetWidth - 8, rect.left))}px`
+  choice.style.top = `${Math.max(8, rect.top - choice.offsetHeight - 8)}px`
+})
+for (const button of $('logChoice').querySelectorAll('[data-choose]')) {
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    logOverride = button.dataset.choose
+    showLogChoice()
+    closeLogChoice()
+    renderLiveStamp()
+  })
+}
+document.addEventListener('click', event => { if (!$('logChoice').hidden && !event.target.closest('#logChoice')) closeLogChoice() })
 document.addEventListener('visibilitychange', () => { if (!document.hidden) renderLiveStamp() })
 setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
