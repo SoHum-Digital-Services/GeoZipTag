@@ -27,7 +27,7 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Blocked
 
-- Everything past design waits on the owner decisions below and on a console entitlements API that does not exist yet.
+- Nothing built yet: waits on contracts#118 being reviewed and merged by the owner, and on a console entitlements API that does not exist yet.
 
 ## Waiting on the owner
 
