@@ -2344,7 +2344,7 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
     status: attendance.status?.label || '', source: attendance.source
   }
   register.push(row)
-  const queued = attendance.action === 'weekoff' ? undefined : queueForTeam(row, photo)   // Week Off entries stay on this phone for now
+  const queued = queueForTeam(row, photo)
   if (register.length > 5000) register = register.slice(-5000)
   try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
   logOverride = undefined   // the next photo for this ID suggests the opposite action
@@ -3546,8 +3546,9 @@ function renderTeamRegister() {
     log.className = `log ${row.action}`
     log.textContent = row.action === 'weekoff' ? 'WEEK OFF' : row.action === 'out' ? 'LOG OUT' : 'LOG IN'
     const place = document.createElement('small')
-    place.textContent = [`${row.date || ''} ${(row.clock || '').slice(0, 5)}`.trim(), row.place || row.address || 'No location', row.device].filter(Boolean).join(' · ')
+    place.textContent = [`${row.date || ''} ${(row.clock || '').slice(0, 5)}`.trim(), row.place || row.address || (row.action === 'weekoff' ? 'No GPS in Week Off' : 'No location'), row.device].filter(Boolean).join(' · ')
     item.append(who, log, place)
+    if (row.status && row.action !== 'weekoff') { const status = document.createElement('em'); status.className = 'status-chip'; status.textContent = row.status; item.append(status) }
     list.append(item)
   }
   $('exportTeamRegister').disabled = !teamRows.length
@@ -3575,8 +3576,8 @@ for (const button of document.querySelectorAll('[data-period]')) {
 $('teamEmployeeFilter').addEventListener('change', loadTeamRegister)
 $('teamRegisterSheet').addEventListener('close', () => { managerPin = ''; teamRows = []; $('teamRegisterList').replaceChildren() })
 $('exportTeamRegister').addEventListener('click', () => exportCsv(`GeoZipTag-team-${team.code}-${new Date().toISOString().slice(0, 10)}.csv`,
-  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo', 'Phone'],
-  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, logWord(row.action),
+  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Status', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo', 'Phone'],
+  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, logWord(row.action), row.status,
     row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), photoLink(row.photo), row.device])))
 updateTeamSummary()
 
@@ -4653,9 +4654,10 @@ function startupStatus() {
   const entry = location && placeCache && metresBetween(f, placeCache) < 30 ? placeCache : undefined
   const address = !!(entry?.done && entry.result?.address)
   const map = !!(entry?.done && entry.result?.map)
+  const noPlace = noGps()   // Week Off stamps carry no place, so there is nothing to wait for
   return {
-    camera: live && frame, location, address, map,
-    placeFailed: !!(entry?.done && !(address && map)),
+    camera: live && frame, location: noPlace || location, address: noPlace || address, map: noPlace || map,
+    placeFailed: !noPlace && !!(entry?.done && !(address && map)),
     resources: stampFontsReady && document.fonts?.status !== 'loading',
     pipeline: pipelineWarm && !$('shutter').hidden && !$('shutter').disabled && !busy
   }
@@ -4666,9 +4668,9 @@ function startupStatus() {
 async function warmUpPipeline() {
   pipelineWarming = true
   try {
-    const snapshot = { ...fix }
-    if (placeLabel) snapshot.name = placeLabel
-    const { address, map } = await placeFor(snapshot, 0)
+    const snapshot = noGps() ? undefined : { ...fix }
+    if (snapshot && placeLabel) snapshot.name = placeLabel
+    const { address, map } = snapshot ? await placeFor(snapshot, 0) : {}
     await stampFonts
     const canvas = document.createElement('canvas')
     canvas.width = 540; canvas.height = 960
