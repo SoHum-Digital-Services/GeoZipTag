@@ -18,6 +18,15 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 - Ads: one Google AdMob banner in the photo view on Android and iPhone, **Google test ad IDs only** until store listings exist (`android/app/build.gradle`, `ios/project.yml`). Always shown; there is no Pro, trial, coupon or entitlement concept in the code today.
 - Privacy policy in `web/privacy.html` (says what the register stores; says nothing about entitlements).
 
+## Actions service: not built
+
+`geoziptag-actions` (the console manifest, admin and app actions of contracts GEOZIPTAG_ENTITLEMENT_SHAPE) **does not exist**: no function, tables, keys or secrets. The only GeoZipTag backend today is the team register (`public` tables and `geoziptag_*` RPCs on project `sohum`, base `https://ziebgspujtdzkiwyybsa.supabase.co/rest/v1/rpc/`), not manifest-shaped. Recommended host: Supabase edge function `geoziptag-actions` in `sohum`, base URL `https://ziebgspujtdzkiwyybsa.supabase.co/functions/v1`. To build it, as separate step briefs later (each its own session; contract pinned at contracts#118 plus #119):
+
+1. **Migration** (file in `supabase/migrations/` here; applied to the live project only on the owner's instruction): entitlement, redeem-code (hashed), redemption, team-membership tables in their own schema, RLS on, no public policy, tested rollback.
+2. **Function code** (`supabase/functions/geoziptag-actions`): manifest and health, the admin actions behind the console HMAC check (signs `timestamp.METHOD.path.body`, contracts#119), propose/confirm with idempotency, `redeem_code`, `check_entitlement`, `get_public_keys` (and later `join_team`), ES256 signing, rate limits, audit.
+3. **Secrets** (owner creates, as function secrets, never in the repo or chat): the ES256 private key (public half goes into the app build) and the console HMAC secret (shared with Desk · Console's registry entry).
+4. **Deploy** of the function: only on the owner's word through HQ.
+
 ## Next
 
 1. Owner decisions (below), put to HQ. Desk · Console to be briefed by HQ on contracts#118 section 7 (registry entry, admin screens, HMAC credential); host of the actions service still open.
@@ -27,7 +36,7 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Blocked
 
-- Nothing built yet: waits on contracts#118 being reviewed and merged by the owner, and on a console entitlements API that does not exist yet.
+- Nothing built yet: waits on the owner (signing key, HMAC secret, migration and deploy decisions) and on a console entitlements API that does not exist yet.
 
 ## Waiting on the owner
 
@@ -38,7 +47,8 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Open pull requests
 
-- [SoHum-Digital-Services/sohum-contracts#118](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/118): GeoZipTag entitlement and console integration contract 0.1 (**draft**; five schemas plus team member, validated; examples, manifest example, 3.1 row; decisions recorded). Not merged; waits on the owner decisions.
+- [SoHum-Digital-Services/sohum-contracts#118](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/118): GeoZipTag entitlement and console integration contract 0.1 (**merged 2026-11-28**; five schemas plus team member, validated; examples, manifest example, 3.1 row; decisions recorded). 
+- [SoHum-Digital-Services/sohum-contracts#119](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/119): 0.1.1, the console admin signature covers method and path (test vector included). Open, for the owner to merge.
 - None in this repo. (Branch `desk/geoziptag-status-and-entitlements-proposal`, this ledger plus the proposal, pushed and rebased on main; no PR yet.)
 
 ## Live
