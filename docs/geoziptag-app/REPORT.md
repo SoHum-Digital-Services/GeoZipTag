@@ -1,7 +1,11 @@
 Step:            GeoZipTag app part 1, frontend (codes, trials and admin grants; device-based)
 Contract pin:    0a2a17c (entitlement shape 0.1.1). Built against the pinned copies in
-                 supabase/functions/geoziptag-actions/tests/contract/ (schemas and examples). The contract document itself
-                 could not be read: this session has no access to SoHum-Digital-Services/sohum-contracts (see QUESTIONS.md).
+                 supabase/functions/geoziptag-actions/tests/contract/ (schemas and examples). Afterwards the session was given
+                 read access to sohum-contracts, cloned at 0a2a17c (the pinned commit, HEAD), and docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md
+                 sections 2 to 5 and 8 were read and compared with the code: key lookup by key_id (unknown id untrusted), signature
+                 verified then payload parsed, Pro only if enabled and inside starts_at..ends_at, re-check after check_after, offline
+                 grace until grace_until (never past ends_at), banner back on any failure, nothing else locks, install id never joined
+                 to team data. No difference found.
 Built:
   web/camera.js    Entitlement block between "// ---- Entitlement (start)" / "(end)": random install id (geoziptagInstallId);
                    ES256 verification with WebCrypto against the bundled key (key-2026-11, SPKI, raw r||s signature);
