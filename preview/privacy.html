@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoZiptag Privacy Policy</title>
+<meta name="description" content="How GeoZiptag by SoHum Digital Services uses your camera, location and attendance data.">
+<link rel="icon" href="assets/icon-192.png">
+<style>
+  :root { --bg:#ffffff; --text:#1c1f24; --muted:#5b636e; --line:#e3e6ea; --accent:#1f8a52; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#121417; --text:#eceef1; --muted:#a2aab4; --line:#2a2f36; --accent:#4cc489; }
+  }
+  :root[data-theme="dark"] { --bg:#121417; --text:#eceef1; --muted:#a2aab4; --line:#2a2f36; --accent:#4cc489; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:32px 16px 64px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+  header img { width:48px; height:48px; border-radius:12px; }
+  h1 { font-size:1.6rem; margin:0; line-height:1.2; }
+  h2 { font-size:1.1rem; margin:28px 0 6px; }
+  p, li { color:var(--text); }
+  .meta { color:var(--muted); font-size:.9rem; margin:0 0 24px; }
+  ul { padding-left:20px; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; margin:8px 0; }
+  th, td { text-align:left; vertical-align:top; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="assets/icon-192.png" alt=""><h1>GeoZiptag Privacy Policy</h1></header>
+  <p class="meta">GeoZiptag by SoHum Digital Services · Last updated 25 November 2026</p>
+
+  <p>GeoZiptag is a camera app that writes the place, date, time and (optionally) an employee attendance
+  entry onto your photos. It has no user accounts and no analytics, and we do not track you. The Android and iPhone
+  apps show one small banner ad (see "Ads" below). Your photos stay on
+  your phone unless you choose to share them or turn on the shared attendance register.</p>
+
+  <h2>Camera, microphone and photos</h2>
+  <p>The camera is used only to take the photos and videos you ask for. The microphone is used only while you
+  record a video, for its sound. Photos and videos are saved on your phone, in the app's own album or folder (named GeoZipTag), and
+  leave your phone only when you share them yourself.</p>
+
+  <h2>Location</h2>
+  <p>Your precise location is used, only while the app is open, to write the place, address and coordinates on
+  your photos. To find the address and the map, the coordinates (never your photos) are sent to: Photon (komoot),
+  Nominatim (OpenStreetMap), Esri satellite imagery, and your phone's own address lookup (Google or Apple).
+  GeoZiptag does not track your location in the background.</p>
+
+  <h2>Employee IDs and the attendance register</h2>
+  <p>Employee IDs, names and the attendance register (log in / log out entries) are kept on your phone. You can
+  export them as a CSV file, which you share yourself.</p>
+
+  <h2>Shared online register (optional)</h2>
+  <p>Only if you join a team with a team code, each attendance entry is also sent to that team's shared register so
+  the team manager can see it. An entry contains: the employee ID and name, log in or log out, the date and time,
+  the place, address and coordinates, and a small, low-resolution copy of the photo. It is stored on Supabase
+  servers and can be read only by someone with the team's manager PIN. It is sent over an encrypted connection and
+  is not sold or shared with anyone else. Leave the team in Settings to stop sending entries.</p>
+
+  <h2>Reports, logos and notes</h2>
+  <p>Reports, logos and notes are made on your phone and are not uploaded anywhere.</p>
+
+  <h2>Ads</h2>
+  <p>The Android and iPhone apps show a small banner ad from Google AdMob in the photo view, never on the camera
+  screen. To show and measure ads, Google may use your device's advertising ID, IP address and app information,
+  as described in <a href="https://policies.google.com/technologies/ads">Google's advertising policy</a>. You can
+  reset or limit your advertising ID in your phone's settings. Your photos, location, address and attendance
+  details are never shared with the ad network. The web version has no ads.</p>
+
+  <h2>Pro codes</h2>
+  <p>If you redeem a Pro or trial code in the app, the app makes a random install ID on your phone. It is not your name,
+  phone number, location, advertising ID or any contact detail. The app sends this ID to SoHum together with the code you
+  typed, and about once a day afterwards to check that your Pro is still on. SoHum keeps the code you redeemed and when you
+  redeemed it, and nothing else. Clearing the app's data creates a new install ID. A valid code or Pro plan only turns the
+  banner ad off: the camera, stamping, attendance and the team register work the same.</p>
+
+  <h2>App updates</h2>
+  <p>The app checks GitHub Pages for signed updates to its screens. This request contains no personal information.</p>
+
+  <h2>Summary</h2>
+  <table>
+    <tr><th>Data</th><th>Why</th><th>Leaves the phone?</th></tr>
+    <tr><td>Photos, videos</td><td>The photos you take</td><td>Only when you share them; a small copy goes to your team's register if you joined one</td></tr>
+    <tr><td>Precise location</td><td>Place and map on the photo</td><td>Coordinates only, to the address and map services above</td></tr>
+    <tr><td>Microphone audio</td><td>Sound for videos</td><td>Only inside videos you share</td></tr>
+    <tr><td>Advertising ID, IP address</td><td>Banner ad in the photo view</td><td>To Google AdMob, which shows the ad</td></tr>
+    <tr><td>Employee ID, name, attendance</td><td>Attendance stamp and register</td><td>Only to your team's register, if you joined one</td></tr>
+  </table>
+
+  <h2>Deleting your data</h2>
+  <p>Deleting a photo in the app, clearing the register, or uninstalling the app removes your data from the phone.
+  To delete entries from a shared team register, ask your team manager, or contact us at
+  <a href="https://geoziptag.sohum.cc">geoziptag.sohum.cc</a> with your team code and employee ID; we delete them
+  within 30 days.</p>
+
+  <h2>Children</h2>
+  <p>GeoZiptag is meant for work use and is not directed at children under 13.</p>
+
+  <h2>Contact</h2>
+  <p>SoHum Digital Services · <a href="https://geoziptag.sohum.cc">geoziptag.sohum.cc</a></p>
+</main>
+</body>
+</html>
