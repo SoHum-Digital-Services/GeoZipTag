@@ -210,7 +210,7 @@ button.danger:hover { background: #e25555; }
 .viewfinder.photo-review #video, .viewfinder.photo-review .switch-frame { visibility: hidden; }
 .viewfinder.photo-review :is(.level-line, .exposure-control, .camera-zoom, .camera-grid, .focus-point, .camera-countdown) { display: none; }
 video.mirror { transform: scaleX(-1); }
-.viewfinder video { touch-action: none; }
+.viewfinder, .viewfinder video { touch-action: none; }   /* the whole camera area belongs to our own swipe, pinch and tap handling (otherwise the browser can take a sideways swipe over and cancel it) */
 video.can-focus { cursor: crosshair; }
 
 .start.opening > * { visibility: hidden; }
@@ -1015,7 +1015,7 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 .level-line.straight, .level-line.straight::before, .level-line.straight::after { background: #ffd60a; }
 
 /* Photo / Video, slid like the iPhone camera: the active mode is yellow and centred. */
-.mode-switch { overflow: hidden; width: min(11.5rem, 60%); margin: .4rem auto 0; padding: 3px 0; border-radius: 999px; background: rgba(28, 28, 30, .78); touch-action: pan-y; }
+.mode-switch { overflow: hidden; width: min(14rem, 70%); margin: .3rem auto 0; padding: 6px 0; border-radius: 999px; background: rgba(28, 28, 30, .78); touch-action: pan-y; }   /* the extra padding makes a taller, easier target to slide */
 .mode-track { display: flex; justify-content: center; gap: .1rem; transition: transform .28s cubic-bezier(.2,.8,.2,1); }
 .mode-track button { min-height: 26px; padding: 0 .95rem; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, .85); font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .mode-track button[aria-pressed=true] { background: rgba(255, 255, 255, .2); color: #ffd60a; }

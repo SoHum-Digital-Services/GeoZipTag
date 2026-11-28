@@ -2823,12 +2823,25 @@ setTimeout(centreMode)
     if (!swipe || swipe.id !== event.pointerId || pinch || touchPoints.size > 1) { swipe = undefined; return }
     const dx = event.clientX - swipe.x, dy = event.clientY - swipe.y, quick = performance.now() - swipe.time < 700
     swipe = undefined
-    if (quick && Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
+    if (quick && Math.abs(dx) > 45 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
       modeSwipedAt = Date.now()
       setMode(dx < 0 ? 'video' : 'photo')
     }
   })
   area.addEventListener('pointercancel', () => { swipe = undefined })
+}
+// The Photo / Video capsule itself is slidable too (like the iPhone camera): a short swipe on it changes the mode.
+{
+  const strip = $('modeSwitch')
+  let start
+  strip.addEventListener('pointerdown', event => { start = { id: event.pointerId, x: event.clientX, y: event.clientY } })
+  strip.addEventListener('pointerup', event => {
+    if (!start || start.id !== event.pointerId) { start = undefined; return }
+    const dx = event.clientX - start.x, dy = event.clientY - start.y
+    start = undefined
+    if (Math.abs(dx) > 20 && Math.abs(dx) > 1.5 * Math.abs(dy)) setMode(dx < 0 ? 'video' : 'photo')
+  })
+  strip.addEventListener('pointercancel', () => { start = undefined })
 }
 
 const recordingFormats = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
