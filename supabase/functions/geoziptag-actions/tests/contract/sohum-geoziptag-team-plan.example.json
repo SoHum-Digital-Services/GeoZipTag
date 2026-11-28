@@ -1,0 +1,11 @@
+{
+  "schema": "sohum.geoziptag.team_plan/1",
+  "team_id": "team-example-01",
+  "team_name": "Example Site Crew",
+  "plan": "pro",
+  "starts_at": "2026-12-01T00:00:00Z",
+  "ends_at": "2027-12-01T00:00:00Z",
+  "enabled": true,
+  "member_count": 24,
+  "entitlement_id": "3f2b8c1e-5d4a-4b7e-9a10-6c2d9e8f7a11"
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SoHum-Digital-Services/sohum-contracts/schemas/sohum-geoziptag-team-member.schema.json",
+  "title": "sohum.geoziptag.team_member/1",
+  "description": "A signed-in member of a team, as the console lists it. The only personal identifier GeoZipTag stores for this is the SoHum account id, shown masked; no name or email is kept here. The row is kept as removed (not deleted) for the audit, and erased when the account is deleted. See docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md.",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "team_id",
+    "account_id_masked",
+    "status",
+    "joined_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "sohum.geoziptag.team_member/1"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "team_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "account_id_masked": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{4}…[0-9a-f]{4}$",
+      "description": "First four and last four characters of the SoHum account id."
+    },
+    "status": {
+      "enum": [
+        "active",
+        "removed"
+      ]
+    },
+    "joined_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "removed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "removed_by": {
+      "type": "string",
+      "maxLength": 80
+    }
+  }
+}

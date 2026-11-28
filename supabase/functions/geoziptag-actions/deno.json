@@ -1,0 +1,21 @@
+{
+  "imports": {
+    "ajv/dist/2020": "npm:ajv@8.17.1/dist/2020.js",
+    "ajv-formats": "npm:ajv-formats@3.0.1",
+    "jose": "npm:jose@5.9.6",
+    "postgres": "npm:postgres@3.4.5",
+    "@std/assert": "jsr:@std/assert@1.0.10"
+  },
+  "fmt": {
+    "lineWidth": 110,
+    "singleQuote": true,
+    "semiColons": false,
+    "exclude": ["manifest.json", "tests/contract"]
+  },
+  "lint": {
+    "exclude": ["tests/contract"]
+  },
+  "test": {
+    "exclude": ["tests/contract"]
+  }
+}

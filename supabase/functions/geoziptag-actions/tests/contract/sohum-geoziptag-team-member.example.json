@@ -1,0 +1,8 @@
+{
+  "schema": "sohum.geoziptag.team_member/1",
+  "id": "5e7a1b90-2c4d-4e8f-a6b3-9d0c1e2f3a44",
+  "team_id": "team-example-01",
+  "account_id_masked": "a1b2…c3d4",
+  "status": "active",
+  "joined_at": "2026-12-02T08:00:00Z"
+}
