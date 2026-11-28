@@ -1044,13 +1044,15 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   if (weekOff) snapshot = undefined, map = undefined   // Week Off: no place, no map, no coordinates
   const attendanceCard = template === 'attendance' || weekOff
   const calendar = !snapshot && !attendanceCard
-  if (attendanceCard) map = undefined   // the status tile takes the map's place
+  const sideMap = attendanceCard && !weekOff ? map : undefined   // Attendance: the satellite map goes on the right
+  if (attendanceCard) map = undefined   // the status tile takes the left
   const mapSize = map || calendar || attendanceCard ? 92 : 0
   const codeSize = template === 'qr' && snapshot ? 84 : 0
+  const sideSize = sideMap ? 84 : 0
   const accentBar = mapSize ? 0 : 3
   const width = Math.min(w - 2 * inset, mapSize ? 540 : 450)
   const textX = inset + padding + (mapSize ? mapSize + padding + 2 : accentBar + padding)
-  const textWidth = inset + width - padding - (codeSize ? codeSize + padding : 0) - textX
+  const textWidth = inset + width - padding - (codeSize || sideSize ? (codeSize || sideSize) + padding : 0) - textX
   const colors = {
     text: '#fbf8f2', muted: '#c9cfd1', coordinate: '#8fdcd8', brand: '#f47a67',
     card: 'rgba(9, 13, 14, 0.88)', accent: '#f2634e'
@@ -1110,7 +1112,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
       add(placeHeading(snapshot, address) || 'GPS location', 12.5, colors.muted, 500, { maxLines: 1 })
       add(formatCoordinates(snapshot), 11, colors.coordinate, 600, { maxLines: 1 })
     } else add('Location unavailable', 12, colors.muted, 500, { maxLines: 1 })
-    add(`${dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })
+    add(`${sideMap ? dateLabel.replace(/^[^,]*,\s*/, '') : dateLabel} · ${time}`, 11.5, colors.text, 500, { maxLines: 1 })   // with the map on the right there is less room: no weekday
   } else if (snapshot?.manual) add('MANUAL LOCATION', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.2, gapAfter: 3 })
   if (attendanceCard) {
     // (drawn above)
@@ -1127,7 +1129,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   }
   if (note) add(`Note: ${note}`, 11.5, colors.muted, 500, { maxLines: 2 })
   const textHeight = lines.reduce((sum, item) => sum + item.height, 0) - 2
-  const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, textHeight + 2 * padding + 2)
+  const panelHeight = Math.max(mapSize + 2 * padding, codeSize + 2 * padding, sideSize + 2 * padding, textHeight + 2 * padding + 2)
   const top = position === 'top' ? inset : h - inset - panelHeight
 
   // Card and GeoZiptag tab are one outline, filled once so the translucent
@@ -1241,35 +1243,36 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.restore()
   }
 
-  if (map) {
-    const mapX = inset + padding
-    const mapTop = top + (panelHeight - mapSize) / 2
+  if (map || sideMap) {
+    const tileSize = map ? mapSize : sideSize, tileImage = map || sideMap
+    const mapX = map ? inset + padding : inset + width - padding - tileSize
+    const mapTop = top + (panelHeight - tileSize) / 2
     ctx.save()
-    rounded(mapX, mapTop, mapSize, mapSize, 8)
+    rounded(mapX, mapTop, tileSize, tileSize, 8)
     ctx.clip()
-    ctx.drawImage(map, mapX, mapTop, mapSize, mapSize)
+    ctx.drawImage(tileImage, mapX, mapTop, tileSize, tileSize)
     if (!example) {
       // Imagery credit (required by Esri): one small line on a faint strip, so the map stays visible.
       const credit = '© Esri, Vantor, Earthstar Geographics'
       let size = 5.6
       ctx.font = `500 ${size}px ${stampFace}`
-      const room = mapSize - 6
+      const room = tileSize - 6
       if (ctx.measureText(credit).width > room) {
         size *= room / ctx.measureText(credit).width
         ctx.font = `500 ${size}px ${stampFace}`
       }
       const stripHeight = size + 4
-      const strip = ctx.createLinearGradient(0, mapTop + mapSize - stripHeight - 3, 0, mapTop + mapSize)
+      const strip = ctx.createLinearGradient(0, mapTop + tileSize - stripHeight - 3, 0, mapTop + tileSize)
       strip.addColorStop(0, 'rgba(0, 0, 0, 0)')
       strip.addColorStop(1, 'rgba(0, 0, 0, 0.55)')
       ctx.fillStyle = strip
-      ctx.fillRect(mapX, mapTop + mapSize - stripHeight - 3, mapSize, stripHeight + 3)
+      ctx.fillRect(mapX, mapTop + tileSize - stripHeight - 3, tileSize, stripHeight + 3)
       ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
-      ctx.fillText(credit, mapX + 3, mapTop + mapSize - size - 2)
+      ctx.fillText(credit, mapX + 3, mapTop + tileSize - size - 2)
     }
     ctx.restore()
 
-    const x = mapX + mapSize / 2, y = mapTop + mapSize / 2
+    const x = mapX + tileSize / 2, y = mapTop + tileSize / 2
     ctx.save()
     ctx.shadowColor = 'rgba(0, 0, 0, 0.45)'
     ctx.shadowBlur = 4
@@ -1549,9 +1552,13 @@ function applyHardwareSetting(camera, change) {
 function showFlash(camera, settings) {
   const button = $('torchToggle')
   const usable = !!camera.flashModes || camera.torch
-  button.hidden = !usable
+  // The button stays in its place while the camera is live (the dock does not jump around); when this camera
+  // cannot flash (the front camera, or Video mode in a phone web view) it is dimmed and says why when tapped.
+  button.hidden = false
   button.disabled = false
-  setFlashButton(camera.flashModes ? settings.flash || 'off' : settings.torch ? 'on' : 'off')
+  button.classList.toggle('unavailable', !usable)
+  button.setAttribute('aria-disabled', String(!usable))
+  setFlashButton(usable ? (camera.flashModes ? settings.flash || 'off' : settings.torch ? 'on' : 'off') : 'off')
 }
 function setFlashButton(mode) {
   const button = $('torchToggle')
@@ -1563,6 +1570,11 @@ $('torchToggle').addEventListener('click', async () => {
   const camera = cameraHardware
   if (!camera) return
   const button = $('torchToggle')
+  if (button.classList.contains('unavailable')) {
+    message(captureMode === 'video' ? 'Flash is not available in Video mode on this phone. Use Photo mode for flash.'
+      : facing === 'user' ? 'The front camera has no flash. Flip to the back camera.' : 'This camera has no flash.', 3500)
+    return
+  }
   const modes = camera.flashModes
   const current = button.dataset.flash || 'off'
   const next = modes ? modes[(modes.indexOf(current) + 1) % modes.length] : current === 'on' ? 'off' : 'on'
@@ -2344,7 +2356,7 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
     status: attendance.status?.label || '', source: attendance.source
   }
   register.push(row)
-  const queued = attendance.action === 'weekoff' ? undefined : queueForTeam(row, photo)   // Week Off entries stay on this phone for now
+  const queued = queueForTeam(row, photo)
   if (register.length > 5000) register = register.slice(-5000)
   try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
   logOverride = undefined   // the next photo for this ID suggests the opposite action
@@ -3546,8 +3558,9 @@ function renderTeamRegister() {
     log.className = `log ${row.action}`
     log.textContent = row.action === 'weekoff' ? 'WEEK OFF' : row.action === 'out' ? 'LOG OUT' : 'LOG IN'
     const place = document.createElement('small')
-    place.textContent = [`${row.date || ''} ${(row.clock || '').slice(0, 5)}`.trim(), row.place || row.address || 'No location', row.device].filter(Boolean).join(' · ')
+    place.textContent = [`${row.date || ''} ${(row.clock || '').slice(0, 5)}`.trim(), row.place || row.address || (row.action === 'weekoff' ? 'No GPS in Week Off' : 'No location'), row.device].filter(Boolean).join(' · ')
     item.append(who, log, place)
+    if (row.status && row.action !== 'weekoff') { const status = document.createElement('em'); status.className = 'status-chip'; status.textContent = row.status; item.append(status) }
     list.append(item)
   }
   $('exportTeamRegister').disabled = !teamRows.length
@@ -3575,8 +3588,8 @@ for (const button of document.querySelectorAll('[data-period]')) {
 $('teamEmployeeFilter').addEventListener('change', loadTeamRegister)
 $('teamRegisterSheet').addEventListener('close', () => { managerPin = ''; teamRows = []; $('teamRegisterList').replaceChildren() })
 $('exportTeamRegister').addEventListener('click', () => exportCsv(`GeoZipTag-team-${team.code}-${new Date().toISOString().slice(0, 10)}.csv`,
-  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo', 'Phone'],
-  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, logWord(row.action),
+  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Status', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo', 'Phone'],
+  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, logWord(row.action), row.status,
     row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), photoLink(row.photo), row.device])))
 updateTeamSummary()
 
@@ -4653,9 +4666,10 @@ function startupStatus() {
   const entry = location && placeCache && metresBetween(f, placeCache) < 30 ? placeCache : undefined
   const address = !!(entry?.done && entry.result?.address)
   const map = !!(entry?.done && entry.result?.map)
+  const noPlace = noGps()   // Week Off stamps carry no place, so there is nothing to wait for
   return {
-    camera: live && frame, location, address, map,
-    placeFailed: !!(entry?.done && !(address && map)),
+    camera: live && frame, location: noPlace || location, address: noPlace || address, map: noPlace || map,
+    placeFailed: !noPlace && !!(entry?.done && !(address && map)),
     resources: stampFontsReady && document.fonts?.status !== 'loading',
     pipeline: pipelineWarm && !$('shutter').hidden && !$('shutter').disabled && !busy
   }
@@ -4666,9 +4680,9 @@ function startupStatus() {
 async function warmUpPipeline() {
   pipelineWarming = true
   try {
-    const snapshot = { ...fix }
-    if (placeLabel) snapshot.name = placeLabel
-    const { address, map } = await placeFor(snapshot, 0)
+    const snapshot = noGps() ? undefined : { ...fix }
+    if (snapshot && placeLabel) snapshot.name = placeLabel
+    const { address, map } = snapshot ? await placeFor(snapshot, 0) : {}
     await stampFonts
     const canvas = document.createElement('canvas')
     canvas.width = 540; canvas.height = 960
