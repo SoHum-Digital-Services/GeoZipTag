@@ -2134,7 +2134,9 @@ async function redeemEntitlementCode(code) {
 async function checkEntitlementNow({ force = false, now = Date.now() } = {}) {
   if (!ENTITLEMENTS_LIVE || entitlementState.checking) return false
   const p = entitlementState.payload
-  const due = force || (p ? now >= Date.parse(p.check_after) : storageGet(REDEEMED_KEY) === '1')
+  // Due when the daily time has passed; or, with force (the app was just opened), whenever this install holds an entitlement
+  // or has ever redeemed a code. A phone that never used a code never contacts the service.
+  const due = p ? (force || now >= Date.parse(p.check_after)) : storageGet(REDEEMED_KEY) === '1'
   if (!due) return false
   entitlementState.checking = true
   try {
@@ -2201,8 +2203,17 @@ async function refreshEntitlement({ force = false } = {}) {
 }
 if (ENTITLEMENTS_LIVE) {
   $('proGroup').hidden = false
-  refreshEntitlement()
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshEntitlement() })
+  // Checked every time the app is opened (and each time it comes back to the front), at most once a minute, so a revoked
+  // entitlement stops at the next open instead of waiting for the daily check.
+  let lastOpenCheck = 0
+  const openCheck = () => {
+    const now = Date.now()
+    if (now - lastOpenCheck < 60000) return refreshEntitlement()
+    lastOpenCheck = now
+    return refreshEntitlement({ force: true })
+  }
+  openCheck()
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) openCheck() })
   setInterval(refreshEntitlement, 60000)   // cheap: it only calls the service when the check is due
   const redeemMessages = {
     invalid: "This code can't be used.",

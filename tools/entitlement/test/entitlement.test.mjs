@@ -130,6 +130,31 @@ test('E5: the daily check keeps a stored entitlement on failure until grace ends
   assert.equal(t.api.entitled(due), true, 'an untrusted reply changes nothing')
 })
 
+test('E5b: opening the app checks at once when this install holds an entitlement, even before the daily time; a phone that never used a code stays silent', async () => {
+  const payload = { ...base(), starts_at: '2026-12-01T09:30:00Z', ends_at: '2027-12-01T09:30:00Z', check_after: '2026-12-02T09:30:00Z', grace_until: '2026-12-08T09:30:00Z' }
+  const early = Date.parse('2026-12-01T12:00:00Z')   // well before check_after
+
+  let t = await setup({ fetchImpl: () => ok(null) })
+  await t.api.acceptReply(await sign(payload, t.pair))
+  assert.equal(await t.api.checkEntitlementNow({ now: early }), false, 'not due: no call on a plain check')
+  assert.equal(t.calls.length, 0)
+  assert.equal(await t.api.checkEntitlementNow({ now: early, force: true }), true, 'forced on open: it asks')
+  assert.equal(t.calls.length, 1)
+  assert.equal(t.api.entitled(early), false, 'a revoke (null) takes effect at the next open')
+
+  t = await setup({ fetchImpl: () => { throw new Error('offline') } })
+  await t.api.acceptReply(await sign(payload, t.pair))
+  assert.equal(await t.api.checkEntitlementNow({ now: early, force: true }), false)
+  assert.equal(t.api.entitled(early), true, 'a failed open-check changes nothing (grace still applies)')
+
+  t = await setup({ fetchImpl: () => ok(null) })
+  assert.equal(await t.api.checkEntitlementNow({ now: early, force: true }), false)
+  assert.equal(t.calls.length, 0, 'never redeemed and nothing stored: no call even when forced')
+
+  assert.match(cameraSource, /openCheck\(\)\n  document\.addEventListener\('visibilitychange', \(\) => \{ if \(!document\.hidden\) openCheck\(\) \}\)/, 'launch and return to the front both use the open check')
+  assert.match(cameraSource, /if \(now - lastOpenCheck < 60000\) return refreshEntitlement\(\)/, 'at most one forced check a minute')
+})
+
 test('E6: an entitled phone never calls adShow and calls adHide if shown; the banner returns when Pro lapses', async () => {
   const calls = []
   const android = { adShow: (...a) => calls.push(['show', ...a]), adHide: () => calls.push(['hide']) }
