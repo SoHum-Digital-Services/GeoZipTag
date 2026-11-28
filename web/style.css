@@ -1235,3 +1235,14 @@ dialog.hub .switch:checked::before { background: #151515; }
 .step-main small { color: var(--text-2); font-size: .8rem; }
 .step-remove { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; background: #3a3a3c; color: var(--text-2); }
 #eeRunHint { margin: 0; padding: .6rem 1rem; }
+
+.register-row .log.weekoff { color: #7fb6ff; }
+.log-choice button[aria-pressed=true][data-source] { background: #2f6fd1; }
+.id-guide { position: absolute; left: 50%; top: 40%; width: min(82%, 420px); aspect-ratio: 85.6 / 54; transform: translate(-50%, -50%); border: 2px dashed rgba(255, 255, 255, .85); border-radius: 14px; pointer-events: none; z-index: 2; display: grid; place-items: end center; padding-bottom: .5rem; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28); }
+.id-guide[hidden] { display: none; }
+.id-guide span { font-size: .75rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
+.passport-row { display: flex; align-items: center; gap: 1rem; }
+.passport-row img { width: 70px; height: 90px; object-fit: cover; border-radius: 8px; background: #000; }
+.passport-buttons { display: grid; gap: .5rem; }
+.passport-buttons button { min-height: 40px; padding: 0 1rem; border-radius: 11px; background: #3a3a3c; color: #fff; font-weight: 600; }
+.passport-buttons #eePassportClear { background: transparent; color: #ff453a; }

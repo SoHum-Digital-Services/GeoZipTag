@@ -37,12 +37,16 @@ let captureMode = 'photo'   // photo | video
 let timerSeconds = 0
 const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
   quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false, reviewAfter: true,
-  mirrorFront: false, showLevel: false }
+  mirrorFront: false, showLevel: false, weekoffSource: 'live' }
+// Week Off stamps carry no GPS, like the old time-only stamp.
+const noGps = () => preferences.template === 'time' || preferences.template === 'weekoff'
+const usesEmployee = () => preferences.template === 'attendance' || preferences.template === 'weekoff'
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
   // Date & time was replaced by Attendance.
-  if (['satellite', 'attendance', 'qr'].includes(saved.template)) preferences.template = saved.template
+  if (['satellite', 'attendance', 'qr', 'weekoff'].includes(saved.template)) preferences.template = saved.template
   else if (saved.template === 'time') preferences.template = 'attendance'
+  if (['live', 'id', 'passport'].includes(saved.weekoffSource)) preferences.weekoffSource = saved.weekoffSource
   if (saved.position === 'top') preferences.position = 'top'
   preferences.keepOriginal = saved.keepOriginal === true
   preferences.preferShare = saved.preferShare === true
@@ -181,7 +185,7 @@ function showTimings() {
   line.hidden = false
 }
 function prefetchPlace(snapshot) {
-  if (!snapshot || preferences.template === 'time') return
+  if (!snapshot || noGps()) return
   const cached = placeCache
   if (cached && usable(cached, snapshot)) return
   if (cached && !cached.done && metresBetween(snapshot, cached) < 200) return   // one request at a time nearby
@@ -451,16 +455,16 @@ function resetStart() {
   $('start').classList.remove('opening')
   document.documentElement.classList.remove('camera-opening')
   $('startCamera').disabled = false
-  $('startCamera').textContent = preferences.template === 'time' ? 'Start camera' : 'Start camera with location'
+  $('startCamera').textContent = noGps() ? 'Start camera' : 'Start camera with location'
   $('startWithoutLocation').disabled = false
 }
 
 async function startLiveCamera(requestLocation = false) {
   // Location and the camera start together: both can take a while, and neither waits for the other.
   const wantsLocation = requestLocation || (!timestampOnly && android?.hasLocationAccess?.())
-  if (wantsLocation && !manualFix && preferences.template !== 'time' && watchId === undefined) enableLocation()
+  if (wantsLocation && !manualFix && !noGps() && watchId === undefined) enableLocation()
   await startCamera()
-  if (!stream || manualFix || preferences.template === 'time' || watchId !== undefined) return
+  if (!stream || manualFix || noGps() || watchId !== undefined) return
   if (wantsLocation) {
     enableLocation()
     return
@@ -470,7 +474,7 @@ async function startLiveCamera(requestLocation = false) {
   try {
     const permission = await navigator.permissions?.query({ name: 'geolocation' })
     if (permission?.state === 'granted' && stream === activeStream && watchId === undefined &&
-        !timestampOnly && !manualFix && preferences.template !== 'time') {
+        !timestampOnly && !manualFix && !noGps()) {
       enableLocation()
     }
   } catch {
@@ -527,7 +531,7 @@ function openPhoneCamera(withLocation) {
 }
 
 $('fallback').addEventListener('click', () => {
-  if (hasPhoneCamera) openPhoneCamera(preferences.template !== 'time' && !timestampOnly)
+  if (hasPhoneCamera) openPhoneCamera(!noGps() && !timestampOnly)
   else requestCapture(openPicker)
 })
 
@@ -551,8 +555,8 @@ function clearGpsChoice() {
 }
 
 function requestCapture(action, { waited = false } = {}) {
-  const snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
-  if (snapshot || timestampOnly || preferences.template === 'time') {
+  const snapshot = noGps() ? undefined : manualFix || currentFix()
+  if (snapshot || timestampOnly || noGps()) {
     clearGpsChoice()
     action(snapshot)
     return
@@ -587,11 +591,11 @@ $('captureWithoutLocation').addEventListener('click', () => {
 })
 
 function updateLocationMapAction() {
-  $('addLocationMap').hidden = preferences.template === 'time' || !!(manualFix || currentFix()) || watchId !== undefined
+  $('addLocationMap').hidden = noGps() || !!(manualFix || currentFix()) || watchId !== undefined
 }
 
 function addLocationMap() {
-  if (preferences.template === 'time') {
+  if (noGps()) {
     preferences.template = 'satellite'
     document.querySelector('input[name="template"][value="satellite"]').checked = true
     savePreferences()
@@ -1036,7 +1040,9 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const w = canvas.width / unit, h = canvas.height / unit
   const inset = 10, padding = 8, radius = 11
   // Date & time stamps get a calendar tile where the satellite stamp has its map, so all cards match.
-  const attendanceCard = template === 'attendance'
+  const weekOff = template === 'weekoff'
+  if (weekOff) snapshot = undefined, map = undefined   // Week Off: no place, no map, no coordinates
+  const attendanceCard = template === 'attendance' || weekOff
   const calendar = !snapshot && !attendanceCard
   if (attendanceCard) map = undefined   // the status tile takes the map's place
   const mapSize = map || calendar || attendanceCard ? 92 : 0
@@ -1096,11 +1102,11 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     // Attendance: who (large), their name, where, the coordinates and when.
     const status = attendance?.status
     const statusColor = { late: '#f0a15e', early: '#f0a15e', weekoff: '#7fb6ff', ontime: '#5fd391' }[status?.kind] || colors.brand
-    add(`${snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE'}${status ? ` · ${status.label}` : ''}`, 8.5, statusColor, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
+    add(weekOff ? `WEEK OFF${attendance?.source && attendance.source !== 'live' ? ` · ${attendance.source === 'id' ? 'ID CARD' : 'PASSPORT PHOTO'}` : ''}` : `${snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE'}${status ? ` · ${status.label}` : ''}`, 8.5, weekOff ? '#7fb6ff' : statusColor, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
     add(attendance?.id || 'No employee ID', 19, attendance?.id ? colors.text : colors.muted, 700, { maxLines: 1, tracking: 0.3, gapAfter: 1 })
     if (attendance?.name) add(attendance.name, 13, colors.muted, 600, { maxLines: 1, gapAfter: 3 })
     else if (!attendance?.id) add('Choose one with the ID button', 11.5, colors.muted, 500, { maxLines: 1, gapAfter: 3 })
-    if (snapshot) {
+    if (weekOff) { /* no location lines */ } else if (snapshot) {
       add(placeHeading(snapshot, address) || 'GPS location', 12.5, colors.muted, 500, { maxLines: 1 })
       add(formatCoordinates(snapshot), 11, colors.coordinate, 600, { maxLines: 1 })
     } else add('Location unavailable', 12, colors.muted, 500, { maxLines: 1 })
@@ -1192,13 +1198,13 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.clip()
     ctx.fillStyle = '#fbf8f2'
     ctx.fillRect(x, y, size, size)
-    ctx.fillStyle = !attendance?.id ? '#6b7275' : out ? '#d9772b' : '#1f8a52'
+    ctx.fillStyle = !attendance?.id ? '#6b7275' : weekOff ? '#2f6fd1' : out ? '#d9772b' : '#1f8a52'
     ctx.fillRect(x, y, size, band)
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillStyle = '#ffffff'
     ctx.font = `800 11.5px ${stampFace}`
-    ctx.fillText(!attendance?.id ? 'NO ID' : out ? 'LOG OUT' : 'LOG IN', x + size / 2, y + band / 2 + 0.5)
+    ctx.fillText(!attendance?.id ? 'NO ID' : weekOff ? 'WEEK OFF' : out ? 'LOG OUT' : 'LOG IN', x + size / 2, y + band / 2 + 0.5)
     ctx.fillStyle = '#16191a'
     ctx.font = `700 27px ${stampFace}`
     ctx.fillText(clock, x + size / 2, y + band + 19)
@@ -2123,6 +2129,7 @@ $('timerToggle').addEventListener('click', () => {
 })
 
 function takeLivePhoto(snapshot) {
+  if (preferences.template === 'weekoff' && preferences.weekoffSource === 'passport') { takePassportPhoto(); return }
   if (!timerSeconds) {
     capture(video, false, snapshot)
     return
@@ -2148,7 +2155,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) cancelCountdown()
 })
 
-async function capture(source, picked, snapshot, { date = new Date(), imageFile = picked, phoneMode } = {}) {
+async function capture(source, picked, snapshot, { date = new Date(), imageFile = picked, phoneMode, withAttendance } = {}) {
   if (busy) return
   busy = true
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
@@ -2194,7 +2201,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     mark('place')
     await stampFonts
     mark('fonts')
-    const attendance = live || phoneMode ? currentAttendance() : undefined
+    const attendance = live || phoneMode || withAttendance ? currentAttendance() : undefined
     drawStamp(canvas, { snapshot, date, picked, address, map, attendance })
     mark('stamp')
     if (live && preferences.reviewAfter) showEarlyPreview(canvas)
@@ -2318,9 +2325,11 @@ function suggestedLog(id) {
   if (person && effective(person, now).shift) return last && last.action === 'in' && now - new Date(last.time) < 20 * 3600e3 ? 'out' : 'in'
   return last && new Date(last.time).toDateString() === now.toDateString() && last.action === 'in' ? 'out' : 'in'
 }
+const logWord = (action) => action === 'weekoff' ? 'Week off' : action === 'out' ? 'Log out' : 'Log in'
 function currentAttendance() {
-  if (preferences.template !== 'attendance' || !selectedEmployeeId) return undefined
+  if (!usesEmployee() || !selectedEmployeeId) return undefined
   const person = allEmployees().find(entry => entry.id === selectedEmployeeId) || employeeById(selectedEmployeeId)
+  if (preferences.template === 'weekoff') return { id: person.id, name: person.name || '', action: 'weekoff', source: preferences.weekoffSource, status: { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 } }
   const action = logOverride || suggestedLog(person.id)
   return { id: person.id, name: person.name || '', action, status: attendanceStatus(person, action, new Date()) }
 }
@@ -2332,10 +2341,10 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
     place: snapshot ? placeHeading(snapshot, address) : '', address: address ? fullAddress(address) : '',
     lat: snapshot?.lat, lon: snapshot?.lon, file,
     shift: (() => { const person = allEmployees().find(entry => entry.id === attendance.id), shift = person && effective(person, date).shift; return shift ? `${shift.start}-${shift.end}` : '' })(),
-    status: attendance.status?.label || ''
+    status: attendance.status?.label || '', source: attendance.source
   }
   register.push(row)
-  const queued = queueForTeam(row, photo)
+  const queued = attendance.action === 'weekoff' ? undefined : queueForTeam(row, photo)   // Week Off entries stay on this phone for now
   if (register.length > 5000) register = register.slice(-5000)
   try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
   logOverride = undefined   // the next photo for this ID suggests the opposite action
@@ -2361,7 +2370,7 @@ let undoTimer
 function showUndo(attendance, entry, { row, queued }) {
   const toast = $('undoToast')
   clearTimeout(undoTimer)
-  $('undoText').textContent = `${attendance.action === 'out' ? 'Logged out' : 'Logged in'} · ${row.clock.slice(0, 5)} · ${attendance.id}`
+  $('undoText').textContent = `${attendance.action === 'weekoff' ? 'Week off' : attendance.action === 'out' ? 'Logged out' : 'Logged in'} · ${row.clock.slice(0, 5)} · ${attendance.id}`
   toastShow(toast)
   $('undoButton').onclick = async () => {
     toastHide(toast)
@@ -2379,7 +2388,7 @@ function showUndo(attendance, entry, { row, queued }) {
       if (!$('review').hidden) closePhotoView()
     }
     updateEmployeeSummary(); showLogChoice(); renderLiveStamp()
-    message(sent ? 'Removed here. It was already sent to your team’s register.' : `${attendance.action === 'out' ? 'Log out' : 'Log in'} undone`, sent ? 5000 : 2500)
+    message(sent ? 'Removed here. It was already sent to your team’s register.' : `${logWord(attendance.action)} undone`, sent ? 5000 : 2500)
   }
   undoTimer = setTimeout(() => toastHide(toast), 7000)
 }
@@ -2434,7 +2443,7 @@ function wheelList() {
 }
 function prepareEmployeePicker(keepPlace = false) {
   // Picking an employee is attendance: switch the stamp to the Attendance style.
-  if (preferences.template !== 'attendance') {
+  if (!usesEmployee()) {
     const radio = document.querySelector('input[name="template"][value="attendance"]')
     radio.checked = true
     radio.dispatchEvent(new Event('change'))
@@ -2541,7 +2550,7 @@ function showLogChoice() {
   if (attendance && Math.round(wheel.scrollTop / wheelItem) !== (attendance.action === 'out' ? 1 : 0)) setWheel(wheel, attendance.action === 'out' ? 1 : 0)
   const last = attendance && [...register].reverse().find(row => row.id === attendance.id)
   $('logHint').textContent = !attendance ? 'Photos will have no employee ID.'
-    : last ? `Last: ${last.action === 'out' ? 'Log out' : 'Log in'} on ${last.date} at ${last.clock.slice(0, 5)}` : 'No entries yet for this ID.'
+    : last ? `Last: ${logWord(last.action)} on ${last.date} at ${last.clock.slice(0, 5)}` : 'No entries yet for this ID.'
 }
 
 // Employee IDs: typed one per line ("ID, Name") or imported from a text, CSV or PDF file.
@@ -2615,6 +2624,7 @@ function updateEmployee(oldId, patch) {
   const next = tidy({ ...current, ...patch })
   if (index >= 0) employees.list[index] = next
   else employees.list.push(next)
+  if (next.id !== oldId && passports?.[oldId]) { passports[next.id] = passports[oldId]; delete passports[oldId]; savePassports() }
   if (wasMine) employees.me = next.id
   if (wasSelected) selectedEmployeeId = next.id
   persistEmployees()   // earlier register entries keep the ID they were made with
@@ -2628,6 +2638,54 @@ function removeEmployee(id) {
   if (selectedEmployeeId === id) { selectedEmployeeId = employees.me || ''; logOverride = undefined }
   persistEmployees()
   return { removed, index, wasMine }
+}
+
+// Passport photos (35 x 45 mm shape), one per employee, kept on this phone only; Week Off stamps can use them.
+const passportKey = 'geoziptagPassports'
+let passports = loadJson(passportKey, {})
+if (!passports || typeof passports !== 'object' || Array.isArray(passports)) passports = {}
+const savePassports = () => { try { localStorage.setItem(passportKey, JSON.stringify(passports)) } catch { message('Could not save the passport photo: the phone storage is full.', 4000) } }
+async function passportFromFile(file) {
+  const url = URL.createObjectURL(file)
+  try {
+    const image = await loadImage(url)
+    const ratio = 7 / 9
+    let cw = image.naturalWidth, ch = cw / ratio
+    if (ch > image.naturalHeight) { ch = image.naturalHeight; cw = ch * ratio }
+    const canvas = document.createElement('canvas'); canvas.width = 420; canvas.height = 540
+    canvas.getContext('2d').drawImage(image, (image.naturalWidth - cw) / 2, (image.naturalHeight - ch) / 2, cw, ch, 0, 0, 420, 540)
+    return canvas.toDataURL('image/jpeg', 0.85)
+  } finally { URL.revokeObjectURL(url) }
+}
+// The stamped picture for "Passport photo": the saved photo centred on a dark sheet, the stamp card below it.
+async function passportSheet(dataUrl) {
+  const photo = await loadImage(dataUrl)
+  const sheet = document.createElement('canvas'); sheet.width = 1080; sheet.height = 1440
+  const ctx = sheet.getContext('2d')
+  ctx.fillStyle = '#0d1b33'; ctx.fillRect(0, 0, sheet.width, sheet.height)
+  const height = 960, width = Math.round(height * 7 / 9)
+  ctx.drawImage(photo, (sheet.width - width) / 2, 90, width, height)
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 3; ctx.strokeRect((sheet.width - width) / 2, 90, width, height)
+  return loadImage(sheet.toDataURL('image/jpeg', 0.92))
+}
+async function takePassportPhoto() {
+  const person = selectedEmployeeId && (allEmployees().find(entry => entry.id === selectedEmployeeId) || employeeById(selectedEmployeeId))
+  if (!person) { $('employeeButton').click(); return }
+  if (!passports[person.id]) { message(`No passport photo saved for ${person.id}. Add one in the employee's details, or choose Live photo or ID card.`, 5000); return }
+  capture(await passportSheet(passports[person.id]), false, undefined, { imageFile: true, withAttendance: true })
+}
+// Week Off: the ID card guide on the viewfinder while "ID card" is the photo type.
+function syncWeekoffUi() {
+  $('idGuide').hidden = !(preferences.template === 'weekoff' && preferences.weekoffSource === 'id')
+}
+for (const button of $('sourceChoice').querySelectorAll('[data-source]')) {
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    preferences.weekoffSource = button.dataset.source
+    savePreferences(); closeLogChoice(); syncWeekoffUi(); renderLiveStamp(); haptic()
+    const person = selectedEmployeeId
+    if (preferences.weekoffSource === 'passport' && person && !passports[person]) message(`No passport photo saved for ${person} yet. Add one in the employee's details.`, 4500)
+  })
 }
 
 // Shifts: named, with a start and end time (an end before the start means it runs past midnight).
@@ -2854,10 +2912,25 @@ $('eeAddStep').addEventListener('change', () => {
   if (value === 'new') openShiftEdit(undefined, { step: true, onSave: values => { r.steps.push(values); drawSteps(); syncEditor() } })
   else { const base = shifts.find(shift => shift.id === value); r.steps.push({ id: base.id, name: base.name, start: base.start, end: base.end, days: base.days ? [...base.days] : undefined }); drawSteps(); syncEditor() }
 })
+function showPassport() {
+  const shown = editState.passport !== undefined ? editState.passport : passports[editState.orig?.id]
+  $('eePassportImg').hidden = !shown
+  if (shown) $('eePassportImg').src = shown
+  $('eePassportClear').hidden = !shown
+  $('eePassportPick').textContent = shown ? 'Change photo' : 'Take or choose photo'
+}
+$('eePassportPick').addEventListener('click', () => $('eePassportFile').click())
+$('eePassportFile').addEventListener('change', async () => {
+  const file = $('eePassportFile').files[0]
+  $('eePassportFile').value = ''
+  if (!file) return
+  try { editState.passport = await passportFromFile(file); showPassport() } catch { message('That photo could not be read.', 3000) }
+})
+$('eePassportClear').addEventListener('click', () => { editState.passport = null; showPassport(); haptic() })
 function openEmpEdit(entry, { prefill = '' } = {}) {
   const isNew = !entry
   const roster = entry?.roster
-  editState = { orig: entry, isNew, off: new Set(entry?.off || []), shift: entry?.shift ? { ...entry.shift } : undefined,
+  editState = { passport: undefined, orig: entry, isNew, off: new Set(entry?.off || []), shift: entry?.shift ? { ...entry.shift } : undefined,
     roster: { on: !!roster?.steps?.length, every: roster?.every ?? 7, from: roster?.from || dayText(new Date()), steps: (roster?.steps || []).map(step => ({ ...step, days: step.days ? [...step.days] : undefined })) } }
   $('empEditTitle').textContent = isNew ? 'New Employee' : 'Edit Employee'
   $('eeId').value = entry?.id || prefill
@@ -2868,6 +2941,7 @@ function openEmpEdit(entry, { prefill = '' } = {}) {
   drawDays()
   fillShiftChoices()
   fillRotation()
+  showPassport()
   $('empEdit').showModal()
   $('empEdit').querySelector('.hub-body').scrollTop = 0
   if (isNew) setTimeout(() => $('eeName').focus(), 80)
@@ -2900,6 +2974,7 @@ $('eeSave').addEventListener('click', () => {
   } else {
     employees.list.push(tidy(patch)); selectedEmployeeId = id; logOverride = undefined; persistEmployees()
   }
+  if (editState.passport !== undefined) { if (editState.passport) passports[id] = editState.passport; else delete passports[id]; savePassports() }
   if ($('eeMine').checked) employees.me = id
   else if (employees.me === id) employees.me = ''
   saveEmployees()
@@ -3219,7 +3294,7 @@ function renderRegister() {
     who.textContent = row.name ? `${row.id} · ${row.name}` : row.id
     const log = document.createElement('span')
     log.className = `log ${row.action}`
-    log.textContent = row.action === 'out' ? 'LOG OUT' : 'LOG IN'
+    log.textContent = row.action === 'weekoff' ? 'WEEK OFF' : row.action === 'out' ? 'LOG OUT' : 'LOG IN'
     const place = document.createElement('small')
     place.textContent = row.place || row.address || 'No location'
     item.append(time, who, log)
@@ -3238,7 +3313,7 @@ function toCsv(header, rows) {
 }
 $('exportRegister').addEventListener('click', () => exportCsv(`GeoZipTag-attendance-${new Date().toISOString().slice(0, 10)}.csv`,
   ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Shift', 'Status', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo'],
-  register.map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+  register.map(row => [row.date, row.clock, row.id, row.name, logWord(row.action),
     row.shift ? `${timeLabel(row.shift.split('-')[0])} – ${timeLabel(row.shift.split('-')[1])}` : '', row.status,
     row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), row.file])))
 async function exportCsv(name, header, rows) {
@@ -3469,7 +3544,7 @@ function renderTeamRegister() {
     who.textContent = row.name ? `${row.id} · ${row.name}` : row.id
     const log = document.createElement('span')
     log.className = `log ${row.action}`
-    log.textContent = row.action === 'out' ? 'LOG OUT' : 'LOG IN'
+    log.textContent = row.action === 'weekoff' ? 'WEEK OFF' : row.action === 'out' ? 'LOG OUT' : 'LOG IN'
     const place = document.createElement('small')
     place.textContent = [`${row.date || ''} ${(row.clock || '').slice(0, 5)}`.trim(), row.place || row.address || 'No location', row.device].filter(Boolean).join(' · ')
     item.append(who, log, place)
@@ -3501,7 +3576,7 @@ $('teamEmployeeFilter').addEventListener('change', loadTeamRegister)
 $('teamRegisterSheet').addEventListener('close', () => { managerPin = ''; teamRows = []; $('teamRegisterList').replaceChildren() })
 $('exportTeamRegister').addEventListener('click', () => exportCsv(`GeoZipTag-team-${team.code}-${new Date().toISOString().slice(0, 10)}.csv`,
   ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo', 'Phone'],
-  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, logWord(row.action),
     row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), photoLink(row.photo), row.device])))
 updateTeamSummary()
 
@@ -3581,7 +3656,7 @@ async function startRecording() {
   canvas.width = stampLayer.width = even(crop.width)
   canvas.height = stampLayer.height = even(crop.height)
   const context = canvas.getContext('2d', { alpha: false })
-  let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
+  let snapshot = noGps() ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   const place = snapshot && placeReady(snapshot) ? placeCache.result : {}
   const note = stampNote
@@ -3894,13 +3969,14 @@ $('placeLabel').addEventListener('input', (event) => {
 
 function updateTemplateLabel() {
   setTimeout(renderLiveStamp)
+  syncWeekoffUi()
   prefetchPlace(manualFix || currentFix())
-  $('chosenTemplate').textContent = { satellite: 'Satellite', attendance: 'Attendance', qr: 'QR Location' }[preferences.template]
+  $('chosenTemplate').textContent = { satellite: 'Satellite', attendance: 'Attendance', qr: 'QR Location', weekoff: 'Week Off' }[preferences.template]
   for (const tab of document.querySelectorAll('[data-template]')) {
     tab.setAttribute('aria-pressed', String(tab.dataset.template === preferences.template))
   }
   if (typeof centerStylePill === 'function') centerStylePill()
-  $('startWithoutLocation').hidden = preferences.template === 'time'
+  $('startWithoutLocation').hidden = noGps()
   updateLocationMapAction()
   if (!busy) resetStart()
 }
@@ -3908,7 +3984,7 @@ updateTemplateLabel()
 
 $('settingsPhoneCamera').addEventListener('click', () => {
   $('settings').close()
-  if (hasPhoneCamera) openPhoneCamera(preferences.template !== 'time' && !timestampOnly)
+  if (hasPhoneCamera) openPhoneCamera(!noGps() && !timestampOnly)
   else $('fallback').click()
 })
 
@@ -3957,7 +4033,7 @@ function renderTemplatePreview() {
     }
   }
   if (!stampFontsReady) stampFonts.then(() => { if ($('templates').open) renderTemplatePreview() })
-  const isTime = preferences.template === 'time'
+  const isTime = noGps()
   const map = document.createElement('canvas')
   map.width = map.height = 128
   const grid = map.getContext('2d')
@@ -3972,7 +4048,7 @@ function renderTemplatePreview() {
   grid.lineTo(128, 44)
   grid.stroke()
   drawStamp(canvas, {
-    attendance: preferences.template === 'attendance' ? currentAttendance() || { id: 'EMP1001', name: '', action: 'in' } : undefined,
+    attendance: usesEmployee() ? currentAttendance() || { id: 'EMP1001', name: '', action: preferences.template === 'weekoff' ? 'weekoff' : 'in' } : undefined,
     snapshot: isTime ? undefined : { lat: 17.2, lon: 79.2 },
     address: isTime ? undefined : { street: 'Site access road', locality: 'Example village', county: 'Example mandal', state: 'Telangana', postcode: '500001', country: 'India' },
     note: stampNote || 'Foundation inspection, Block B',
@@ -4721,7 +4797,7 @@ function renderLiveStamp() {
   const width = Math.round(frame.width * scale), height = Math.round(frame.height * scale)
   if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
   liveStamp.getContext('2d').clearRect(0, 0, width, height)
-  let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
+  let snapshot = noGps() ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   // The live card: this spot's address and map, or the remembered ones nearby until they arrive.
   const place = snapshot && placeReady(snapshot) ? placeCache.result : rememberedNear(snapshot, 200)
@@ -4744,7 +4820,7 @@ function renderLiveStamp() {
 // Attendance: an invisible button over the card's LOG IN / LOG OUT tile; tapping it offers Log in or Log out
 // (for the next photo only; after that the app goes back to choosing by itself).
 function placeLogTap(frame, edges, scale) {
-  const attendance = preferences.template === 'attendance'
+  const attendance = usesEmployee()
   const unit = frame.width / 460   // the stamp is drawn in units of a 460th of its width
   const top = `${frame.top + edges.top / scale}px`, height = `${(edges.bottom - edges.top) / scale}px`
   const zone = (id, from, width, on) => {
@@ -4756,12 +4832,14 @@ function placeLogTap(frame, edges, scale) {
   zone('idTap', 114, 336, attendance)      // the ID and name: opens the wheels
   zone('mapTap', 10, 104, !attendance)     // the map tile: opens Maps
   zone('noteTap', 114, 336, !attendance)   // the text: edits the note
-  if (!attendance) $('logChoice').hidden = true
+  if (!attendance) closeLogChoice()
 }
-function closeLogChoice() { $('logChoice').hidden = true }
+function closeLogChoice() { $('logChoice').hidden = true; $('sourceChoice').hidden = true }
 function openLogChoice() {
   if (!selectedEmployeeId) { $('employeeButton').click(); return }   // no ID yet: pick one first
-  const choice = $('logChoice')
+  const weekoff = preferences.template === 'weekoff'
+  const choice = weekoff ? $('sourceChoice') : $('logChoice')
+  if (weekoff) for (const button of choice.querySelectorAll('[data-source]')) button.setAttribute('aria-pressed', String(button.dataset.source === preferences.weekoffSource))
   if (!choice.hidden) { closeLogChoice(); return }
   const current = currentAttendance()?.action
   for (const button of choice.querySelectorAll('[data-choose]')) button.setAttribute('aria-pressed', String(button.dataset.choose === current))
@@ -4784,7 +4862,7 @@ function stepEmployee(direction) {
 }
 function flipLog() {
   const attendance = currentAttendance()
-  if (!attendance) return
+  if (!attendance || attendance.action === 'weekoff') return
   logOverride = attendance.action === 'out' ? 'in' : 'out'
   showLogChoice(); renderLiveStamp(); haptic()
 }

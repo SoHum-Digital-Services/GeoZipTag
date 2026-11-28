@@ -103,6 +103,7 @@
   </header>
 
   <section class="viewfinder" aria-label="Photo viewfinder">
+    <div id="idGuide" class="id-guide" aria-hidden="true" hidden><span>Fit the ID card inside</span></div>
     <video id="video" autoplay muted playsinline hidden></video>
     <img id="result" alt="Photo with the stamp embedded" hidden>
     <video id="resultVideo" class="result-video" controls playsinline hidden></video>
@@ -142,6 +143,12 @@
   <button id="mapTap" class="log-tap" type="button" aria-label="Open this place in Maps" hidden></button>
   <button id="noteTap" class="log-tap" type="button" aria-label="Edit the note on the stamp" hidden></button>
   <div id="undoToast" class="undo-toast" role="status" popover="manual" hidden><span id="undoText"></span><button id="undoButton" type="button">Undo</button></div>
+  <div id="sourceChoice" class="log-choice" role="group" aria-label="Photo for Week Off" hidden>
+    <button type="button" data-source="live">Live photo</button>
+    <button type="button" data-source="id">ID card</button>
+    <button type="button" data-source="passport">Passport photo</button>
+    <small>For the next photo</small>
+  </div>
   <div id="logChoice" class="log-choice" role="group" aria-label="Log in or Log out" hidden>
     <button type="button" data-choose="in">Log in</button>
     <button type="button" data-choose="out">Log out</button>
@@ -169,6 +176,7 @@
         <button type="button" class="style-pill" data-template="satellite" aria-pressed="true">Satellite</button>
         <button type="button" class="style-pill" data-template="attendance" aria-pressed="false">Attendance</button>
         <button type="button" class="style-pill" data-template="qr" aria-pressed="false">QR Location</button>
+        <button type="button" class="style-pill" data-template="weekoff" aria-pressed="false">Week Off</button>
       </div>
     </div>
     <div class="shutter-tray">
@@ -234,6 +242,7 @@
     <label><input type="radio" name="template" value="satellite"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg><span><strong>Satellite</strong><small>Map, address, GPS</small></span></label>
     <label><input type="radio" name="template" value="attendance"><svg class="icon" aria-hidden="true"><use href="#i-person"/></svg><span><strong>Attendance</strong><small>Employee ID, log in/out, time and place</small></span></label>
     <label><input type="radio" name="template" value="qr"><svg class="icon" aria-hidden="true"><use href="#i-qr"/></svg><span><strong>QR location</strong><small>Scannable map link</small></span></label>
+    <label><input type="radio" name="template" value="weekoff"><svg class="icon" aria-hidden="true"><use href="#i-person"/></svg><span><strong>Week Off</strong><small>Employee ID, WEEK OFF badge, no GPS</small></span></label>
   </fieldset>
   <p class="hint">Preview uses sample data. Stamp position is in Settings.</p>
 </dialog>
@@ -465,6 +474,12 @@
     <div class="card">
       <label class="row"><span>Employee ID</span><input id="eeId" type="text" maxlength="40" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ID"></label>
       <label class="row"><span>Name</span><input id="eeName" type="text" maxlength="60" autocomplete="off" placeholder="Add name"></label>
+    </div>
+    <div class="card" id="eePassportCard">
+      <div class="row stack"><span>Passport photo</span>
+        <div class="passport-row"><img id="eePassportImg" alt="Passport photo" hidden><div class="passport-buttons"><button id="eePassportPick" type="button">Take or choose photo</button><button id="eePassportClear" type="button" hidden>Remove</button></div></div>
+        <input id="eePassportFile" type="file" accept="image/*" hidden></div>
+      <p class="hint">Used by Week Off mode. Kept on this phone only; it is never uploaded.</p>
     </div>
     <div class="card" id="eeOffCard">
       <div class="row stack"><span>Week off</span><div id="eeDays" class="days" role="group" aria-label="Week off days"></div></div>
