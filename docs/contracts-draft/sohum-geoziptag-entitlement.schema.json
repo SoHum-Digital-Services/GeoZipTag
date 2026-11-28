@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SoHum-Digital-Services/sohum-contracts/schemas/sohum-geoziptag-entitlement.schema.json",
+  "title": "sohum.geoziptag.entitlement/1",
+  "description": "A server-signed statement that a GeoZipTag install, team or account has a plan for a period. The payload is signed by the console API; the app verifies the detached signature with a bundled public key. Carries no name, email, phone, location or advertising id. DRAFT.",
+  "type": "object",
+  "required": ["schema", "subject", "plan", "source", "starts_at", "enabled", "issued_at", "check_after", "grace_until", "key_id"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "sohum.geoziptag.entitlement/1" },
+    "subject": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["install", "team", "account"] },
+        "id": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "plan": { "enum": ["pro"] },
+    "source": { "enum": ["paid", "store", "coupon", "trial", "team", "admin"] },
+    "starts_at": { "type": "string", "format": "date-time" },
+    "ends_at": { "type": ["string", "null"], "format": "date-time", "description": "null means no end date." },
+    "enabled": { "type": "boolean", "description": "false: disabled by an admin; the app shows the banner." },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "check_after": { "type": "string", "format": "date-time", "description": "The app asks again after this time (about daily)." },
+    "grace_until": { "type": "string", "format": "date-time", "description": "Offline, the app honours the entitlement until this time (issued_at plus 7 days), never past ends_at." },
+    "key_id": { "type": "string", "maxLength": 40 }
+  }
+}
