@@ -7,6 +7,7 @@ import Foundation
 /// load; a version whose page never reports a successful start is rolled back after two tries and never retried.
 final class OtaUpdater: @unchecked Sendable {
     static let defaultURL = URL(string: "https://sohum-digital-services.github.io/GeoZipTag/ota/")!
+    static let previewURL = URL(string: "https://sohum-digital-services.github.io/GeoZipTag/preview/ota/")!
     private static let webPath = try! NSRegularExpression(pattern:
         "^(index\\.html|style\\.css|camera\\.js|manifest\\.webmanifest|vendor/qrcode\\.(mjs|txt)|vendor/qrcode-LICENSE\\.txt"
         + "|vendor/tz-lookup\\.js|vendor/tz-lookup-LICENSE\\.txt|vendor/pdf\\.(min|worker\\.min)\\.js|vendor/pdf-LICENSE\\.txt|assets/[a-z0-9-]{1,60}\\.(svg|woff2|jpg|png|txt))$")

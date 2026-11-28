@@ -57,6 +57,13 @@
   <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4Z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.7a7.5 7.5 0 0 1 0 10.6"/></symbol>
   <symbol id="i-position" viewBox="0 0 24 24"><rect x="4.5" y="3" width="15" height="18" rx="2"/><path d="M7.5 16.5h9"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.9.7c0 1.7-2.5 2.1-2.5 3.7M12 17h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 8.5V13l3 2M5 5.5 3 7.5M19 5.5l2 2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-4-4L4 16z"/><path d="m14 6 4 4"/></symbol>
+  <symbol id="i-plus-sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z"/></symbol>
   <symbol id="i-zoom-in" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-6 6M10 20H4v-6M4 20l6-6"/></symbol>
   <symbol id="i-zoom-out" viewBox="0 0 24 24"><path d="M4 10h6V4M10 10 4 4M20 14h-6v6M14 14l6 6"/></symbol>
   <symbol id="i-flash-off" viewBox="0 0 24 24"><path d="M13 3 6 13h5l-1 8 7-10h-5l1-8Z"/><path d="M4 4l16 16"/></symbol>
@@ -96,6 +103,7 @@
   </header>
 
   <section class="viewfinder" aria-label="Photo viewfinder">
+    <div id="idGuide" class="id-guide" aria-hidden="true" hidden><span>Fit the ID card inside</span></div>
     <video id="video" autoplay muted playsinline hidden></video>
     <img id="result" alt="Photo with the stamp embedded" hidden>
     <video id="resultVideo" class="result-video" controls playsinline hidden></video>
@@ -130,6 +138,22 @@
     <p id="status" role="status" hidden></p>
   </section>
   <canvas id="liveStamp" class="live-stamp" aria-hidden="true" hidden></canvas>
+  <button id="logTap" class="log-tap" type="button" aria-label="Change Log in or Log out" aria-haspopup="true" hidden></button>
+  <button id="idTap" class="log-tap" type="button" aria-label="Choose employee" aria-haspopup="dialog" hidden></button>
+  <button id="mapTap" class="log-tap" type="button" aria-label="Open this place in Maps" hidden></button>
+  <button id="noteTap" class="log-tap" type="button" aria-label="Edit the note on the stamp" hidden></button>
+  <div id="undoToast" class="undo-toast" role="status" popover="manual" hidden><span id="undoText"></span><button id="undoButton" type="button">Undo</button></div>
+  <div id="sourceChoice" class="log-choice" role="group" aria-label="Photo for Week Off" hidden>
+    <button type="button" data-source="live">Live photo</button>
+    <button type="button" data-source="id">ID card</button>
+    <button type="button" data-source="passport">Passport photo</button>
+    <small>For the next photo</small>
+  </div>
+  <div id="logChoice" class="log-choice" role="group" aria-label="Log in or Log out" hidden>
+    <button type="button" data-choose="in">Log in</button>
+    <button type="button" data-choose="out">Log out</button>
+    <small>For the next photo</small>
+  </div>
 
   <div id="controls" class="controls">
     <div class="location-bar">
@@ -152,8 +176,10 @@
         <button type="button" class="style-pill" data-template="satellite" aria-pressed="true">Satellite</button>
         <button type="button" class="style-pill" data-template="attendance" aria-pressed="false">Attendance</button>
         <button type="button" class="style-pill" data-template="qr" aria-pressed="false">QR Location</button>
+        <button type="button" class="style-pill" data-template="weekoff" aria-pressed="false">Week Off</button>
       </div>
     </div>
+    <div class="shutter-tray">
     <div class="capture-dock" aria-label="Capture controls">
       <div class="thumb-slot">
         <button id="lastPhotoButton" class="last-photo" type="button" aria-label="Last photo. None yet" disabled><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><img id="lastPhotoImage" alt="" hidden></button>
@@ -171,6 +197,7 @@
         <button type="button" data-mode="photo" aria-pressed="true">Photo</button>
         <button type="button" data-mode="video" aria-pressed="false">Video</button>
       </div>
+    </div>
     </div>
     <input id="file" type="file" accept="image/*" capture="environment" hidden>
   </div>
@@ -215,6 +242,7 @@
     <label><input type="radio" name="template" value="satellite"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg><span><strong>Satellite</strong><small>Map, address, GPS</small></span></label>
     <label><input type="radio" name="template" value="attendance"><svg class="icon" aria-hidden="true"><use href="#i-person"/></svg><span><strong>Attendance</strong><small>Employee ID, log in/out, time and place</small></span></label>
     <label><input type="radio" name="template" value="qr"><svg class="icon" aria-hidden="true"><use href="#i-qr"/></svg><span><strong>QR location</strong><small>Scannable map link</small></span></label>
+    <label><input type="radio" name="template" value="weekoff"><svg class="icon" aria-hidden="true"><use href="#i-person"/></svg><span><strong>Week Off</strong><small>Employee ID, WEEK OFF badge, no GPS</small></span></label>
   </fieldset>
   <p class="hint">Preview uses sample data. Stamp position is in Settings.</p>
 </dialog>
@@ -351,6 +379,11 @@
         <span class="row-text"><strong>Check for updates</strong><small id="updateStatus">Updates download in the background.</small></span>
         <svg class="icon" aria-hidden="true"><use href="#i-retake"/></svg>
       </button>
+      <label id="previewRow" class="setting-row" hidden>
+        <svg class="icon row-icon" aria-hidden="true"><use href="#i-download"/></svg>
+        <span class="row-text"><strong>Preview versions</strong><small id="previewHint">Try the newest changes before they go live</small></span>
+        <input id="previewChannel" class="switch" type="checkbox">
+      </label>
     </div>
   </section>
   <p id="appVersion" class="app-version">GeoZiptag</p>
@@ -358,45 +391,39 @@
   <p id="photoTimings" class="app-version" hidden></p>
 </dialog>
 
-<dialog id="employeePicker" class="wheel-sheet" aria-labelledby="employeeTitle">
-  <div class="sheet-head"><h2 id="employeeTitle">Employee</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
-  <div class="wheel-wrap"><div id="employeeWheel" class="wheel" role="listbox" aria-label="Employee ID" tabindex="0"></div></div>
-  <div class="segmented" role="group" aria-label="Attendance">
-    <button type="button" data-log="in" aria-pressed="true">Log in</button>
-    <button type="button" data-log="out" aria-pressed="false">Log out</button>
-  </div>
-  <p id="logHint" class="hint wheel-hint"></p>
-  <button type="button" class="text-button wheel-manage" data-open="employeesSheet">Add or import IDs</button>
-</dialog>
-
-<dialog id="employeesSheet" aria-labelledby="employeesTitle">
-  <div class="sheet-head"><h2 id="employeesTitle">Employee IDs</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
-  <label for="myEmployeeId">My employee ID</label>
-  <input id="myEmployeeId" type="text" maxlength="40" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. ENDWEMP20153">
-  <p class="hint">Shown on every photo, unless you pick someone else with the ID button.</p>
-  <label for="employeeList">All IDs <small id="employeeCount"></small></label>
-  <textarea id="employeeList" rows="8" autocapitalize="characters" spellcheck="false" placeholder="ENDWEMP20153, Siddhartha&#10;ENDWEMP20154"></textarea>
-  <p class="hint">One per line: the ID, then the name if you like. Or import a text, CSV or PDF file that lists them.</p>
-  <div class="sheet-actions">
-    <label class="file-button" for="employeeFile">Import file</label>
-    <input id="employeeFile" class="logo-input" type="file" accept=".txt,.csv,.pdf,text/plain,text/csv,application/pdf">
-    <button id="saveEmployees" class="primary" type="button">Save</button>
-  </div>
-  <p id="employeeStatus" class="hint" role="status"></p>
-</dialog>
-
-<dialog id="registerSheet" aria-labelledby="registerTitle">
-  <div class="sheet-head"><h2 id="registerTitle">Attendance register</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+<dialog id="attendanceHub" class="hub" aria-label="Attendance">
+  <header class="hub-head">
+    <button id="hubClose" class="round-btn" type="button" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <span id="hubSmallTitle" class="hub-small" aria-hidden="true">Employees</span>
+    <div class="hub-actions">
+      <button id="hubEdit" class="pill-btn" type="button">Edit</button>
+      <button id="hubAdd" class="round-btn" type="button" aria-label="Add"><svg class="icon" aria-hidden="true"><use href="#i-plus-sm"/></svg></button>
+    </div>
+  </header>
+  <div id="hubScroll" class="hub-scroll">
+    <h1 id="hubTitle" class="hub-title">Employees</h1>
+    <section id="hubEmployees" class="hub-page">
+      <div id="hubEmpList"></div>
+      <div class="sheet-actions emp-actions">
+        <label class="file-button" for="employeeFile">Import file</label>
+        <input id="employeeFile" class="logo-input" type="file" accept=".txt,.csv,.pdf,text/plain,text/csv,application/pdf">
+      </div>
+      <p class="hint">Tap a person to edit their ID, name, week off and shift. Swipe a row left to delete it. The switch turns an employee on or off in the wheels.</p>
+      <p id="employeeStatus" class="hint" role="status"></p>
+    </section>
+    <section id="hubShifts" class="hub-page" hidden>
+      <div id="hubShiftList"></div>
+      <p class="hint">A shift is a start and an end time. Give one to each employee; a shift that ends before it starts runs past midnight. A Log in more than 10 minutes after the start is marked Late, and a Log out more than 10 minutes before the end is marked Early.</p>
+    </section>
+    <section id="hubRegister" class="hub-page" hidden>
   <p id="registerSummary" class="hint"></p>
   <div id="registerList" class="register-list"></div>
   <div class="sheet-actions">
     <button id="exportRegister" class="primary" type="button">Export CSV</button>
     <button id="clearRegister" class="text-button" type="button">Clear</button>
   </div>
-</dialog>
-
-<dialog id="teamSheet" aria-labelledby="teamTitle">
-  <div class="sheet-head"><h2 id="teamTitle">Shared register</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+    </section>
+    <section id="hubTeam" class="hub-page" hidden>
   <div id="teamJoined" hidden>
     <div class="status-card">
       <span class="status-icon" aria-hidden="true"><svg class="icon"><use href="#i-cloud"/></svg></span>
@@ -426,6 +453,105 @@
     <button id="createTeam" type="button">Create team</button>
     <p id="teamStatus" class="hint" role="status"></p>
   </div>
+    </section>
+  </div>
+  <nav class="hub-tabs" aria-label="Attendance pages">
+    <span id="hubHighlight" aria-hidden="true"></span>
+    <button type="button" data-tab="employees" aria-selected="true"><svg class="icon" aria-hidden="true"><use href="#i-person"/></svg><span>Employees</span></button>
+    <button type="button" data-tab="shifts" aria-selected="false"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Shifts</span></button>
+    <button type="button" data-tab="register" aria-selected="false"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span>Register</span></button>
+    <button type="button" data-tab="team" aria-selected="false"><svg class="icon" aria-hidden="true"><use href="#i-cloud"/></svg><span>Team</span></button>
+  </nav>
+</dialog>
+
+<dialog id="empEdit" class="hub hub-edit" aria-labelledby="empEditTitle">
+  <header class="hub-bar">
+    <button id="eeCancel" class="round-btn" type="button" aria-label="Cancel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2 id="empEditTitle">Edit Employee</h2>
+    <button id="eeSave" class="round-btn ok" type="button" aria-label="Save"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+  </header>
+  <div class="hub-body">
+    <div class="card">
+      <label class="row"><span>Employee ID</span><input id="eeId" type="text" maxlength="40" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ID"></label>
+      <label class="row"><span>Name</span><input id="eeName" type="text" maxlength="60" autocomplete="off" placeholder="Add name"></label>
+    </div>
+    <div class="card" id="eePassportCard">
+      <div class="row stack"><span>Passport photo</span>
+        <div class="passport-row"><img id="eePassportImg" alt="Passport photo" hidden><div class="passport-buttons"><button id="eePassportPick" type="button">Take or choose photo</button><button id="eePassportClear" type="button" hidden>Remove</button></div></div>
+        <input id="eePassportFile" type="file" accept="image/*" hidden></div>
+      <p class="hint">Used by Week Off mode. Kept on this phone only; it is never uploaded.</p>
+    </div>
+    <div class="card" id="eeOffCard">
+      <div class="row stack"><span>Week off</span><div id="eeDays" class="days" role="group" aria-label="Week off days"></div></div>
+    </div>
+    <div class="card" id="eeShiftCard">
+      <label class="row"><span>Shift</span><select id="eeShift" aria-label="Shift"></select></label>
+      <div id="eeCustom" hidden>
+        <button id="eeStartRow" class="row time-row" type="button" aria-expanded="false"><span>Starts</span><b id="eeStartText">9:00 AM</b></button>
+        <div id="eeStartWheel" hidden></div>
+        <button id="eeEndRow" class="row time-row last" type="button" aria-expanded="false"><span>Ends</span><b id="eeEndText">6:00 PM</b></button>
+        <div id="eeEndWheel" hidden></div>
+      </div>
+    </div>
+    <div class="card" id="eeRotateCard">
+      <label class="row"><span>Rotate shifts</span><input id="eeRotate" class="switch" type="checkbox"></label>
+      <div id="eeRotation" hidden>
+        <label class="row"><span>Changes every</span><select id="eeEvery" aria-label="Shift changes every"><option value="7">Week</option><option value="15">15 days</option><option value="month">Month</option><option value="30">30 days</option><option value="custom">Custom…</option></select></label>
+        <label class="row" id="eeEveryRow" hidden><span>Number of days</span><input id="eeEveryDays" type="number" inputmode="numeric" min="1" max="365" value="10"></label>
+        <label class="row"><span>First turn starts</span><input id="eeFrom" type="date"></label>
+        <p id="eeRunHint" class="hint"></p>
+        <div id="eeSteps"></div>
+        <label class="row last"><span>Add a shift</span><select id="eeAddStep" aria-label="Add a shift to the rotation"></select></label>
+      </div>
+    </div>
+    <div class="card">
+      <label class="row"><span>Active</span><input id="eeActive" class="switch" type="checkbox"></label>
+      <label class="row"><span>This is my ID</span><input id="eeMine" class="switch" type="checkbox"></label>
+    </div>
+    <button id="eeDelete" class="delete-button" type="button">Delete employee</button>
+  </div>
+</dialog>
+
+<dialog id="shiftEdit" class="hub hub-edit" aria-labelledby="shiftEditTitle">
+  <header class="hub-bar">
+    <button id="seCancel" class="round-btn" type="button" aria-label="Cancel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2 id="shiftEditTitle">Edit Shift</h2>
+    <button id="seSave" class="round-btn ok" type="button" aria-label="Save"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+  </header>
+  <div class="hub-body">
+    <div class="card">
+      <label class="row"><span>Name</span><input id="seName" type="text" maxlength="30" autocomplete="off" placeholder="e.g. Morning"></label>
+    </div>
+    <div class="card">
+      <button id="seStartRow" class="row time-row" type="button" aria-expanded="false"><span>Starts</span><b id="seStartText">9:00 AM</b></button>
+      <div id="seStartWheel" hidden></div>
+      <button id="seEndRow" class="row time-row last" type="button" aria-expanded="false"><span>Ends</span><b id="seEndText">6:00 PM</b></button>
+      <div id="seEndWheel" hidden></div>
+    </div>
+    <div class="card">
+      <div class="row stack"><span>Shift days</span><div id="seDays" class="days" role="group" aria-label="Days this shift works"></div></div>
+    </div>
+    <button id="seDelete" class="delete-button" type="button">Delete shift</button>
+  </div>
+</dialog>
+
+<dialog id="employeePicker" class="wheel-sheet" aria-labelledby="employeeTitle">
+  <header class="hub-bar picker-bar">
+    <button id="wheelClose" class="round-btn" type="button" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2 id="employeeTitle">Employee</h2>
+    <div class="hub-actions">
+      <button id="wheelSearchToggle" class="round-btn" type="button" aria-label="Search employees"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg></button>
+      <button id="wheelEditButton" class="pill-btn" type="button">Edit</button>
+    </div>
+  </header>
+  <div id="wheelSearchRow" class="emp-search" hidden><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="wheelSearch" type="search" placeholder="Search ID or name" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search"></div>
+  <div id="wheelRows" class="wheel-wrap wheel3">
+    <div id="employeeWheel" class="wheel" role="listbox" aria-label="Employee ID" tabindex="0"></div>
+    <div id="nameWheel" class="wheel" role="listbox" aria-label="Name"></div>
+    <div id="actionWheel" class="wheel" role="listbox" aria-label="Log in or Log out"></div>
+  </div>
+  <p id="logHint" class="hint wheel-hint"></p>
+  <button type="button" class="text-button wheel-manage" data-open="employeesSheet">Add or import IDs</button>
 </dialog>
 
 <dialog id="teamRegisterSheet" aria-labelledby="teamRegisterTitle">

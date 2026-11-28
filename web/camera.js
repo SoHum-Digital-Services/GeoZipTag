@@ -19,6 +19,14 @@ let cameraProblem, locationDenied = false, nativeFrameSeen = false
 let facing = 'user'   // GeoZiptag always opens on the front camera
 let cameraRequest = 0
 let busy = false
+// A light tick when a swipe or wheel clicks into place: the app's own haptics where it has them (iPhone, Android),
+// otherwise the browser's vibration where that exists.
+function haptic() {
+  try {
+    if (typeof android !== 'undefined' && android && typeof android.haptic === 'function') android.haptic()
+    else if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) navigator.vibrate?.(8)
+  } catch {}
+}
 let fromPicker = false
 let pickerFix, pendingCapture
 let timestampOnly = false
@@ -29,12 +37,16 @@ let captureMode = 'photo'   // photo | video
 let timerSeconds = 0
 const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
   quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false, reviewAfter: true,
-  mirrorFront: false, showLevel: false }
+  mirrorFront: false, showLevel: false, weekoffSource: 'live' }
+// Week Off stamps carry no GPS, like the old time-only stamp.
+const noGps = () => preferences.template === 'time' || preferences.template === 'weekoff'
+const usesEmployee = () => preferences.template === 'attendance' || preferences.template === 'weekoff'
 try {
   const saved = JSON.parse(localStorage.getItem('geostampPreferences') || '{}')
   // Date & time was replaced by Attendance.
-  if (['satellite', 'attendance', 'qr'].includes(saved.template)) preferences.template = saved.template
+  if (['satellite', 'attendance', 'qr', 'weekoff'].includes(saved.template)) preferences.template = saved.template
   else if (saved.template === 'time') preferences.template = 'attendance'
+  if (['live', 'id', 'passport'].includes(saved.weekoffSource)) preferences.weekoffSource = saved.weekoffSource
   if (saved.position === 'top') preferences.position = 'top'
   preferences.keepOriginal = saved.keepOriginal === true
   preferences.preferShare = saved.preferShare === true
@@ -143,17 +155,37 @@ function rememberedNear(snapshot, metres) {
   const place = rememberedPlace
   return snapshot && place && metresBetween(snapshot, place) < metres ? { address: place.address, map: place.map } : undefined
 }
+// While the full-size photo is still being encoded, a small copy of the finished stamp is shown, so the photo
+// appears about a second sooner on a phone. The real photo view (showReview) replaces it when the encode is done.
+let earlyPreview = false
+function showEarlyPreview(canvas) {
+  const scale = Math.min(1, 1080 / Math.max(canvas.width, canvas.height))
+  const small = document.createElement('canvas')
+  small.width = Math.max(1, Math.round(canvas.width * scale))
+  small.height = Math.max(1, Math.round(canvas.height * scale))
+  small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height)
+  $('result').src = small.toDataURL('image/jpeg', 0.8)
+  $('result').hidden = false
+  $('result').parentElement.classList.add('photo-review')
+  earlyPreview = true
+  renderLiveStamp()   // the live card steps aside: the stamp is already on this picture
+}
+function endEarlyPreview() {
+  if (!earlyPreview) return
+  earlyPreview = false
+  if ($('review').hidden) $('result').parentElement.classList.remove('photo-review')   // the real photo view did not follow
+}
 let lastTimings = [], nativeShotAt   // [step, ms since the shutter] for the last photo, to find what is slow
 // Settings > bottom line: where the last photo's time went (each step's time since the shutter).
 function showTimings() {
   const line = $('photoTimings')
   if (!line || !lastTimings.length) return
-  const names = { shot: 'photo taken', loaded: 'loaded', draw: 'drawn', place: 'address', stamp: 'stamped', encode: 'encoded', thumbnail: 'thumbnail', saved: 'saved' }
+  const names = { shot: 'photo taken', loaded: 'loaded', draw: 'drawn', place: 'address', fonts: 'fonts', stamp: 'stamped', encode: 'encoded', thumbnail: 'thumbnail', saved: 'saved' }
   line.textContent = 'Last photo: ' + lastTimings.map(([step, ms]) => `${names[step] || step} ${(ms / 1000).toFixed(1)} s`).join(' · ')
   line.hidden = false
 }
 function prefetchPlace(snapshot) {
-  if (!snapshot || preferences.template === 'time') return
+  if (!snapshot || noGps()) return
   const cached = placeCache
   if (cached && usable(cached, snapshot)) return
   if (cached && !cached.done && metresBetween(snapshot, cached) < 200) return   // one request at a time nearby
@@ -423,16 +455,16 @@ function resetStart() {
   $('start').classList.remove('opening')
   document.documentElement.classList.remove('camera-opening')
   $('startCamera').disabled = false
-  $('startCamera').textContent = preferences.template === 'time' ? 'Start camera' : 'Start camera with location'
+  $('startCamera').textContent = noGps() ? 'Start camera' : 'Start camera with location'
   $('startWithoutLocation').disabled = false
 }
 
 async function startLiveCamera(requestLocation = false) {
   // Location and the camera start together: both can take a while, and neither waits for the other.
   const wantsLocation = requestLocation || (!timestampOnly && android?.hasLocationAccess?.())
-  if (wantsLocation && !manualFix && preferences.template !== 'time' && watchId === undefined) enableLocation()
+  if (wantsLocation && !manualFix && !noGps() && watchId === undefined) enableLocation()
   await startCamera()
-  if (!stream || manualFix || preferences.template === 'time' || watchId !== undefined) return
+  if (!stream || manualFix || noGps() || watchId !== undefined) return
   if (wantsLocation) {
     enableLocation()
     return
@@ -442,7 +474,7 @@ async function startLiveCamera(requestLocation = false) {
   try {
     const permission = await navigator.permissions?.query({ name: 'geolocation' })
     if (permission?.state === 'granted' && stream === activeStream && watchId === undefined &&
-        !timestampOnly && !manualFix && preferences.template !== 'time') {
+        !timestampOnly && !manualFix && !noGps()) {
       enableLocation()
     }
   } catch {
@@ -499,7 +531,7 @@ function openPhoneCamera(withLocation) {
 }
 
 $('fallback').addEventListener('click', () => {
-  if (hasPhoneCamera) openPhoneCamera(preferences.template !== 'time' && !timestampOnly)
+  if (hasPhoneCamera) openPhoneCamera(!noGps() && !timestampOnly)
   else requestCapture(openPicker)
 })
 
@@ -523,8 +555,8 @@ function clearGpsChoice() {
 }
 
 function requestCapture(action, { waited = false } = {}) {
-  const snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
-  if (snapshot || timestampOnly || preferences.template === 'time') {
+  const snapshot = noGps() ? undefined : manualFix || currentFix()
+  if (snapshot || timestampOnly || noGps()) {
     clearGpsChoice()
     action(snapshot)
     return
@@ -559,11 +591,11 @@ $('captureWithoutLocation').addEventListener('click', () => {
 })
 
 function updateLocationMapAction() {
-  $('addLocationMap').hidden = preferences.template === 'time' || !!(manualFix || currentFix()) || watchId !== undefined
+  $('addLocationMap').hidden = noGps() || !!(manualFix || currentFix()) || watchId !== undefined
 }
 
 function addLocationMap() {
-  if (preferences.template === 'time') {
+  if (noGps()) {
     preferences.template = 'satellite'
     document.querySelector('input[name="template"][value="satellite"]').checked = true
     savePreferences()
@@ -1008,7 +1040,9 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const w = canvas.width / unit, h = canvas.height / unit
   const inset = 10, padding = 8, radius = 11
   // Date & time stamps get a calendar tile where the satellite stamp has its map, so all cards match.
-  const attendanceCard = template === 'attendance'
+  const weekOff = template === 'weekoff'
+  if (weekOff) snapshot = undefined, map = undefined   // Week Off: no place, no map, no coordinates
+  const attendanceCard = template === 'attendance' || weekOff
   const calendar = !snapshot && !attendanceCard
   if (attendanceCard) map = undefined   // the status tile takes the map's place
   const mapSize = map || calendar || attendanceCard ? 92 : 0
@@ -1066,11 +1100,13 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
   const time = zoned.time.format(date)
   if (attendanceCard) {
     // Attendance: who (large), their name, where, the coordinates and when.
-    add(snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE', 8.5, colors.brand, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
+    const status = attendance?.status
+    const statusColor = { late: '#f0a15e', early: '#f0a15e', weekoff: '#7fb6ff', ontime: '#5fd391' }[status?.kind] || colors.brand
+    add(weekOff ? `WEEK OFF${attendance?.source && attendance.source !== 'live' ? ` · ${attendance.source === 'id' ? 'ID CARD' : 'PASSPORT PHOTO'}` : ''}` : `${snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE'}${status ? ` · ${status.label}` : ''}`, 8.5, weekOff ? '#7fb6ff' : statusColor, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
     add(attendance?.id || 'No employee ID', 19, attendance?.id ? colors.text : colors.muted, 700, { maxLines: 1, tracking: 0.3, gapAfter: 1 })
     if (attendance?.name) add(attendance.name, 13, colors.muted, 600, { maxLines: 1, gapAfter: 3 })
     else if (!attendance?.id) add('Choose one with the ID button', 11.5, colors.muted, 500, { maxLines: 1, gapAfter: 3 })
-    if (snapshot) {
+    if (weekOff) { /* no location lines */ } else if (snapshot) {
       add(placeHeading(snapshot, address) || 'GPS location', 12.5, colors.muted, 500, { maxLines: 1 })
       add(formatCoordinates(snapshot), 11, colors.coordinate, 600, { maxLines: 1 })
     } else add('Location unavailable', 12, colors.muted, 500, { maxLines: 1 })
@@ -1162,13 +1198,13 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     ctx.clip()
     ctx.fillStyle = '#fbf8f2'
     ctx.fillRect(x, y, size, size)
-    ctx.fillStyle = !attendance?.id ? '#6b7275' : out ? '#d9772b' : '#1f8a52'
+    ctx.fillStyle = !attendance?.id ? '#6b7275' : weekOff ? '#2f6fd1' : out ? '#d9772b' : '#1f8a52'
     ctx.fillRect(x, y, size, band)
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillStyle = '#ffffff'
     ctx.font = `800 11.5px ${stampFace}`
-    ctx.fillText(!attendance?.id ? 'NO ID' : out ? 'LOG OUT' : 'LOG IN', x + size / 2, y + band / 2 + 0.5)
+    ctx.fillText(!attendance?.id ? 'NO ID' : weekOff ? 'WEEK OFF' : out ? 'LOG OUT' : 'LOG IN', x + size / 2, y + band / 2 + 0.5)
     ctx.fillStyle = '#16191a'
     ctx.font = `700 27px ${stampFace}`
     ctx.fillText(clock, x + size / 2, y + band + 19)
@@ -1421,7 +1457,10 @@ function setZoomLabel(value) {
   }
   // Keep the active lens in the middle, as the Camera app does.
   const row = $('zoomLenses')
-  if (active) row.style.transform = `translateX(${row.offsetWidth / 2 - (active.offsetLeft + active.offsetWidth / 2)}px)`
+  if (active) {
+    const centre = active.getBoundingClientRect().left - row.getBoundingClientRect().left + active.offsetWidth / 2
+    row.style.transform = `translateX(${row.offsetWidth / 2 - centre}px)`
+  }
 }
 function buildZoomButtons(min, max, track) {
   const row = $('zoomLenses')
@@ -1555,8 +1594,18 @@ $('zoomSlider').addEventListener('change', async event => {
   setZoomLabel(slider.valueAsNumber)
 })
 
+let lastTap = { time: 0, x: 0, y: 0 }
 video.addEventListener('click', async event => {
   if (pinch || Date.now() - pinchEndedAt < 400 || Date.now() - modeSwipedAt < 400) return
+  // Double-tap the picture: flip between the front and back camera (not when a tap takes the photo).
+  const now = Date.now()
+  if (preferences.tapAction !== 'capture' && now - lastTap.time < 320 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 40) {
+    lastTap.time = 0
+    const flip = $('switchCamera')
+    if (!flip.hidden && !flip.disabled && !busy && !recording) { flip.click(); haptic() }
+    return
+  }
+  lastTap = { time: now, x: event.clientX, y: event.clientY }
   if (preferences.tapAction === 'capture') {
     if (!busy && countdownTimer === undefined) $('shutter').click()
     return
@@ -1951,6 +2000,8 @@ function hideReview() {
 
 // Leaving the photo view: back to the live camera.
 function closePhotoView() {
+  const newest = photoHistory[photoHistory.length - 1]
+  if (newest && lastPhoto !== newest) { setCurrentPhoto(newest); showThumbnail(newest) }   // after browsing older photos
   hideReview()
   if (!stream) startLiveCamera()
 }
@@ -1965,16 +2016,21 @@ $('deletePhoto').addEventListener('click', () => {
   $('deleteConfirm').showModal()
 })
 $('cancelDelete').addEventListener('click', () => $('deleteConfirm').close())
-$('confirmDelete').addEventListener('click', async () => {
-  $('deleteConfirm').close()
-  const entry = lastPhoto
-  if (!entry) return
+// Removes a photo from the app and, where the app can, from the Gallery. Returns whether the Gallery copy went too.
+async function deleteEntry(entry) {
   const fromDevice = hostSaves && entry.saved && typeof android.deletePhoto === 'function'
   if (fromDevice) {
     try { await entry.saving } catch {}   // let the automatic save finish first, so no file is left behind
     android.deletePhoto(entry.name)
   }
   removePhoto(entry)
+  return fromDevice
+}
+$('confirmDelete').addEventListener('click', async () => {
+  $('deleteConfirm').close()
+  const entry = lastPhoto
+  if (!entry) return
+  const fromDevice = await deleteEntry(entry)
   closePhotoView()
   message(hostSaves && entry.saved && !fromDevice ? 'Removed from the app. It is still in your Gallery.' : 'Photo deleted',
     hostSaves && entry.saved && !fromDevice ? 5000 : 2000)
@@ -1994,7 +2050,7 @@ window.onPhotoDeleted = (name, ok) => {
     photo.style.opacity = ''
   }
   area.addEventListener('pointerdown', (event) => {
-    if (!area.classList.contains('photo-review') || event.target.closest('button')) return
+    if (!area.classList.contains('photo-review') || earlyPreview || event.target.closest('button')) return
     if (event.pointerType === 'mouse' && event.button !== 0) return
     drag = { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now(), dy: 0, active: false }
     photo.style.transition = 'none'
@@ -2032,6 +2088,28 @@ window.onPhotoDeleted = (name, ok) => {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !$('review').hidden && !document.querySelector('dialog[open]')) closePhotoView()
 })
+// ---- Swipe sideways in the photo view to browse the last photos (left: the next, newer one; right: the older one) ----
+{
+  const area = $('result').parentElement
+  let start
+  area.addEventListener('pointerdown', event => {
+    if (!area.classList.contains('photo-review') || earlyPreview || event.target.closest('button')) return
+    start = { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now() }
+  })
+  area.addEventListener('pointerup', event => {
+    if (!start || start.id !== event.pointerId) return
+    const dx = event.clientX - start.x, dy = event.clientY - start.y, quick = performance.now() - start.time < 800
+    start = undefined
+    if (!quick || Math.abs(dx) < 60 || Math.abs(dx) < 1.5 * Math.abs(dy) || busy) return
+    const index = photoHistory.indexOf(lastPhoto)
+    const target = photoHistory[index + (dx < 0 ? 1 : -1)]
+    if (index < 0 || !target?.url) return   // already at the newest / oldest photo
+    setCurrentPhoto(target)
+    showReview()
+    haptic()
+  })
+  area.addEventListener('pointercancel', () => { start = undefined })
+}
 
 function cancelCountdown() {
   clearInterval(countdownTimer)
@@ -2051,6 +2129,7 @@ $('timerToggle').addEventListener('click', () => {
 })
 
 function takeLivePhoto(snapshot) {
+  if (preferences.template === 'weekoff' && preferences.weekoffSource === 'passport') { takePassportPhoto(); return }
   if (!timerSeconds) {
     capture(video, false, snapshot)
     return
@@ -2076,7 +2155,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) cancelCountdown()
 })
 
-async function capture(source, picked, snapshot, { date = new Date(), imageFile = picked, phoneMode } = {}) {
+async function capture(source, picked, snapshot, { date = new Date(), imageFile = picked, phoneMode, withAttendance } = {}) {
   if (busy) return
   busy = true
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
@@ -2121,9 +2200,11 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     const { address, map } = await place
     mark('place')
     await stampFonts
-    const attendance = live || phoneMode ? currentAttendance() : undefined
+    mark('fonts')
+    const attendance = live || phoneMode || withAttendance ? currentAttendance() : undefined
     drawStamp(canvas, { snapshot, date, picked, address, map, attendance })
     mark('stamp')
+    if (live && preferences.reviewAfter) showEarlyPreview(canvas)
     const jpeg = await exportJpeg(canvas)
     if (!jpeg) throw new Error('Export unavailable')
     mark('encode')
@@ -2136,7 +2217,7 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
       url: URL.createObjectURL(jpeg), originalUrl: original ? URL.createObjectURL(original) : undefined
     }
     rememberPhoto(entry)
-    if (attendance) recordAttendance(attendance, { date, snapshot, address, file: name, photo: proofCopy(canvas) })
+    const logged = attendance ? recordAttendance(attendance, { date, snapshot, address, file: name, photo: proofCopy(canvas) }) : undefined
     // The photo is ready: the thumbnail updates at once and the viewfinder stays on screen.
     updateThumbnail(canvas, entry)
     mark('thumbnail')
@@ -2147,13 +2228,16 @@ async function capture(source, picked, snapshot, { date = new Date(), imageFile 
     }
     if (live && preferences.shareAfter) sharePhoto(entry, true)
     // The finished photo stays on screen until the user swipes down (or taps Camera) for the next one.
+    earlyPreview = false
     if (preferences.reviewAfter) showReview()
+    if (logged) showUndo(attendance, entry, logged)
     if (!live && !stream) startLiveCamera()
     const complete = !snapshot || (address && map)
     if (complete) message(hostSaves ? '' : 'Photo ready · tap the thumbnail to save or share', hostSaves ? 0 : 3500)
     else message(map ? 'Satellite map added · address unavailable' : address ? 'Address added · satellite map unavailable' :
       'Timestamp and coordinates added · map and address unavailable', 6000)
   } catch (error) {
+    endEarlyPreview()
     message(`Could not create the photo (${error?.message || 'unknown error'}). Take another photo or try the phone camera.`)
   } finally {
     // Full-resolution canvases hold about 50 MB each; free this one now (the browser caps the total).
@@ -2214,7 +2298,7 @@ const employeeKey = 'geoziptagEmployees', registerKey = 'geoziptagAttendance'
 function loadJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback } catch { return fallback }
 }
-let employees = loadJson(employeeKey, { me: 'ENDWEMP20153', list: [] })
+let employees = loadJson(employeeKey, { me: '', list: [] })   // nothing built in: every phone starts with its own, empty list
 if (!Array.isArray(employees.list)) employees.list = []
 let register = loadJson(registerKey, [])
 if (!Array.isArray(register)) register = []
@@ -2235,14 +2319,19 @@ function saveEmployees() {
 }
 // The next action for an ID: Log in unless their last entry today was a Log in.
 function suggestedLog(id) {
-  const today = new Date().toDateString()
-  const last = [...register].reverse().find(row => row.id === id)
-  return last && new Date(last.time).toDateString() === today && last.action === 'in' ? 'out' : 'in'
+  const now = new Date(), last = [...register].reverse().find(row => row.id === id)
+  const person = allEmployees().find(entry => entry.id === id)
+  // With a shift (which can run past midnight): Log out if the last entry is a Log in from within the last 20 hours.
+  if (person && effective(person, now).shift) return last && last.action === 'in' && now - new Date(last.time) < 20 * 3600e3 ? 'out' : 'in'
+  return last && new Date(last.time).toDateString() === now.toDateString() && last.action === 'in' ? 'out' : 'in'
 }
+const logWord = (action) => action === 'weekoff' ? 'Week off' : action === 'out' ? 'Log out' : 'Log in'
 function currentAttendance() {
-  if (preferences.template !== 'attendance' || !selectedEmployeeId) return undefined
-  const person = employeeById(selectedEmployeeId)
-  return { id: person.id, name: person.name || '', action: logOverride || suggestedLog(person.id) }
+  if (!usesEmployee() || !selectedEmployeeId) return undefined
+  const person = allEmployees().find(entry => entry.id === selectedEmployeeId) || employeeById(selectedEmployeeId)
+  if (preferences.template === 'weekoff') return { id: person.id, name: person.name || '', action: 'weekoff', source: preferences.weekoffSource, status: { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 } }
+  const action = logOverride || suggestedLog(person.id)
+  return { id: person.id, name: person.name || '', action, status: attendanceStatus(person, action, new Date()) }
 }
 function recordAttendance(attendance, { date, snapshot, address, file, photo }) {
   const zoned = timeAt(snapshot)
@@ -2250,15 +2339,58 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
     id: attendance.id, name: attendance.name, action: attendance.action, time: date.toISOString(),
     date: zoned.csvDate.format(date), clock: zoned.csvTime.format(date),
     place: snapshot ? placeHeading(snapshot, address) : '', address: address ? fullAddress(address) : '',
-    lat: snapshot?.lat, lon: snapshot?.lon, file
+    lat: snapshot?.lat, lon: snapshot?.lon, file,
+    shift: (() => { const person = allEmployees().find(entry => entry.id === attendance.id), shift = person && effective(person, date).shift; return shift ? `${shift.start}-${shift.end}` : '' })(),
+    status: attendance.status?.label || '', source: attendance.source
   }
   register.push(row)
-  queueForTeam(row, photo)
+  const queued = attendance.action === 'weekoff' ? undefined : queueForTeam(row, photo)   // Week Off entries stay on this phone for now
   if (register.length > 5000) register = register.slice(-5000)
   try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
   logOverride = undefined   // the next photo for this ID suggests the opposite action
   updateEmployeeSummary()
   setTimeout(renderLiveStamp)
+  return { row, queued }
+}
+// The undo message is a popover, so it shows above the full-screen pages (a plain fixed element would sit behind them).
+function toastShow(toast) {
+  // A modal page makes everything outside it unclickable, so the message moves into the page that is open.
+  const host = [...document.querySelectorAll('dialog[open]')].pop() || document.body
+  if (toast.parentElement !== host) { try { if (toast.matches(':popover-open')) toast.hidePopover() } catch {} host.append(toast) }
+  toast.hidden = false
+  toast.classList.toggle('over-hub', !!document.querySelector('dialog.hub[open]'))
+  try { if (!toast.matches(':popover-open')) toast.showPopover() } catch {}
+}
+function toastHide(toast) {
+  toast.hidden = true
+  try { if (toast.matches(':popover-open')) toast.hidePopover() } catch {}
+}
+// After an attendance photo: "Logged in 10:14 · Undo" for a few seconds. Undo removes that entry and its photo.
+let undoTimer
+function showUndo(attendance, entry, { row, queued }) {
+  const toast = $('undoToast')
+  clearTimeout(undoTimer)
+  $('undoText').textContent = `${attendance.action === 'weekoff' ? 'Week off' : attendance.action === 'out' ? 'Logged out' : 'Logged in'} · ${row.clock.slice(0, 5)} · ${attendance.id}`
+  toastShow(toast)
+  $('undoButton').onclick = async () => {
+    toastHide(toast)
+    clearTimeout(undoTimer)
+    const at = register.indexOf(row)
+    if (at >= 0) register.splice(at, 1)
+    try { localStorage.setItem(registerKey, JSON.stringify(register)) } catch {}
+    let sent = true
+    if (queued) {
+      const index = teamQueue.indexOf(queued)
+      if (index >= 0) { teamQueue.splice(index, 1); saveQueue(); photoStore.removeUpload(queued.ref); updateTeamSummary(); sent = false }
+    } else sent = false
+    if (photoHistory.includes(entry)) {
+      await deleteEntry(entry)
+      if (!$('review').hidden) closePhotoView()
+    }
+    updateEmployeeSummary(); showLogChoice(); renderLiveStamp()
+    message(sent ? 'Removed here. It was already sent to your team’s register.' : `${logWord(attendance.action)} undone`, sent ? 5000 : 2500)
+  }
+  undoTimer = setTimeout(() => toastHide(toast), 7000)
 }
 function updateEmployeeSummary() {
   const count = allEmployees().length
@@ -2269,76 +2401,156 @@ function updateEmployeeSummary() {
 }
 updateEmployeeSummary()
 
-// The picker: a rolling wheel (like the iPhone clock) and Log in / Log out.
+// The picker: three rolling wheels like the iPhone clock's: employee ID, name, and Log in / Log out.
+// The ID and name wheels are the same list (turning one turns the other); the third picks the action.
 const wheelItem = 44
-let wheelEntries = [], wheelTimer
-function prepareEmployeePicker() {
+let wheelEntries = [], wheelTimer, actionTimer, wheelQuiet = new Set()
+const wheelIds = () => [$('employeeWheel'), $('nameWheel'), $('actionWheel')]
+function makeWheelItem(text, { small = false, none = false, role = 'option', data } = {}) {
+  const item = document.createElement('div')
+  item.className = `wheel-item${none ? ' none' : ''}`
+  item.setAttribute('role', role)
+  const label = document.createElement(small ? 'small' : 'strong')
+  label.textContent = text
+  item.append(label)
+  if (data) item.dataset.log = data
+  return item
+}
+function setWheel(wheel, index, instant = true) {
+  wheelQuiet.add(wheel.id)   // our own move: the wheel's scroll handler must not treat it as a user choice
+  wheel.scrollTo({ top: index * wheelItem, behavior: instant ? 'auto' : 'smooth' })
+  setTimeout(() => wheelQuiet.delete(wheel.id), 160)
+}
+let wheelFilter = ''
+function wheelList() {
+  const all = allEmployees(), query = wheelFilter.trim().toLowerCase()
+  const entries = [{ kind: 'none', id: '', name: '' }]
+  const groups = new Map()
+  for (const entry of all) {
+    const key = splitId(entry.id).prefix
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(entry)
+  }
+  for (const [prefix, list] of groups) {
+    for (const entry of list) {
+      if (entry.active === false && entry.id !== selectedEmployeeId) continue
+      if (!query || entry.id.toLowerCase().includes(query) || (entry.name || '').toLowerCase().includes(query)) entries.push({ kind: 'emp', ...entry })
+    }
+    const next = nextId(prefix, new Set(all.map(entry => entry.id)))
+    if (!query && next) entries.push({ kind: 'add', id: '', name: '', prefix, next })   // "+" below the last ID of each series
+  }
+  return entries
+}
+function prepareEmployeePicker(keepPlace = false) {
   // Picking an employee is attendance: switch the stamp to the Attendance style.
-  if (preferences.template !== 'attendance') {
+  if (!usesEmployee()) {
     const radio = document.querySelector('input[name="template"][value="attendance"]')
     radio.checked = true
     radio.dispatchEvent(new Event('change'))
   }
-  wheelEntries = [{ id: '', name: '' }, ...allEmployees()]
-  const wheel = $('employeeWheel')
-  wheel.replaceChildren(...wheelEntries.map((entry, index) => {
-    const item = document.createElement('div')
-    item.className = `wheel-item${entry.id ? '' : ' none'}`
-    item.setAttribute('role', 'option')
-    const strong = document.createElement('strong')
-    strong.textContent = entry.id || 'No ID'
-    item.append(strong)
-    if (entry.name) {
-      const small = document.createElement('small')
-      small.textContent = entry.name
-      item.append(small)
-    }
-    item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+  if (!keepPlace) { wheelFilter = ''; $('wheelSearch').value = ''; $('wheelSearchRow').hidden = true }
+  wheelEntries = wheelList()
+  const [idWheel, nameWheel, actionWheel] = wheelIds()
+  const click = (wheel, index) => item => item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+  const addNext = (entry) => openEmpEdit(undefined, { prefill: entry.next })   // the editor opens with the next ID; the check mark adds it
+  idWheel.replaceChildren(...wheelEntries.map((entry, index) => {
+    const item = makeWheelItem(entry.kind === 'add' ? `+ Add ${entry.next}` : entry.id || 'No ID', { none: entry.kind !== 'emp' })
+    if (entry.kind === 'add') { item.classList.add('add'); item.addEventListener('click', () => addNext(entry)); return item }
+    click(idWheel, index)(item)
     return item
   }))
-  const index = Math.max(0, wheelEntries.findIndex(entry => entry.id === selectedEmployeeId))
-  wheel.scrollTop = index * wheelItem
-  styleWheel()
+  nameWheel.replaceChildren(...wheelEntries.map((entry, index) => {
+    const item = makeWheelItem(entry.kind === 'emp' ? entry.name || 'Add name' : '', { none: !entry.name })
+    if (entry.kind === 'add') { item.classList.add('add'); item.addEventListener('click', () => addNext(entry)); return item }
+    click(nameWheel, index)(item)
+    return item
+  }))
+  actionWheel.replaceChildren(...['in', 'out'].map((action, index) => {
+    const item = makeWheelItem(action === 'in' ? 'Log in' : 'Log out', { data: action })
+    click(actionWheel, index)(item)
+    return item
+  }))
+  const index = Math.max(0, wheelEntries.findIndex(entry => entry.kind === 'emp' && entry.id === selectedEmployeeId))
+  setWheel(idWheel, index); setWheel(nameWheel, index)
+  styleWheels()
   showLogChoice()
 }
-function styleWheel() {
-  const wheel = $('employeeWheel'), centre = wheel.scrollTop / wheelItem
-  ;[...wheel.children].forEach((item, index) => {
-    const distance = index - centre
-    item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.3))
-    item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
-    item.setAttribute('aria-selected', String(Math.round(centre) === index))
+$('wheelEditButton').addEventListener('click', () => {
+  const entry = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]
+  if (entry?.kind === 'emp') openEmpEdit(allEmployees().find(item => item.id === entry.id))
+})
+$('wheelClose').addEventListener('click', () => $('employeePicker').close())
+// The magnifier in the picker's header: filter the wheels by ID or name.
+$('wheelSearchToggle').addEventListener('click', () => {
+  const row = $('wheelSearchRow')
+  row.hidden = !row.hidden
+  if (row.hidden) { wheelFilter = ''; $('wheelSearch').value = ''; prepareEmployeePicker(true) } else $('wheelSearch').focus()
+})
+$('wheelSearch').addEventListener('input', () => {
+  wheelFilter = $('wheelSearch').value
+  prepareEmployeePicker(true)
+  const first = wheelEntries.find(entry => entry.kind === 'emp')
+  if (wheelFilter.trim() && first) {   // the first match is selected and in the middle
+    selectedEmployeeId = first.id; logOverride = undefined
+    const at = wheelEntries.indexOf(first)
+    setWheel($('employeeWheel'), at); setWheel($('nameWheel'), at)
+    styleWheels(); showLogChoice(); updateEmployeeSummary(); renderLiveStamp()
+  }
+})
+function styleWheels() {
+  $('wheelEditButton').disabled = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]?.kind !== 'emp'   // only an employee row can be edited
+  for (const wheel of wheelIds()) {
+    const centre = wheel.scrollTop / wheelItem
+    ;[...wheel.children].forEach((item, index) => {
+      if (item.classList.contains('editing')) return
+      const distance = index - centre
+      item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.3))
+      item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
+      item.setAttribute('aria-selected', String(Math.round(centre) === index))
+    })
+  }
+}
+// Turning the ID or the name wheel: the other follows, and once it settles that person is selected.
+for (const [wheel, other] of [[$('employeeWheel'), $('nameWheel')], [$('nameWheel'), $('employeeWheel')]]) {
+  wheel.addEventListener('scroll', () => {
+    styleWheels()
+    if (wheelQuiet.has(wheel.id)) return
+    if (Math.abs(other.scrollTop - wheel.scrollTop) > 1) setWheel(other, wheel.scrollTop / wheelItem)
+    clearTimeout(wheelTimer)
+    wheelTimer = setTimeout(() => {
+      const entry = wheelEntries[Math.round(wheel.scrollTop / wheelItem)]
+      if (!entry || entry.kind === 'add' || entry.id === selectedEmployeeId) return   // the "+" rows are buttons, not people
+      selectedEmployeeId = entry.id
+      logOverride = undefined   // a new person: back to the automatic Log in / Log out
+      showLogChoice()
+      updateEmployeeSummary()
+      renderLiveStamp()
+      haptic()
+    }, 120)
   })
 }
-$('employeeWheel').addEventListener('scroll', () => {
-  styleWheel()
-  clearTimeout(wheelTimer)
-  wheelTimer = setTimeout(() => {
-    const entry = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]
-    if (!entry || entry.id === selectedEmployeeId) return
-    selectedEmployeeId = entry.id
-    logOverride = undefined
+// Turning the action wheel: Log in or Log out for the next photo.
+$('actionWheel').addEventListener('scroll', () => {
+  styleWheels()
+  if (wheelQuiet.has('actionWheel')) return
+  clearTimeout(actionTimer)
+  actionTimer = setTimeout(() => {
+    if (!currentAttendance()) return
+    logOverride = Math.round($('actionWheel').scrollTop / wheelItem) === 1 ? 'out' : 'in'
     showLogChoice()
-    updateEmployeeSummary()
     renderLiveStamp()
+    haptic()
   }, 120)
 })
 function showLogChoice() {
   const attendance = currentAttendance()
-  for (const button of document.querySelectorAll('[data-log]')) {
-    button.disabled = !attendance
-    button.setAttribute('aria-pressed', String(attendance?.action === button.dataset.log))
-  }
+  const wheel = $('actionWheel')
+  wheel.classList.toggle('disabled', !attendance)
+  wheel.querySelectorAll('[data-log]').forEach(item => item.setAttribute('aria-pressed', String(attendance?.action === item.dataset.log)))
+  if (attendance && Math.round(wheel.scrollTop / wheelItem) !== (attendance.action === 'out' ? 1 : 0)) setWheel(wheel, attendance.action === 'out' ? 1 : 0)
   const last = attendance && [...register].reverse().find(row => row.id === attendance.id)
   $('logHint').textContent = !attendance ? 'Photos will have no employee ID.'
-    : last ? `Last: ${last.action === 'out' ? 'Log out' : 'Log in'} on ${last.date} at ${last.clock.slice(0, 5)}` : 'No entries yet for this ID.'
-}
-for (const button of document.querySelectorAll('[data-log]')) {
-  button.addEventListener('click', () => {
-    logOverride = button.dataset.log
-    showLogChoice()
-    renderLiveStamp()
-  })
+    : last ? `Last: ${logWord(last.action)} on ${last.date} at ${last.clock.slice(0, 5)}` : 'No entries yet for this ID.'
 }
 
 // Employee IDs: typed one per line ("ID, Name") or imported from a text, CSV or PDF file.
@@ -2381,24 +2593,621 @@ function parseEmployees(text) {
 function listText(list) {
   return list.map(entry => entry.name ? `${entry.id}, ${entry.name}` : entry.id).join('\n')
 }
-function fillEmployeesSheet() {
-  $('myEmployeeId').value = employees.me || ''
-  $('employeeList').value = listText(employees.list)
-  $('employeeCount').textContent = employees.list.length ? `(${employees.list.length})` : ''
-  $('employeeStatus').textContent = ''
+// ---- Employees, shifts and week offs; the Attendance area (Employees · Shifts · Register · Team) ----
+// "ENDWEMP20161" -> prefix "ENDWEMP", number 20161. "+" adds the next number of that format, keeping the zero padding.
+const splitId = (id) => { const m = /^(.*?)(\d+)$/.exec(id); return m ? { prefix: m[1], digits: m[2] } : { prefix: id, digits: '' } }
+function nextId(prefix, taken) {
+  const numbers = [...taken].map(splitId).filter(part => part.prefix === prefix && part.digits)
+  if (!numbers.length) return ''
+  const width = Math.max(...numbers.map(part => part.digits.length))   // zero padding of the series
+  let number = Math.max(...numbers.map(part => Number(part.digits))) + 1
+  while (taken.has(prefix + String(number).padStart(width, '0'))) number++   // skip numbers already used
+  return prefix + String(number).padStart(width, '0')
 }
-$('saveEmployees').addEventListener('click', () => {
-  const me = $('myEmployeeId').value.trim().toUpperCase().replace(/\s+/g, '')
-  const list = parseEmployees($('employeeList').value)
-  if (me && !list.some(entry => entry.id === me)) list.unshift({ id: me, name: '' })
-  const wasMine = selectedEmployeeId === employees.me
-  employees = { me, list }
-  if (wasMine || !selectedEmployeeId) selectedEmployeeId = me
+const cleanId = (value) => value.trim().toUpperCase().replace(/\s+/g, '')
+function persistEmployees() {
   saveEmployees()
-  fillEmployeesSheet()
-  $('employeeStatus').textContent = `Saved ${list.length} ID${list.length === 1 ? '' : 's'}.`
   renderLiveStamp()
+}
+function empIcon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('class', 'icon'); svg.setAttribute('aria-hidden', 'true')
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use'); use.setAttribute('href', `#i-${name}`)
+  svg.append(use); return svg
+}
+const tidy = (entry) => Object.fromEntries(Object.entries(entry).filter(([, value]) => value !== undefined && !(Array.isArray(value) && !value.length)))
+// Changes an employee (ID, name, week off, shift, active); keeps "my ID" and the selection with them.
+function updateEmployee(oldId, patch) {
+  const wasMine = employees.me === oldId, wasSelected = selectedEmployeeId === oldId
+  const index = employees.list.findIndex(entry => entry.id === oldId)
+  const current = index >= 0 ? employees.list[index] : { id: oldId, name: '' }   // "my ID" that was only implied until now
+  const next = tidy({ ...current, ...patch })
+  if (index >= 0) employees.list[index] = next
+  else employees.list.push(next)
+  if (next.id !== oldId && passports?.[oldId]) { passports[next.id] = passports[oldId]; delete passports[oldId]; savePassports() }
+  if (wasMine) employees.me = next.id
+  if (wasSelected) selectedEmployeeId = next.id
+  persistEmployees()   // earlier register entries keep the ID they were made with
+  return next
+}
+function removeEmployee(id) {
+  const index = employees.list.findIndex(entry => entry.id === id)
+  const removed = index >= 0 ? employees.list.splice(index, 1)[0] : { id, name: '' }
+  const wasMine = employees.me === id
+  if (wasMine) employees.me = ''
+  if (selectedEmployeeId === id) { selectedEmployeeId = employees.me || ''; logOverride = undefined }
+  persistEmployees()
+  return { removed, index, wasMine }
+}
+
+// Passport photos (35 x 45 mm shape), one per employee, kept on this phone only; Week Off stamps can use them.
+const passportKey = 'geoziptagPassports'
+let passports = loadJson(passportKey, {})
+if (!passports || typeof passports !== 'object' || Array.isArray(passports)) passports = {}
+const savePassports = () => { try { localStorage.setItem(passportKey, JSON.stringify(passports)) } catch { message('Could not save the passport photo: the phone storage is full.', 4000) } }
+async function passportFromFile(file) {
+  const url = URL.createObjectURL(file)
+  try {
+    const image = await loadImage(url)
+    const ratio = 7 / 9
+    let cw = image.naturalWidth, ch = cw / ratio
+    if (ch > image.naturalHeight) { ch = image.naturalHeight; cw = ch * ratio }
+    const canvas = document.createElement('canvas'); canvas.width = 420; canvas.height = 540
+    canvas.getContext('2d').drawImage(image, (image.naturalWidth - cw) / 2, (image.naturalHeight - ch) / 2, cw, ch, 0, 0, 420, 540)
+    return canvas.toDataURL('image/jpeg', 0.85)
+  } finally { URL.revokeObjectURL(url) }
+}
+// The stamped picture for "Passport photo": the saved photo centred on a dark sheet, the stamp card below it.
+async function passportSheet(dataUrl) {
+  const photo = await loadImage(dataUrl)
+  const sheet = document.createElement('canvas'); sheet.width = 1080; sheet.height = 1440
+  const ctx = sheet.getContext('2d')
+  ctx.fillStyle = '#0d1b33'; ctx.fillRect(0, 0, sheet.width, sheet.height)
+  const height = 960, width = Math.round(height * 7 / 9)
+  ctx.drawImage(photo, (sheet.width - width) / 2, 90, width, height)
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 3; ctx.strokeRect((sheet.width - width) / 2, 90, width, height)
+  return loadImage(sheet.toDataURL('image/jpeg', 0.92))
+}
+async function takePassportPhoto() {
+  const person = selectedEmployeeId && (allEmployees().find(entry => entry.id === selectedEmployeeId) || employeeById(selectedEmployeeId))
+  if (!person) { $('employeeButton').click(); return }
+  if (!passports[person.id]) { message(`No passport photo saved for ${person.id}. Add one in the employee's details, or choose Live photo or ID card.`, 5000); return }
+  capture(await passportSheet(passports[person.id]), false, undefined, { imageFile: true, withAttendance: true })
+}
+// Week Off: the ID card guide on the viewfinder while "ID card" is the photo type.
+function syncWeekoffUi() {
+  $('idGuide').hidden = !(preferences.template === 'weekoff' && preferences.weekoffSource === 'id')
+}
+for (const button of $('sourceChoice').querySelectorAll('[data-source]')) {
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    preferences.weekoffSource = button.dataset.source
+    savePreferences(); closeLogChoice(); syncWeekoffUi(); renderLiveStamp(); haptic()
+    const person = selectedEmployeeId
+    if (preferences.weekoffSource === 'passport' && person && !passports[person]) message(`No passport photo saved for ${person} yet. Add one in the employee's details.`, 4500)
+  })
+}
+
+// Shifts: named, with a start and end time (an end before the start means it runs past midnight).
+const shiftKey = 'geoziptagShifts'
+let shifts = loadJson(shiftKey, [])
+if (!Array.isArray(shifts)) shifts = []
+const saveShifts = () => { try { localStorage.setItem(shiftKey, JSON.stringify(shifts)) } catch {} }
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'], DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const clock12 = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return { time: `${h % 12 || 12}:${String(m).padStart(2, '0')}`, ap: h >= 12 ? 'PM' : 'AM' } }
+const timeLabel = (hhmm) => { const c = clock12(hhmm); return `${c.time} ${c.ap}` }
+const shiftLabel = (shift) => shift ? `${timeLabel(shift.start)} – ${timeLabel(shift.end)}` : ''
+const offLabel = (off) => !off?.length ? 'No week off' : off.length === 7 ? 'Every day off' : `Off ${[...off].sort().map(day => DAY_NAMES[day]).join(', ')}`
+const minutesOf = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
+const GRACE_MINUTES = 10
+// The shift that "now" belongs to: yesterday's, today's or tomorrow's, whichever starts nearest (within 4 h of its hours).
+function shiftInstance(shift, now) {
+  const s = minutesOf(shift.start), e = minutesOf(shift.end), overnight = e <= s
+  const midnight = new Date(now); midnight.setHours(0, 0, 0, 0)
+  let best, nearest, nearestGap = Infinity, bestGap = Infinity
+  for (const offset of [-1, 0, 1]) {
+    const day = new Date(midnight); day.setDate(day.getDate() + offset)
+    const start = new Date(day); start.setMinutes(s)
+    const end = new Date(day); end.setMinutes(overnight ? e + 1440 : e)
+    const gap = Math.abs(now - start)
+    if (now >= start.getTime() - 4 * 3600e3 && now <= end.getTime() + 4 * 3600e3 && gap < bestGap) { best = { start, end }; bestGap = gap }
+    if (gap < nearestGap) { nearest = { start, end }; nearestGap = gap }
+  }
+  return best || nearest
+}
+// ---- Rotation: an employee's shifts take turns every week, 15 days, month, 30 days or a custom number of days ----
+const dayNumber = (date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 864e5)
+const parseDay = (text) => { const [y, m, d] = String(text || '').split('-').map(Number); return y ? new Date(y, m - 1, d) : new Date() }
+const dayText = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dayShort = (date) => `${DAY_NAMES[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]}`
+const everyLabel = (every) => every === 'month' ? 'Monthly' : Number(every) === 7 ? 'Weekly' : `${Number(every)} days`
+function rosterStep(roster, date) {
+  const count = roster?.steps?.length
+  if (!count) return undefined
+  const from = parseDay(roster.from)
+  const turn = roster.every === 'month'
+    ? date.getFullYear() * 12 + date.getMonth() - (from.getFullYear() * 12 + from.getMonth())
+    : Math.floor((dayNumber(date) - dayNumber(from)) / Math.max(1, Number(roster.every) || 7))
+  return roster.steps[((turn % count) + count) % count]
+}
+// The shift and week off that apply to a person on a day: this turn's step of their rotation, or their one shift.
+function effective(person, date) {
+  const step = rosterStep(person.roster, date), shift = step || person.shift
+  const off = shift?.days?.length ? [0, 1, 2, 3, 4, 5, 6].filter(day => !shift.days.includes(day)) : person.off
+  return { shift, off, step }
+}
+const minutesText = (minutes) => minutes < 60 ? `${minutes} MIN` : `${Math.floor(minutes / 60)} H${minutes % 60 ? ` ${minutes % 60} MIN` : ''}`
+// How a Log in / Log out compares with the person's shift and week off.
+function attendanceStatus(person, action, now) {
+  if (!person) return undefined
+  // A night shift that began yesterday still belongs to yesterday's turn of the rotation.
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1)
+  let eff = effective(person, now), instance = eff.shift ? shiftInstance(eff.shift, now) : undefined
+  const before = effective(person, yesterday), beforeInstance = before.shift ? shiftInstance(before.shift, now) : undefined
+  if (beforeInstance && beforeInstance.start.toDateString() === yesterday.toDateString() && now <= beforeInstance.end.getTime() + 4 * 3600e3) { eff = before; instance = beforeInstance }
+  const weekday = (instance ? instance.start : now).getDay()
+  if (eff.off?.includes(weekday)) return { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 }
+  if (!instance) return undefined
+  if (action === 'out') {
+    const early = Math.round((instance.end - now) / 60000)
+    return early > GRACE_MINUTES ? { kind: 'early', label: `EARLY ${minutesText(early)}`, minutes: early } : { kind: 'ontime', label: 'ON TIME', minutes: 0 }
+  }
+  const late = Math.round((now - instance.start) / 60000)
+  return late > GRACE_MINUTES ? { kind: 'late', label: `LATE ${minutesText(late)}`, minutes: late } : { kind: 'ontime', label: 'ON TIME', minutes: 0 }
+}
+
+// A time wheel like the iPhone alarm's: hour, minute and AM / PM.
+function timeWheel(host, onChange) {
+  host.replaceChildren()
+  host.className = 'wheel-wrap time-wheel'
+  const columns = [Array.from({ length: 12 }, (_, i) => String(i + 1)), Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')), ['AM', 'PM']]
+  const wheels = columns.map(items => {
+    const wheel = document.createElement('div')
+    wheel.className = 'wheel'; wheel.setAttribute('role', 'listbox')
+    items.forEach((text, index) => {
+      const item = document.createElement('div')
+      item.className = 'wheel-item'; item.textContent = text; item.setAttribute('role', 'option')
+      item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+      wheel.append(item)
+    })
+    host.append(wheel)
+    return wheel
+  })
+  const paint = (wheel) => {
+    const centre = wheel.scrollTop / wheelItem
+    ;[...wheel.children].forEach((item, index) => {
+      const distance = index - centre
+      item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.32))
+      item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
+      item.setAttribute('aria-selected', String(Math.round(centre) === index))
+    })
+  }
+  const read = () => {
+    const [h, m, a] = wheels.map(wheel => Math.round(wheel.scrollTop / wheelItem))
+    return `${String((h + 1) % 12 + (a === 1 ? 12 : 0)).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  }
+  let timer, quiet = false
+  wheels.forEach(wheel => wheel.addEventListener('scroll', () => {
+    paint(wheel)
+    if (quiet) return
+    clearTimeout(timer)
+    timer = setTimeout(() => { onChange?.(read()); haptic() }, 120)
+  }))
+  return {
+    get: read,
+    set(hhmm) {   // call when the wheel is visible
+      const [h, m] = hhmm.split(':').map(Number)
+      quiet = true
+      wheels[0].scrollTop = ((h % 12 || 12) - 1) * wheelItem
+      wheels[1].scrollTop = m * wheelItem
+      wheels[2].scrollTop = (h >= 12 ? 1 : 0) * wheelItem
+      wheels.forEach(paint)
+      setTimeout(() => { quiet = false }, 220)
+    }
+  }
+}
+// "Starts" and "Ends" rows that open a time wheel when tapped (one open at a time), shared by both editors.
+function timeSection(prefix, onChange) {
+  const rows = { start: $(`${prefix}StartRow`), end: $(`${prefix}EndRow`) }
+  const hosts = { start: $(`${prefix}StartWheel`), end: $(`${prefix}EndWheel`) }
+  const texts = { start: $(`${prefix}StartText`), end: $(`${prefix}EndText`) }
+  const state = { start: '09:00', end: '18:00' }
+  const wheels = {}
+  for (const key of ['start', 'end']) {
+    wheels[key] = timeWheel(hosts[key], value => { state[key] = value; texts[key].textContent = timeLabel(value); onChange?.() })
+    rows[key].addEventListener('click', () => {
+      const open = hosts[key].hidden
+      for (const other of ['start', 'end']) { hosts[other].hidden = true; rows[other].setAttribute('aria-expanded', 'false') }
+      if (open) { hosts[key].hidden = false; rows[key].setAttribute('aria-expanded', 'true'); requestAnimationFrame(() => wheels[key].set(state[key])) }
+    })
+  }
+  return {
+    set(start, end) {
+      state.start = start; state.end = end
+      for (const key of ['start', 'end']) { texts[key].textContent = timeLabel(state[key]); hosts[key].hidden = true; rows[key].setAttribute('aria-expanded', 'false') }
+    },
+    get: () => ({ start: state.start, end: state.end })
+  }
+}
+
+// ---- The employee editor (laid out like the iPhone's Edit Alarm) ----
+let editState
+const empTimes = timeSection('ee', () => { if (editState) { editState.shift = { ...(editState.shift || {}), ...empTimes.get(), id: undefined, name: '' } } })
+function drawDays() {
+  const box = $('eeDays')
+  box.replaceChildren()
+  DAY_LETTERS.forEach((letter, day) => {
+    const button = document.createElement('button')
+    button.type = 'button'; button.className = 'day'; button.textContent = letter
+    button.setAttribute('aria-label', DAY_NAMES[day]); button.setAttribute('aria-pressed', String(editState.off.has(day)))
+    button.addEventListener('click', () => { editState.off.has(day) ? editState.off.delete(day) : editState.off.add(day); button.setAttribute('aria-pressed', String(editState.off.has(day))); haptic() })
+    box.append(button)
+  })
+}
+function fillShiftChoices() {
+  const select = $('eeShift')
+  select.replaceChildren(new Option('No shift', ''), ...shifts.map(shift => new Option(`${shift.name || 'Shift'} · ${shiftLabel(shift)}`, shift.id)), new Option('Custom times…', 'custom'))
+  const shift = editState.shift
+  select.value = !shift ? '' : shift.id && shifts.some(item => item.id === shift.id) ? shift.id : 'custom'
+  $('eeCustom').hidden = select.value !== 'custom'
+  select.closest('.row').classList.toggle('last', $('eeCustom').hidden)
+  if (select.value === 'custom') empTimes.set(shift.start, shift.end)
+}
+// ---- Rotation section of the employee editor ----
+const EVERY_PRESETS = ['7', '15', 'month', '30']
+function stepText(step) { return [shiftLabel(step), step.days?.length && step.days.length < 7 ? `Works ${step.days.map(day => DAY_NAMES[day]).join(', ')}` : ''].filter(Boolean).join(' · ') }
+function fillRotation() {
+  const r = editState.roster
+  $('eeRotate').checked = r.on
+  $('eeRotation').hidden = !r.on
+  const preset = EVERY_PRESETS.includes(String(r.every))
+  $('eeEvery').value = preset ? String(r.every) : 'custom'
+  $('eeEveryRow').hidden = preset
+  if (!preset) $('eeEveryDays').value = String(r.every)
+  $('eeFrom').value = r.from
+  $('eeAddStep').replaceChildren(new Option('Choose…', ''), ...shifts.map(shift => new Option(`${shift.name || 'Shift'} · ${shiftLabel(shift)}`, shift.id)), new Option('New for this person…', 'new'))
+  drawSteps(); syncEditor()
+}
+function drawSteps() {
+  const r = editState.roster, box = $('eeSteps')
+  box.replaceChildren()
+  r.steps.forEach((step, index) => {
+    const row = document.createElement('div'); row.className = 'row step-row'
+    const text = document.createElement('button'); text.type = 'button'; text.className = 'step-main'
+    const title = document.createElement('b'); title.textContent = `${index + 1}. ${step.name || 'Shift'}`
+    const detail = document.createElement('small'); detail.textContent = stepText(step)
+    text.append(title, detail)
+    text.addEventListener('click', () => openShiftEdit(step, { step: true, onSave: values => { Object.assign(step, values); drawSteps(); syncEditor() }, onRemove: () => { r.steps.splice(index, 1); drawSteps(); syncEditor() } }))
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'step-remove'; remove.setAttribute('aria-label', `Remove ${step.name || 'shift'} from the rotation`); remove.textContent = '✕'
+    remove.addEventListener('click', () => { r.steps.splice(index, 1); drawSteps(); syncEditor() })
+    row.append(text, remove)
+    box.append(row)
+  })
+}
+// What each turn covers, e.g. "Wed 2 Dec – Tue 8 Dec", and which cards apply.
+function syncEditor() {
+  const r = editState.roster, from = parseDay(r.from)
+  if (r.every === 'month') $('eeRunHint').textContent = `Each turn runs from the 1st to the end of a calendar month, starting with ${MONTHS[from.getMonth()]} ${from.getFullYear()}. Shifts take turns in the order below.`
+  else {
+    const days = Math.max(1, Number(r.every) || 7), end = new Date(from); end.setDate(end.getDate() + days - 1)
+    $('eeRunHint').textContent = `First turn: ${dayShort(from)} – ${dayShort(end)}, then the next shift takes over every ${days} days. Shifts take turns in the order below.`
+  }
+  $('eeShiftCard').hidden = r.on
+  $('eeOffCard').hidden = r.on || !!(editState.shift?.days?.length)
+}
+$('eeRotate').addEventListener('change', () => { editState.roster.on = $('eeRotate').checked; $('eeRotation').hidden = !editState.roster.on; syncEditor(); haptic() })
+$('eeEvery').addEventListener('change', () => {
+  const value = $('eeEvery').value, r = editState.roster
+  $('eeEveryRow').hidden = value !== 'custom'
+  r.every = value === 'custom' ? Math.max(1, Number($('eeEveryDays').value) || 10) : value === 'month' ? 'month' : Number(value)
+  syncEditor()
 })
+$('eeEveryDays').addEventListener('input', () => { editState.roster.every = Math.max(1, Math.min(365, Math.round(Number($('eeEveryDays').value)) || 1)); syncEditor() })
+$('eeFrom').addEventListener('change', () => { if ($('eeFrom').value) { editState.roster.from = $('eeFrom').value; syncEditor() } })
+$('eeAddStep').addEventListener('change', () => {
+  const value = $('eeAddStep').value, r = editState.roster
+  $('eeAddStep').value = ''
+  if (!value) return
+  if (value === 'new') openShiftEdit(undefined, { step: true, onSave: values => { r.steps.push(values); drawSteps(); syncEditor() } })
+  else { const base = shifts.find(shift => shift.id === value); r.steps.push({ id: base.id, name: base.name, start: base.start, end: base.end, days: base.days ? [...base.days] : undefined }); drawSteps(); syncEditor() }
+})
+function showPassport() {
+  const shown = editState.passport !== undefined ? editState.passport : passports[editState.orig?.id]
+  $('eePassportImg').hidden = !shown
+  if (shown) $('eePassportImg').src = shown
+  $('eePassportClear').hidden = !shown
+  $('eePassportPick').textContent = shown ? 'Change photo' : 'Take or choose photo'
+}
+$('eePassportPick').addEventListener('click', () => $('eePassportFile').click())
+$('eePassportFile').addEventListener('change', async () => {
+  const file = $('eePassportFile').files[0]
+  $('eePassportFile').value = ''
+  if (!file) return
+  try { editState.passport = await passportFromFile(file); showPassport() } catch { message('That photo could not be read.', 3000) }
+})
+$('eePassportClear').addEventListener('click', () => { editState.passport = null; showPassport(); haptic() })
+function openEmpEdit(entry, { prefill = '' } = {}) {
+  const isNew = !entry
+  const roster = entry?.roster
+  editState = { passport: undefined, orig: entry, isNew, off: new Set(entry?.off || []), shift: entry?.shift ? { ...entry.shift } : undefined,
+    roster: { on: !!roster?.steps?.length, every: roster?.every ?? 7, from: roster?.from || dayText(new Date()), steps: (roster?.steps || []).map(step => ({ ...step, days: step.days ? [...step.days] : undefined })) } }
+  $('empEditTitle').textContent = isNew ? 'New Employee' : 'Edit Employee'
+  $('eeId').value = entry?.id || prefill
+  $('eeName').value = entry?.name || ''
+  $('eeActive').checked = entry?.active !== false
+  $('eeMine').checked = !!entry && employees.me === entry.id
+  $('eeDelete').hidden = isNew
+  drawDays()
+  fillShiftChoices()
+  fillRotation()
+  showPassport()
+  $('empEdit').showModal()
+  $('empEdit').querySelector('.hub-body').scrollTop = 0
+  if (isNew) setTimeout(() => $('eeName').focus(), 80)
+}
+$('eeShift').addEventListener('change', () => {
+  const value = $('eeShift').value
+  $('eeCustom').hidden = value !== 'custom'
+  $('eeShift').closest('.row').classList.toggle('last', value !== 'custom')
+  if (!value) editState.shift = undefined
+  else if (value === 'custom') { const base = editState.shift || { start: '09:00', end: '18:00' }; editState.shift = { start: base.start, end: base.end }; empTimes.set(base.start, base.end) }
+  else { const preset = shifts.find(shift => shift.id === value); editState.shift = { id: preset.id, name: preset.name, start: preset.start, end: preset.end, days: preset.days ? [...preset.days] : undefined } }
+  syncEditor()
+})
+function afterEmployeesChanged() {
+  updateEmployeeSummary(); showLogChoice(); renderLiveStamp()
+  if ($('attendanceHub').open) renderHub()
+  if ($('employeePicker').open) prepareEmployeePicker(true)
+}
+$('eeSave').addEventListener('click', () => {
+  const id = cleanId($('eeId').value), name = $('eeName').value.trim()
+  if (!id) { message('An employee ID cannot be empty.', 3000); $('eeId').focus(); return }
+  const orig = editState.orig
+  if ((!orig || id !== orig.id) && allEmployees().some(other => other.id === id)) { message(`${id} is already in the list.`, 3500); $('eeId').focus(); return }
+  const shift = editState.shift && !editState.shift.id ? { ...editState.shift, ...empTimes.get() } : editState.shift
+  const rot = editState.roster, rotating = rot.on && rot.steps.length
+  const patch = { id, name, off: rotating ? undefined : [...editState.off].sort(), shift: rotating ? undefined : shift, active: $('eeActive').checked ? undefined : false,
+    roster: rotating ? { every: rot.every, from: rot.from, steps: rot.steps.map(step => tidy({ ...step })) } : undefined }
+  if (editState.orig) {
+    updateEmployee(orig.id, { ...patch, off: patch.off?.length ? patch.off : undefined })
+  } else {
+    employees.list.push(tidy(patch)); selectedEmployeeId = id; logOverride = undefined; persistEmployees()
+  }
+  if (editState.passport !== undefined) { if (editState.passport) passports[id] = editState.passport; else delete passports[id]; savePassports() }
+  if ($('eeMine').checked) employees.me = id
+  else if (employees.me === id) employees.me = ''
+  saveEmployees()
+  $('empEdit').close()
+  afterEmployeesChanged()
+})
+$('eeCancel').addEventListener('click', () => $('empEdit').close())
+$('eeDelete').addEventListener('click', () => {
+  const id = editState.orig.id
+  $('empEdit').close()
+  deleteWithUndo(id)
+})
+function deleteWithUndo(id) {
+  const { removed, index, wasMine } = removeEmployee(id)
+  afterEmployeesChanged()
+  undoToast(`${id} deleted`, () => {
+    employees.list.splice(Math.max(0, Math.min(index, employees.list.length)), 0, removed)
+    if (wasMine) employees.me = id
+    persistEmployees(); afterEmployeesChanged()
+  })
+}
+
+// ---- The shift editor ----
+let shiftState
+const shiftTimes = timeSection('se')
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
+function drawShiftDays() {
+  const box = $('seDays'); box.replaceChildren()
+  DAY_LETTERS.forEach((letter, day) => {
+    const button = document.createElement('button')
+    button.type = 'button'; button.className = 'day'; button.textContent = letter
+    button.setAttribute('aria-label', DAY_NAMES[day]); button.setAttribute('aria-pressed', String(shiftState.days.has(day)))
+    button.addEventListener('click', () => { shiftState.days.has(day) ? shiftState.days.delete(day) : shiftState.days.add(day); button.setAttribute('aria-pressed', String(shiftState.days.has(day))); haptic() })
+    box.append(button)
+  })
+}
+function openShiftEdit(shift, { step = false, onSave, onRemove } = {}) {
+  shiftState = { orig: shift, isNew: !shift, step, onSave, onRemove, days: new Set(shift?.days?.length ? shift.days : ALL_DAYS) }
+  drawShiftDays()
+  $('shiftEditTitle').textContent = step ? 'Shift for this person' : shift ? 'Edit Shift' : 'New Shift'
+  $('seDelete').textContent = step ? 'Remove from rotation' : 'Delete shift'
+  $('seName').value = shift?.name || ''
+  shiftTimes.set(shift?.start || '09:00', shift?.end || '18:00')
+  $('seDelete').hidden = step ? !shift || !onRemove : !shift
+  $('shiftEdit').showModal()
+  $('shiftEdit').querySelector('.hub-body').scrollTop = 0
+}
+$('seSave').addEventListener('click', () => {
+  const { start, end } = shiftTimes.get(), name = $('seName').value.trim() || 'Shift'
+  const days = shiftState.days.size === 7 ? undefined : [...shiftState.days].sort()
+  if (shiftState.step) {   // this person's own hours for a turn of their rotation; the shared shift is not touched
+    $('shiftEdit').close(); shiftState.onSave({ id: shiftState.orig?.id, name, start, end, days }); return
+  }
+  if (shiftState.orig) {
+    Object.assign(shiftState.orig, { name, start, end, days })
+    for (const person of employees.list) if (person.shift?.id === shiftState.orig.id) person.shift = { ...person.shift, name, start, end, days }   // everyone on this shift follows
+    for (const person of employees.list) for (const step of person.roster?.steps || []) if (step.id === shiftState.orig.id) step.name = name   // rotations keep each person's own hours
+    saveEmployees()
+  } else shifts.push(tidy({ id: `s${Date.now().toString(36)}`, name, start, end, days }))
+  saveShifts()
+  $('shiftEdit').close()
+  renderHub(); renderLiveStamp()
+})
+$('seCancel').addEventListener('click', () => $('shiftEdit').close())
+$('seDelete').addEventListener('click', () => {
+  if (shiftState.step) { $('shiftEdit').close(); shiftState.onRemove?.(); return }
+  const shift = shiftState.orig
+  $('shiftEdit').close()
+  shifts = shifts.filter(item => item !== shift); saveShifts()
+  for (const person of employees.list) if (person.shift?.id === shift.id) person.shift = { name: '', start: person.shift.start, end: person.shift.end }   // they keep their times, as custom
+  saveEmployees()
+  renderHub()
+  undoToast(`${shift.name} deleted`, () => { shifts.push(shift); saveShifts(); renderHub() })
+})
+
+// ---- The Attendance area ----
+const hubPages = { employees: 'Employees', shifts: 'Shifts', register: 'Register', team: 'Team' }
+let hubPage = 'employees', hubEditing = false
+function hubGroupHeading(text) {
+  const heading = document.createElement('h4'); heading.className = 'hub-section'; heading.textContent = text; return heading
+}
+function swipeRow(row, onDelete) {
+  let start, shown = false
+  const setOffset = (offset, animate) => { row.firstElementChild.style.transition = animate ? 'transform .2s ease' : 'none'; row.firstElementChild.style.transform = offset ? `translateX(${offset}px)` : '' }
+  row.addEventListener('pointerdown', event => { if (event.target.closest('.switch-wrap, .row-delete')) return; start = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false } })
+  row.addEventListener('pointermove', event => {
+    if (!start || start.id !== event.pointerId) return
+    const dx = event.clientX - start.x, dy = event.clientY - start.y
+    if (!start.moved && (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx))) { start = undefined; return }
+    if (Math.abs(dx) > 8) { start.moved = true; setOffset(Math.max(-88, Math.min(0, (shown ? -88 : 0) + dx)), false) }
+  })
+  const finish = event => {
+    if (!start || start.id !== event.pointerId) return
+    const dx = event.clientX - start.x
+    const moved = start.moved
+    start = undefined
+    if (!moved) return
+    shown = (shown ? -88 : 0) + dx < -44
+    setOffset(shown ? -88 : 0, true)
+    row.dataset.swiped = '1'
+    setTimeout(() => { delete row.dataset.swiped }, 50)
+  }
+  row.addEventListener('pointerup', finish)
+  row.addEventListener('pointercancel', finish)
+  row.querySelector('.row-delete').addEventListener('click', event => { event.stopPropagation(); onDelete() })
+}
+function renderHubEmployees() {
+  const box = $('hubEmpList'), all = allEmployees()
+  box.replaceChildren()
+  box.classList.toggle('editing', hubEditing)
+  if (!all.length) {
+    const empty = document.createElement('p'); empty.className = 'hint hub-empty'
+    empty.textContent = 'No employees yet. Tap + to add the first one, or import a file below.'
+    box.append(empty)
+    return
+  }
+  const groups = new Map()
+  for (const entry of all) {
+    const key = splitId(entry.id).prefix
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(entry)
+  }
+  for (const [prefix, entries] of groups) {
+    if (groups.size > 1 || prefix) box.append(hubGroupHeading(prefix || 'IDs'))
+    const list = document.createElement('div'); list.className = 'alarm-list'
+    for (const entry of entries) {
+      const row = document.createElement('div')
+      row.className = `alarm-row${entry.active === false ? ' dim' : ''}`
+      const main = document.createElement('div'); main.className = 'alarm-content'
+      const text = document.createElement('div'); text.className = 'alarm-main'
+      const big = document.createElement('div'); big.className = 'alarm-time'
+      const id = document.createElement('span'); id.textContent = entry.id
+      const name = document.createElement('small'); name.textContent = entry.name || 'Add name'; if (!entry.name) name.className = 'none'
+      big.append(id, name)
+      if (employees.me === entry.id) { const mine = empIcon('star'); mine.classList.add('mine'); big.append(mine) }
+      const sub = document.createElement('div'); sub.className = 'alarm-sub'
+      { const eff = effective(entry, new Date())
+        sub.textContent = entry.roster?.steps?.length
+          ? [`${eff.step.name || 'Shift'} ${shiftLabel(eff.step)}`, `${everyLabel(entry.roster.every)} rotation`, offLabel(eff.off)].join(' · ')
+          : [eff.shift ? shiftLabel(eff.shift) : 'No shift', offLabel(eff.off)].join(' · ') }
+      text.append(big, sub)
+      const wrap = document.createElement('label'); wrap.className = 'switch-wrap'; wrap.setAttribute('aria-label', `${entry.id} active`)
+      const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.className = 'switch'; toggle.checked = entry.active !== false
+      toggle.addEventListener('change', () => { updateEmployee(entry.id, { active: toggle.checked ? undefined : false }); row.classList.toggle('dim', !toggle.checked); afterEmployeesChanged(); haptic() })
+      wrap.append(toggle)
+      main.append(text, wrap)
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'row-delete'; del.textContent = 'Delete'
+      row.append(main, del)
+      row.addEventListener('click', event => { if (event.target.closest('.switch-wrap, .row-delete') || row.dataset.swiped) return; openEmpEdit(entry) })
+      swipeRow(row, () => deleteWithUndo(entry.id))
+      list.append(row)
+    }
+    box.append(list)
+  }
+}
+function renderHubShifts() {
+  const box = $('hubShiftList')
+  box.replaceChildren()
+  box.classList.toggle('editing', hubEditing)
+  if (!shifts.length) {
+    const empty = document.createElement('p'); empty.className = 'hint hub-empty'
+    empty.textContent = 'No shifts yet. Tap + to add one, for example General 9:00 AM – 6:00 PM. Then give it to employees.'
+    box.append(empty)
+    return
+  }
+  box.append(hubGroupHeading('Shifts'))
+  const list = document.createElement('div'); list.className = 'alarm-list'
+  for (const shift of shifts) {
+    const row = document.createElement('div'); row.className = 'alarm-row'
+    const main = document.createElement('div'); main.className = 'alarm-content'
+    const text = document.createElement('div'); text.className = 'alarm-main'
+    const big = document.createElement('div'); big.className = 'alarm-time'
+    const a = clock12(shift.start), b = clock12(shift.end)
+    big.append(...[[a.time, a.ap], ['–', ''], [b.time, b.ap]].flatMap(([t, ap]) => { const span = document.createElement('span'); span.textContent = t; const out = [span]; if (ap) { const small = document.createElement('small'); small.textContent = ap; out.push(small) } return out }))
+    const people = employees.list.filter(person => person.shift?.id === shift.id).length
+    const sub = document.createElement('div'); sub.className = 'alarm-sub'; sub.textContent = `${shift.name} · ${people} employee${people === 1 ? '' : 's'}`
+    text.append(big, sub)
+    const chevron = empIcon('chevron'); chevron.classList.add('row-chevron')
+    main.append(text, chevron)
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'row-delete'; del.textContent = 'Delete'
+    row.append(main, del)
+    row.addEventListener('click', () => { if (row.dataset.swiped) return; openShiftEdit(shift) })
+    swipeRow(row, () => {
+      shifts = shifts.filter(item => item !== shift); saveShifts()
+      for (const person of employees.list) if (person.shift?.id === shift.id) person.shift = { name: '', start: person.shift.start, end: person.shift.end }
+      saveEmployees(); renderHub()
+      undoToast(`${shift.name} deleted`, () => { shifts.push(shift); saveShifts(); renderHub() })
+    })
+    list.append(row)
+  }
+  box.append(list)
+}
+function renderHub() {
+  if (hubPage === 'employees') renderHubEmployees()
+  if (hubPage === 'shifts') renderHubShifts()
+  $('hubEdit').classList.toggle('active', hubEditing)
+  $('hubEdit').textContent = hubEditing ? 'Done' : 'Edit'
+}
+function showHubPage(page, { quiet = false } = {}) {
+  hubPage = page; hubEditing = false
+  for (const [key, title] of Object.entries(hubPages)) {
+    $(`hub${key[0].toUpperCase()}${key.slice(1)}`).hidden = key !== page
+    if (key === page) { $('hubTitle').textContent = title; $('hubSmallTitle').textContent = title }
+  }
+  const tabs = [...document.querySelectorAll('.hub-tabs [data-tab]')]
+  tabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.tab === page)))
+  const active = tabs.find(tab => tab.dataset.tab === page)
+  if (active) { $('hubHighlight').style.width = `${active.offsetWidth}px`; $('hubHighlight').style.transform = `translateX(${active.offsetLeft}px)` }
+  $('hubEdit').hidden = !(page === 'employees' || page === 'shifts')
+  $('hubAdd').hidden = !(page === 'employees' || page === 'shifts')
+  $('hubScroll').scrollTop = 0; $('attendanceHub').classList.remove('collapsed')
+  if (page === 'register') renderRegister()
+  if (page === 'team') updateTeamSummary()
+  renderHub()
+  if (!quiet) haptic()
+}
+function openHub(page = 'employees') {
+  document.querySelector('dialog[open]:not(#attendanceHub)')?.close()
+  if (!$('attendanceHub').open) $('attendanceHub').showModal()
+  requestAnimationFrame(() => showHubPage(page, { quiet: true }))
+}
+for (const tab of document.querySelectorAll('.hub-tabs [data-tab]')) tab.addEventListener('click', () => showHubPage(tab.dataset.tab))
+$('hubClose').addEventListener('click', () => $('attendanceHub').close())
+$('hubEdit').addEventListener('click', () => { hubEditing = !hubEditing; renderHub() })
+$('hubAdd').addEventListener('click', () => {
+  if (hubPage === 'shifts') { openShiftEdit(); return }
+  // A new employee gets the next ID of the series you used last.
+  const all = allEmployees(), last = all.find(entry => entry.id === selectedEmployeeId) || all[all.length - 1]
+  openEmpEdit(undefined, { prefill: last ? nextId(splitId(last.id).prefix, new Set(all.map(entry => entry.id))) : '' })
+})
+$('hubScroll').addEventListener('scroll', () => $('attendanceHub').classList.toggle('collapsed', $('hubScroll').scrollTop > 36), { passive: true })
+$('attendanceHub').addEventListener('close', () => { $('managerPin').value = ''; hubEditing = false })
+function fillEmployeesSheet() { openHub('employees') }
 $('employeeFile').addEventListener('change', async () => {
   const fileChosen = $('employeeFile').files?.[0]
   $('employeeFile').value = ''
@@ -2408,19 +3217,31 @@ $('employeeFile').addEventListener('change', async () => {
     const text = /\.pdf$/i.test(fileChosen.name) || fileChosen.type === 'application/pdf' ? await pdfText(fileChosen) : await fileChosen.text()
     const imported = parseEmployees(text)
     if (!imported.length) { $('employeeStatus').textContent = 'No employee IDs found in that file.'; return }
-    const current = parseEmployees($('employeeList').value)
-    const known = new Map(current.map(entry => [entry.id, entry.name]))
+    const known = new Map(allEmployees().map(entry => [entry.id, entry]))
     let added = 0
     for (const entry of imported) {
-      if (!known.has(entry.id)) added++
-      if (!known.get(entry.id)) known.set(entry.id, entry.name)
+      const have = known.get(entry.id)
+      if (!have) { added++; known.set(entry.id, { id: entry.id, name: entry.name }) }
+      else if (!have.name && entry.name) have.name = entry.name
     }
-    $('employeeList').value = listText([...known].map(([id, name]) => ({ id, name })))
-    $('employeeStatus').textContent = `Found ${imported.length} IDs (${added} new). Tap Save to keep them.`
+    employees.list = [...known.values()]
+    persistEmployees()
+    renderHub()
+    $('employeeStatus').textContent = `Found ${imported.length} IDs (${added} new), saved.`
   } catch {
     $('employeeStatus').textContent = 'That file could not be read. Try a text or CSV file.'
   }
 })
+// A short message with an Undo button (deleting an employee or a shift).
+function undoToast(text, undo) {
+  const toast = $('undoToast')
+  clearTimeout(undoTimer)
+  $('undoText').textContent = text
+  toastShow(toast)
+  $('undoButton').onclick = () => { toastHide(toast); clearTimeout(undoTimer); undo() }
+  undoTimer = setTimeout(() => toastHide(toast), 7000)
+}
+
 // PDF text with pdf.js (loaded only when a PDF is imported), rebuilt into lines by position.
 let pdfLibrary
 async function pdfText(fileChosen) {
@@ -2473,10 +3294,12 @@ function renderRegister() {
     who.textContent = row.name ? `${row.id} · ${row.name}` : row.id
     const log = document.createElement('span')
     log.className = `log ${row.action}`
-    log.textContent = row.action === 'out' ? 'LOG OUT' : 'LOG IN'
+    log.textContent = row.action === 'weekoff' ? 'WEEK OFF' : row.action === 'out' ? 'LOG OUT' : 'LOG IN'
     const place = document.createElement('small')
     place.textContent = row.place || row.address || 'No location'
-    item.append(time, who, log, place)
+    item.append(time, who, log)
+    if (row.status) { const status = document.createElement('em'); status.className = 'status-chip'; status.textContent = row.status; item.append(status) }
+    item.append(place)
     list.append(item)
   }
   $('exportRegister').disabled = $('clearRegister').disabled = !register.length
@@ -2489,8 +3312,9 @@ function toCsv(header, rows) {
   return '\ufeff' + [header, ...rows].map(row => row.map(cell).join(',')).join('\r\n') + '\r\n'
 }
 $('exportRegister').addEventListener('click', () => exportCsv(`GeoZipTag-attendance-${new Date().toISOString().slice(0, 10)}.csv`,
-  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo'],
-  register.map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+  ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Shift', 'Status', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo'],
+  register.map(row => [row.date, row.clock, row.id, row.name, logWord(row.action),
+    row.shift ? `${timeLabel(row.shift.split('-')[0])} – ${timeLabel(row.shift.split('-')[1])}` : '', row.status,
     row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), row.file])))
 async function exportCsv(name, header, rows) {
   const csv = toCsv(header, rows)
@@ -2572,6 +3396,7 @@ function queueForTeam(row, photo) {
     }, 'image/jpeg', 0.7)
   } else syncTeam()
   updateTeamSummary()
+  return item
 }
 // Sends what is waiting: photos first (their links go with the rows), then up to 200 rows in one call.
 async function syncTeam() {
@@ -2617,7 +3442,7 @@ setTimeout(syncTeam, 4000)
 
 function updateTeamSummary() {
   $('teamSummary').textContent = team ? `${team.name} · ${teamQueue.length ? `${teamQueue.length} waiting to send` : 'all sent'}` : 'Send attendance to your team online'
-  if (!$('teamSheet').open) return
+  if (!$('attendanceHub').open || hubPage !== 'team') return
   $('teamJoined').hidden = !team
   $('teamNotJoined').hidden = !!team
   if (!team) return
@@ -2628,7 +3453,6 @@ function updateTeamSummary() {
     ? `${teamQueue.length} entr${teamQueue.length === 1 ? 'y is' : 'ies are'} waiting${lastSyncError ? `: ${lastSyncError}` : navigator.onLine === false ? ' for the internet' : ''}.`
     : lastSyncAt ? `Everything is sent (last at ${lastSyncAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).` : 'Everything is sent.'
 }
-$('teamSheet').addEventListener('close', () => { $('managerPin').value = '' })
 function joinedTeam(result) {
   team = { code: result.code, name: result.name, team: result.team }
   try { localStorage.setItem(teamKey, JSON.stringify(team)) } catch {}
@@ -2720,7 +3544,7 @@ function renderTeamRegister() {
     who.textContent = row.name ? `${row.id} · ${row.name}` : row.id
     const log = document.createElement('span')
     log.className = `log ${row.action}`
-    log.textContent = row.action === 'out' ? 'LOG OUT' : 'LOG IN'
+    log.textContent = row.action === 'weekoff' ? 'WEEK OFF' : row.action === 'out' ? 'LOG OUT' : 'LOG IN'
     const place = document.createElement('small')
     place.textContent = [`${row.date || ''} ${(row.clock || '').slice(0, 5)}`.trim(), row.place || row.address || 'No location', row.device].filter(Boolean).join(' · ')
     item.append(who, log, place)
@@ -2737,7 +3561,7 @@ $('openTeamRegister').addEventListener('click', async () => {
   $('teamEmployeeFilter').value = ''
   if (await loadTeamRegister()) {
     $('managerStatus').textContent = ''
-    $('teamSheet').close()
+    $('attendanceHub').close()
     $('teamRegisterSheet').showModal()
   } else $('managerStatus').textContent = $('teamRegisterSummary').textContent
 })
@@ -2752,7 +3576,7 @@ $('teamEmployeeFilter').addEventListener('change', loadTeamRegister)
 $('teamRegisterSheet').addEventListener('close', () => { managerPin = ''; teamRows = []; $('teamRegisterList').replaceChildren() })
 $('exportTeamRegister').addEventListener('click', () => exportCsv(`GeoZipTag-team-${team.code}-${new Date().toISOString().slice(0, 10)}.csv`,
   ['Date', 'Time', 'Employee ID', 'Name', 'Log', 'Place', 'Address', 'Latitude', 'Longitude', 'Photo', 'Phone'],
-  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, row.action === 'out' ? 'Log out' : 'Log in',
+  teamRows.slice().reverse().map(row => [row.date, row.clock, row.id, row.name, logWord(row.action),
     row.place, row.address, row.lat?.toFixed?.(6), row.lon?.toFixed?.(6), photoLink(row.photo), row.device])))
 updateTeamSummary()
 
@@ -2766,11 +3590,16 @@ $('modeSwitch').querySelector('[data-mode="video"]').hidden = !videoCapable
 
 function centreMode() {
   const track = $('modeTrack'), active = track.querySelector('[aria-pressed=true]')
-  if (active) track.style.transform = `translateX(${track.offsetWidth / 2 - (active.offsetLeft + active.offsetWidth / 2)}px)`
+  if (!active) return
+  // Measured inside the track (both rectangles move together with the track's own transform).
+  const centre = active.getBoundingClientRect().left - track.getBoundingClientRect().left + active.offsetWidth / 2
+  track.style.transform = `translateX(${track.offsetWidth / 2 - centre}px)`
 }
+document.fonts?.ready.then(centreMode)   // the labels change width when the app font arrives
 function setMode(mode) {
   if (recording || busy || mode === captureMode || (mode === 'video' && !videoCapable)) return
   captureMode = mode
+  haptic()
   for (const button of $('modeTrack').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode))
   document.body.classList.toggle('video-mode', mode === 'video')
   $('shutter').setAttribute('aria-label', mode === 'video' ? 'Record video' : 'Take photo')
@@ -2792,12 +3621,25 @@ setTimeout(centreMode)
     if (!swipe || swipe.id !== event.pointerId || pinch || touchPoints.size > 1) { swipe = undefined; return }
     const dx = event.clientX - swipe.x, dy = event.clientY - swipe.y, quick = performance.now() - swipe.time < 700
     swipe = undefined
-    if (quick && Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
+    if (quick && Math.abs(dx) > 45 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
       modeSwipedAt = Date.now()
       setMode(dx < 0 ? 'video' : 'photo')
     }
   })
   area.addEventListener('pointercancel', () => { swipe = undefined })
+}
+// The Photo / Video capsule itself is slidable too (like the iPhone camera): a short swipe on it changes the mode.
+{
+  const strip = $('modeSwitch')
+  let start
+  strip.addEventListener('pointerdown', event => { start = { id: event.pointerId, x: event.clientX, y: event.clientY } })
+  strip.addEventListener('pointerup', event => {
+    if (!start || start.id !== event.pointerId) { start = undefined; return }
+    const dx = event.clientX - start.x, dy = event.clientY - start.y
+    start = undefined
+    if (Math.abs(dx) > 20 && Math.abs(dx) > 1.5 * Math.abs(dy)) setMode(dx < 0 ? 'video' : 'photo')
+  })
+  strip.addEventListener('pointercancel', () => { start = undefined })
 }
 
 const recordingFormats = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
@@ -2814,7 +3656,7 @@ async function startRecording() {
   canvas.width = stampLayer.width = even(crop.width)
   canvas.height = stampLayer.height = even(crop.height)
   const context = canvas.getContext('2d', { alpha: false })
-  let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
+  let snapshot = noGps() ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   const place = snapshot && placeReady(snapshot) ? placeCache.result : {}
   const note = stampNote
@@ -3035,7 +3877,42 @@ function exportJpeg(canvas) {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', preferences.quality === 'standard' ? 0.85 : 0.94))
 }
 
+// Hold the shutter to record a video (let go to stop), then the camera returns to Photo. A normal tap still takes a photo.
+{
+  const shutter = $('shutter')
+  let holdTimer, holding = false, down = false
+  const waitFor = async (ready, ms) => { const end = Date.now() + ms; while (Date.now() < end && !ready()) await new Promise(r => setTimeout(r, 100)); return ready() }
+  shutter.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    down = true
+    if (captureMode !== 'photo' || recording || busy || !videoCapable || countdownTimer !== undefined) return
+    holdTimer = setTimeout(async () => {
+      holding = true
+      holdSuppressClick = true
+      shutter.classList.add('holding')
+      haptic()
+      setMode('video')   // the camera restarts in video mode; recording starts as soon as it is ready
+      if (await waitFor(() => stream && !stream.native && video.videoWidth > 0 && !busy, 6000) && down && holding) { startRecording(); haptic() }
+    }, 450)
+  })
+  const release = async () => {
+    down = false
+    clearTimeout(holdTimer)
+    if (!holding) return
+    holding = false
+    shutter.classList.remove('holding')
+    if (recording) await stopRecording()
+    await waitFor(() => !recording && !busy, 4000)
+    setMode('photo')
+    setTimeout(() => { holdSuppressClick = false }, 300)
+  }
+  shutter.addEventListener('pointerup', release)
+  shutter.addEventListener('pointercancel', release)
+  shutter.addEventListener('contextmenu', event => { if (holding) event.preventDefault() })   // no menu while holding on a touch screen
+}
+let holdSuppressClick = false
 $('shutter').addEventListener('click', () => {
+  if (holdSuppressClick) { holdSuppressClick = false; return }   // the release of a hold is not a tap
   if (captureMode === 'video') { toggleRecording(); return }
   if (countdownTimer !== undefined) cancelCountdown()
   else requestCapture(takeLivePhoto)
@@ -3092,13 +3969,14 @@ $('placeLabel').addEventListener('input', (event) => {
 
 function updateTemplateLabel() {
   setTimeout(renderLiveStamp)
+  syncWeekoffUi()
   prefetchPlace(manualFix || currentFix())
-  $('chosenTemplate').textContent = { satellite: 'Satellite', attendance: 'Attendance', qr: 'QR Location' }[preferences.template]
+  $('chosenTemplate').textContent = { satellite: 'Satellite', attendance: 'Attendance', qr: 'QR Location', weekoff: 'Week Off' }[preferences.template]
   for (const tab of document.querySelectorAll('[data-template]')) {
     tab.setAttribute('aria-pressed', String(tab.dataset.template === preferences.template))
   }
   if (typeof centerStylePill === 'function') centerStylePill()
-  $('startWithoutLocation').hidden = preferences.template === 'time'
+  $('startWithoutLocation').hidden = noGps()
   updateLocationMapAction()
   if (!busy) resetStart()
 }
@@ -3106,7 +3984,7 @@ updateTemplateLabel()
 
 $('settingsPhoneCamera').addEventListener('click', () => {
   $('settings').close()
-  if (hasPhoneCamera) openPhoneCamera(preferences.template !== 'time' && !timestampOnly)
+  if (hasPhoneCamera) openPhoneCamera(!noGps() && !timestampOnly)
   else $('fallback').click()
 })
 
@@ -3155,7 +4033,7 @@ function renderTemplatePreview() {
     }
   }
   if (!stampFontsReady) stampFonts.then(() => { if ($('templates').open) renderTemplatePreview() })
-  const isTime = preferences.template === 'time'
+  const isTime = noGps()
   const map = document.createElement('canvas')
   map.width = map.height = 128
   const grid = map.getContext('2d')
@@ -3170,7 +4048,7 @@ function renderTemplatePreview() {
   grid.lineTo(128, 44)
   grid.stroke()
   drawStamp(canvas, {
-    attendance: preferences.template === 'attendance' ? currentAttendance() || { id: 'ENDWEMP20153', name: '', action: 'in' } : undefined,
+    attendance: usesEmployee() ? currentAttendance() || { id: 'EMP1001', name: '', action: preferences.template === 'weekoff' ? 'weekoff' : 'in' } : undefined,
     snapshot: isTime ? undefined : { lat: 17.2, lon: 79.2 },
     address: isTime ? undefined : { street: 'Site access road', locality: 'Example village', county: 'Example mandal', state: 'Telangana', postcode: '500001', country: 'India' },
     note: stampNote || 'Foundation inspection, Block B',
@@ -3207,7 +4085,7 @@ styleTrack.addEventListener('scroll', () => {
       const distance = Math.abs(pill.offsetLeft + pill.offsetWidth / 2 - middle)
       if (distance < best) { best = distance; nearest = pill }
     }
-    if (nearest && nearest.dataset.template !== preferences.template) nearest.click()
+    if (nearest && nearest.dataset.template !== preferences.template) { nearest.click(); haptic() }
   }, 140)
 }, { passive: true })
 window.addEventListener('resize', () => centerStylePill(false))
@@ -3676,9 +4554,10 @@ for (const button of document.querySelectorAll('[data-open]')) {
       $('pinStatus').textContent = 'Enter coordinates or use a GPS fix, then preview the pin.'
     }
     if (panel === 'employeePicker') setTimeout(prepareEmployeePicker)
-    if (panel === 'employeesSheet') fillEmployeesSheet()
-    if (panel === 'registerSheet') renderRegister()
-    if (panel === 'teamSheet') setTimeout(updateTeamSummary)
+    if (panel === 'employeesSheet' || panel === 'registerSheet' || panel === 'teamSheet') {   // these three now live in the Attendance area
+      openHub({ employeesSheet: 'employees', registerSheet: 'register', teamSheet: 'team' }[panel])
+      return
+    }
     if (panel === 'reports') {
       $('reportSource').textContent = lastPhoto ? 'The latest stamped photo is ready to use.' : 'Take a photo first or select one below.'
       updateReportFields()
@@ -3696,7 +4575,7 @@ for (const sheet of document.querySelectorAll('dialog')) {
   sheet.addEventListener('close', reset)
   sheet.addEventListener('touchstart', event => {
     startY = undefined
-    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range], .wheel, .register-list')) return
+    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range], .wheel, .register-list, .hub-scroll, .hub-body')) return
     if (sheet.scrollTop > 0 && !event.target.closest('.sheet-head')) return
     startY = event.touches[0].clientY
     startTime = performance.now()
@@ -3904,22 +4783,21 @@ const phoneLayout = window.matchMedia('(max-width: 759px)')
 let liveStampBox = '', stampClearance = ''
 function renderLiveStamp() {
   if (document.hidden) return   // nothing to see while the app is in the background (saves battery)
-  const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden
+  const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden && !earlyPreview
   liveStamp.hidden = !show
-  if (!show) return
+  if (!show) { for (const id of ['logTap', 'idTap', 'mapTap', 'noteTap']) $(id).hidden = true; $('logChoice').hidden = true; return }
   const scale = Math.min(window.devicePixelRatio || 1, 3)
   // The stamp preview sits exactly where it lands on the photo, behind the see-through controls.
   const frame = video.parentElement.getBoundingClientRect()
-  const box = `${frame.top}/${frame.height}`
+  const box = `${frame.left}/${frame.top}/${frame.width}/${frame.height}`
   if (box !== liveStampBox) {   // styles are only written when they change, so the page is not re-laid out every second
     liveStampBox = box
-    liveStamp.style.top = `${frame.top}px`
-    liveStamp.style.height = `${frame.height}px`
+    Object.assign(liveStamp.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, height: `${frame.height}px` })
   }
   const width = Math.round(frame.width * scale), height = Math.round(frame.height * scale)
   if (liveStamp.width !== width || liveStamp.height !== height) { liveStamp.width = width; liveStamp.height = height }
   liveStamp.getContext('2d').clearRect(0, 0, width, height)
-  let snapshot = preferences.template === 'time' ? undefined : manualFix || currentFix()
+  let snapshot = noGps() ? undefined : manualFix || currentFix()
   if (snapshot && !snapshot.name && placeLabel) snapshot = { ...snapshot, name: placeLabel }
   // The live card: this spot's address and map, or the remembered ones nearby until they arrive.
   const place = snapshot && placeReady(snapshot) ? placeCache.result : rememberedNear(snapshot, 200)
@@ -3930,6 +4808,7 @@ function renderLiveStamp() {
     if (liveStampSettled) liveStamp.classList.add('settled')
   }
   const edges = drawStamp(liveStamp, { snapshot, date: new Date(), picked: false, address: place?.address, map: place?.map, base: width, attendance: currentAttendance() })
+  placeLogTap(frame, edges, scale)
   // Keeps the zoom buttons clear of the stamp preview when the stamp is at the bottom.
   const stampTop = frame.top + edges.top / scale
   const clearance = preferences.position === 'top' ? '0px' : `${Math.max(0, frame.bottom - stampTop)}px`
@@ -3938,6 +4817,100 @@ function renderLiveStamp() {
     document.documentElement.style.setProperty('--stamp-clearance', clearance)
   }
 }
+// Attendance: an invisible button over the card's LOG IN / LOG OUT tile; tapping it offers Log in or Log out
+// (for the next photo only; after that the app goes back to choosing by itself).
+function placeLogTap(frame, edges, scale) {
+  const attendance = usesEmployee()
+  const unit = frame.width / 460   // the stamp is drawn in units of a 460th of its width
+  const top = `${frame.top + edges.top / scale}px`, height = `${(edges.bottom - edges.top) / scale}px`
+  const zone = (id, from, width, on) => {
+    const el = $(id)
+    el.hidden = !on
+    if (on) Object.assign(el.style, { left: `${frame.left + from * unit}px`, top, width: `${width * unit}px`, height })
+  }
+  zone('logTap', 10, 104, attendance)      // the LOG IN / LOG OUT tile
+  zone('idTap', 114, 336, attendance)      // the ID and name: opens the wheels
+  zone('mapTap', 10, 104, !attendance)     // the map tile: opens Maps
+  zone('noteTap', 114, 336, !attendance)   // the text: edits the note
+  if (!attendance) closeLogChoice()
+}
+function closeLogChoice() { $('logChoice').hidden = true; $('sourceChoice').hidden = true }
+function openLogChoice() {
+  if (!selectedEmployeeId) { $('employeeButton').click(); return }   // no ID yet: pick one first
+  const weekoff = preferences.template === 'weekoff'
+  const choice = weekoff ? $('sourceChoice') : $('logChoice')
+  if (weekoff) for (const button of choice.querySelectorAll('[data-source]')) button.setAttribute('aria-pressed', String(button.dataset.source === preferences.weekoffSource))
+  if (!choice.hidden) { closeLogChoice(); return }
+  const current = currentAttendance()?.action
+  for (const button of choice.querySelectorAll('[data-choose]')) button.setAttribute('aria-pressed', String(button.dataset.choose === current))
+  choice.hidden = false
+  const rect = $('logTap').getBoundingClientRect()
+  choice.style.left = `${Math.max(8, Math.min(window.innerWidth - choice.offsetWidth - 8, rect.left))}px`
+  choice.style.top = `${Math.max(8, rect.top - choice.offsetHeight - 8)}px`
+}
+// Gestures on the live card. Up or down: roll the ID and name, or flip Log in / Log out. Left or right: the stamp style.
+// A tap keeps its own meaning (the wheels, the Log in / Log out choice, Maps, the note).
+function stepEmployee(direction) {
+  const list = allEmployees()
+  if (!list.length) return
+  const index = list.findIndex(entry => entry.id === selectedEmployeeId)
+  const next = list[Math.max(0, Math.min(list.length - 1, (index < 0 ? 0 : index) + direction))]
+  if (!next || next.id === selectedEmployeeId) return
+  selectedEmployeeId = next.id
+  logOverride = undefined   // a new person: back to the automatic Log in / Log out
+  updateEmployeeSummary(); showLogChoice(); renderLiveStamp(); haptic()
+}
+function flipLog() {
+  const attendance = currentAttendance()
+  if (!attendance || attendance.action === 'weekoff') return
+  logOverride = attendance.action === 'out' ? 'in' : 'out'
+  showLogChoice(); renderLiveStamp(); haptic()
+}
+function stepStyle(direction) {
+  const pills = [...$('styleTrack').children]
+  const index = pills.findIndex(pill => pill.dataset.template === preferences.template)
+  const next = pills[Math.max(0, Math.min(pills.length - 1, index + direction))]
+  if (!next || index < 0 || next.dataset.template === preferences.template || busy) return
+  next.click(); haptic()
+}
+function cardGesture(button, { tap, vertical }) {
+  let start, swiped = false
+  button.style.touchAction = 'none'
+  button.addEventListener('pointerdown', event => { start = { id: event.pointerId, x: event.clientX, y: event.clientY }; swiped = false })
+  button.addEventListener('pointerup', event => {
+    if (!start || start.id !== event.pointerId) { start = undefined; return }
+    const dx = event.clientX - start.x, dy = event.clientY - start.y, ax = Math.abs(dx), ay = Math.abs(dy)
+    start = undefined
+    if (ax > 36 && ax > 1.5 * ay) { swiped = true; stepStyle(dx < 0 ? 1 : -1) }
+    else if (ay > 22 && ay > 1.5 * ax && vertical) { swiped = true; vertical(dy < 0 ? 1 : -1) }   // swipe up = next, like scrolling a list
+  })
+  button.addEventListener('pointercancel', () => { start = undefined })
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    if (swiped) { swiped = false; return }
+    tap?.(event)
+  })
+}
+cardGesture($('logTap'), { tap: openLogChoice, vertical: flipLog })
+cardGesture($('idTap'), { tap: () => { closeLogChoice(); $('employeeButton').click() }, vertical: stepEmployee })
+cardGesture($('mapTap'), { tap: () => {
+  const snapshot = manualFix || currentFix()
+  if (!snapshot) return
+  const link = new URL('https://www.google.com/maps/search/')
+  link.search = new URLSearchParams({ api: '1', query: `${snapshot.lat.toFixed(6)},${snapshot.lon.toFixed(6)}` })
+  window.open(link.toString(), '_blank', 'noopener')   // the app opens it in the phone's Maps / browser
+} })
+cardGesture($('noteTap'), { tap: () => { $('locationTools').showModal(); setTimeout(() => $('stampNote').focus(), 50) } })
+for (const button of $('logChoice').querySelectorAll('[data-choose]')) {
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    logOverride = button.dataset.choose
+    showLogChoice()
+    closeLogChoice()
+    renderLiveStamp()
+  })
+}
+document.addEventListener('click', event => { if (!$('logChoice').hidden && !event.target.closest('#logChoice')) closeLogChoice() })
 document.addEventListener('visibilitychange', () => { if (!document.hidden) renderLiveStamp() })
 setInterval(renderLiveStamp, 1000)
 window.addEventListener('resize', renderLiveStamp)
@@ -3948,22 +4921,29 @@ let nativeLayoutKey = ''
 function layoutFrame() {
   const root = document.documentElement.style
   if (!phoneLayout.matches) {
-    for (const name of ['--frame-top', '--frame-height', '--frame-gap']) root.removeProperty(name)
+    for (const name of ['--frame-top', '--frame-height', '--frame-left', '--frame-width', '--frame-gap']) root.removeProperty(name)
     return
   }
   const screenWidth = window.innerWidth, screenHeight = window.innerHeight
-  const height = Math.min(screenHeight, Math.round(screenWidth * shapeRatio()))
-  // The frame rests on the shutter tray (its bottom edge is where the stamp sits).
-  const trayTop = screenHeight - ($('controls').offsetHeight || 0)
-  const top = Math.max(0, Math.round(Math.min(trayTop, screenHeight) - height))
+  // The frame rests on the shutter tray: its bottom edge, where the stamp sits, must never go under the tray.
+  const trayTop = Math.min(screenHeight, screenHeight - ($('controls').offsetHeight || 0))
+  let width = screenWidth, height = Math.round(screenWidth * shapeRatio())
+  if (height > trayTop) {   // a tall shape (16:9) on a short screen: narrow the frame so all of it fits above the tray
+    height = trayTop
+    width = Math.min(screenWidth, Math.round(height / shapeRatio()))
+  }
+  const left = Math.round((screenWidth - width) / 2)
+  const top = Math.max(0, Math.round(trayTop - height))
   root.setProperty('--frame-top', `${top}px`)
   root.setProperty('--frame-height', `${height}px`)
+  root.setProperty('--frame-left', `${left}px`)
+  root.setProperty('--frame-width', `${width}px`)
   root.setProperty('--frame-gap', `${screenHeight - top - height}px`)
   // The native preview is only moved when the camera area really changed (this runs on every resize and bar change).
-  const layoutKey = `${top}/${screenWidth}/${height}`
+  const layoutKey = `${left}/${top}/${width}/${height}`
   if (layoutKey !== nativeLayoutKey) {
     nativeLayoutKey = layoutKey
-    try { nativeHost?.cameraLayout?.(0, top, screenWidth, height) } catch {}
+    try { nativeHost?.cameraLayout?.(left, top, width, height) } catch {}
   }
   coverVideo()
   updateCameraGrid()
@@ -3978,7 +4958,7 @@ stampFonts.then(renderLiveStamp)
 if (typeof android !== 'undefined' && android && typeof android.updateInfo === 'function') {
   let info = {}
   try { info = JSON.parse(android.updateInfo()) } catch {}
-  $('appVersion').textContent = `GeoZiptag · v${info.app || '?'} · web ${info.web || ''}`.trim()
+  $('appVersion').textContent = `GeoZiptag · v${info.app || '?'} · web ${info.web || ''}${info.channel === 'preview' ? ' (preview)' : ''}`.trim()
   if (info.updates) {
     $('updatesGroup').hidden = false
     const messages = {
@@ -3995,6 +4975,20 @@ if (typeof android !== 'undefined' && android && typeof android.updateInfo === '
       $('updateReady').hidden = state !== 'ready'
     }
     if (info.pending) window.onOtaStatus('ready', info.pendingLabel)
+    // Preview versions: every change on a work branch is published to a separate preview address; this switch makes
+    // this phone follow it (and back). Each side keeps its own downloads, so switching never mixes versions.
+    // Older installs of the app do not have this call, so the row stays hidden there.
+    if (typeof android.setUpdateChannel === 'function') {
+      const toggle = $('previewChannel')
+      $('previewRow').hidden = false
+      toggle.checked = info.channel === 'preview'
+      $('previewHint').textContent = toggle.checked ? 'This phone follows the preview. Turn off to go back to the live version.' : 'Try the newest changes before they go live'
+      toggle.addEventListener('change', () => {
+        toggle.disabled = true
+        $('updateStatus').textContent = toggle.checked ? 'Switching to the preview version…' : 'Switching back to the live version…'
+        android.setUpdateChannel(toggle.checked ? 'preview' : 'live')   // the app restarts the page on the other version
+      })
+    }
     $('checkUpdates').addEventListener('click', () => android.checkForUpdates())
     $('updateReady').addEventListener('click', () => android.applyUpdate())
   }

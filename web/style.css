@@ -112,12 +112,11 @@ html.gps-slow .location-button[data-state="pending"]::after { display: block; ba
 .style-track { display: flex; gap: .4rem; overflow-x: auto; padding: 2px calc(50% - 1.5rem); scroll-snap-type: x mandatory; scrollbar-width: none; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
 .style-track::-webkit-scrollbar { display: none; }
 .style-pill {
-  flex: none; scroll-snap-align: center; min-height: 24px; height: 24px; padding: 0 .8rem; border-radius: 999px;
-  color: rgba(255, 255, 255, .78); font-size: .7rem; font-weight: 600; letter-spacing: .02em; line-height: 1; white-space: nowrap;
-  background: rgba(12, 16, 18, .42); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .24);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); text-shadow: 0 1px 2px #0008;
+  flex: none; scroll-snap-align: center; min-height: 28px; height: 28px; padding: 0 .9rem; border-radius: 0;
+  background: transparent; color: rgba(255, 255, 255, .62); font-size: .76rem; font-weight: 600; letter-spacing: .03em; line-height: 1; white-space: nowrap;
+  transition: color .15s;
 }
-.style-pill[aria-pressed=true] { background: #ffd60a; color: #151515; box-shadow: none; text-shadow: none; }
+.style-pill[aria-pressed=true] { background: transparent; color: #ffd60a; font-weight: 700; }
 /* Launch cover: black, the icon in the middle, "by SoHum" at the bottom (like Android's splash);
    on iOS the text sits under the icon (like the iPhone launch screen). It fades out when startup is done. */
 .launch-cover { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: #021739; transition: opacity .3s ease; }
@@ -212,7 +211,7 @@ button.danger:hover { background: #e25555; }
 .viewfinder.photo-review #video, .viewfinder.photo-review .switch-frame { visibility: hidden; }
 .viewfinder.photo-review :is(.level-line, .exposure-control, .camera-zoom, .camera-grid, .focus-point, .camera-countdown) { display: none; }
 video.mirror { transform: scaleX(-1); }
-.viewfinder video { touch-action: none; }
+.viewfinder, .viewfinder video { touch-action: none; }   /* the whole camera area belongs to our own swipe, pinch and tap handling (otherwise the browser can take a sideways swipe over and cancel it) */
 video.can-focus { cursor: crosshair; }
 
 .start.opening > * { visibility: hidden; }
@@ -918,7 +917,7 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 /* Photo frame (phones): the camera area has the photo's shape (9:16, 3:4 or 1:1), full width and centred,
    so the live view shows exactly what the photo will contain. The page sets --frame-top/height/gap. */
 @media (max-width: 759px) {
-  .viewfinder:not(.photo-review) { top: var(--frame-top, 0px); bottom: auto; height: var(--frame-height, 100%); }
+  .viewfinder:not(.photo-review) { top: var(--frame-top, 0px); bottom: auto; height: var(--frame-height, 100%); left: var(--frame-left, 0px); right: auto; width: var(--frame-width, 100%); }
   .live-camera-tools { top: max(.5rem, calc(env(safe-area-inset-top) + 64px - var(--frame-top, 0px))); }
   .camera-zoom { bottom: calc(var(--stamp-clearance, 0px) + .6rem); }
   #status { bottom: max(.5rem, calc(var(--bottom-bar, 200px) + 4rem - var(--frame-gap, 0px))); }
@@ -946,7 +945,16 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
   .camera-header nav .icon-button, .live-camera-tools button { min-width: 44px; min-height: 40px; padding: 0 .4rem; gap: .2rem; border-radius: 999px; background: transparent; color: #fff; font-size: .7rem; }
   .live-camera-tools button[aria-pressed=true] { background: rgba(255, 255, 255, .16); color: var(--cream); }
   .live-camera-tools .icon { width: 1.25rem; height: 1.25rem; }
-  .controls { padding: .55rem .9rem calc(env(safe-area-inset-bottom) + .5rem); background: rgba(0, 0, 0, .55); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+  /* Below the photo frame: the stamp style pills on their own (between the stamp card and the tray), then the
+     dark frosted shutter tray. Only the tray has a background, so it never overlaps the card. */
+  .controls { padding: 0; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .controls > .location-bar, .controls > .gps-choice { margin: .5rem .9rem 0; }
+  /* No capsule: plain labels you swipe, the active one yellow and centred over the shutter. They sit between the
+     stamp card and the tray, and fade out toward the edges. */
+  .style-strip { margin: 0 0 .1rem; overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
+  .style-track { padding: 0 calc(50% - 2.1rem); gap: .2rem; }
+  .shutter-tray { padding: .5rem .9rem calc(env(safe-area-inset-bottom) + .4rem); background: rgba(0, 0, 0, .55); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
   .capture-dock { margin: 0; }
   .thumb-slot, .dock-tool, .last-photo { width: 44px; height: 44px; min-height: 44px; }
   .dock-tool { background: rgba(255, 255, 255, .06); box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .55); }
@@ -1008,10 +1016,11 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 .level-line.straight, .level-line.straight::before, .level-line.straight::after { background: #ffd60a; }
 
 /* Photo / Video, slid like the iPhone camera: the active mode is yellow and centred. */
-.mode-switch { overflow: hidden; margin: .45rem 0 0; touch-action: pan-y; }
-.mode-track { display: flex; justify-content: center; gap: 1.6rem; transition: transform .28s cubic-bezier(.2,.8,.2,1); }
-.mode-track button { min-height: 28px; padding: .15rem .2rem; background: transparent; color: rgba(255, 255, 255, .78); font-size: .74rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; text-shadow: 0 1px 3px #000a; }
-.mode-track button[aria-pressed=true] { color: #ffd60a; }
+.mode-switch { overflow: hidden; width: min(16rem, 80%); margin: .2rem auto 0; padding: 4px 0; touch-action: pan-y;   /* a taller target to slide */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); }
+.mode-track { display: flex; justify-content: center; gap: .2rem; transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+.mode-track button { min-height: 28px; padding: 0 1rem; border-radius: 0; background: transparent; color: rgba(255, 255, 255, .62); font-size: .74rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; transition: color .15s; }
+.mode-track button[aria-pressed=true] { background: transparent; color: #ffd60a; font-weight: 700; }
 .mode-track button:disabled { opacity: .45; }
 /* Video mode: a red record button that turns into a stop square while recording. */
 body.video-mode .shutter::before { background: #ff3b30; }
@@ -1066,3 +1075,174 @@ body.video-mode .shutter::before { background: #ff3b30; }
 .register-row.team-row { grid-template-columns: 1fr auto; }
 .register-row.team-row.with-photo { grid-template-columns: 52px 1fr auto; }
 .register-row.team-row small { white-space: normal; }
+
+/* Attendance: tap the LOG IN / LOG OUT tile on the live card to choose (an invisible button sits over the tile). */
+.log-tap { position: fixed; z-index: 4; padding: 0; background: transparent; border-radius: 10px; -webkit-tap-highlight-color: transparent; }
+.log-choice { position: fixed; z-index: 7; display: grid; grid-template-columns: 1fr; gap: .35rem; min-width: 9.5rem; padding: .45rem; border-radius: 16px; background: rgba(28, 28, 30, .94); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 8px 28px rgba(0, 0, 0, .5); }
+.log-choice[hidden] { display: none; }
+.log-choice button { min-height: 40px; padding: 0 1rem; border-radius: 11px; background: rgba(255, 255, 255, .1); color: #fff; font-size: .85rem; font-weight: 700; }
+.log-choice button[aria-pressed=true][data-choose=in] { background: #1f8a52; }
+.log-choice button[aria-pressed=true][data-choose=out] { background: #d9772b; }
+.log-choice small { grid-column: 1; text-align: center; color: rgba(255, 255, 255, .6); font-size: .68rem; }
+
+/* The three wheels: employee ID, name, Log in / Log out. */
+.wheel-heads, .wheel3 { display: grid; grid-template-columns: 1.15fr 1.15fr .8fr; gap: .25rem; }
+.wheel-heads { margin: .6rem .2rem -.2rem; color: var(--text-3); font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; text-align: center; }
+.wheel3 .wheel { min-width: 0; }
+.wheel3 .wheel-item { padding: 0 .2rem; font-size: 1rem; }
+.wheel3 .wheel-item strong, .wheel3 .wheel-item small { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+.wheel3 .wheel-item small { font-size: .95rem; }
+#actionWheel [data-log=in][aria-selected=true] strong { color: #5fd391; }
+#actionWheel [data-log=out][aria-selected=true] strong { color: #f0a15e; }
+#actionWheel.disabled { opacity: .35; pointer-events: none; }
+/* Phones: inputs under 16px make iPhone zoom the page when one is focused, which pushed sheets sideways. */
+@media (pointer: coarse) { dialog input:not([type=radio], [type=checkbox], [type=file]), dialog select, dialog textarea, dialog #employeeList { font-size: 16px; } }
+dialog { overflow-x: hidden; overflow-x: clip; }
+
+/* Employee list: grouped by ID format, edited in place. */
+.emp-search { position: relative; margin: .5rem 0 .4rem; }
+.emp-search .icon { position: absolute; left: .85rem; top: 50%; width: 1.1rem; height: 1.1rem; margin-top: -.55rem; color: var(--text-3); pointer-events: none; }
+.emp-search input { padding-left: 2.5rem !important; }
+.emp-list { max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-m); }
+.emp-group { margin: 0 0 .7rem; }
+.emp-group h4 { margin: .2rem .3rem .3rem; color: var(--text-3); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.emp-row { display: flex; align-items: center; gap: .4rem; min-height: 52px; padding: .25rem .4rem; border-radius: 12px; background: var(--surface-2); margin-bottom: .3rem; }
+.emp-row.editing { background: var(--surface-3); }
+.emp-row.editing input { flex: 1; min-width: 0; min-height: 40px !important; padding: .4rem .6rem !important; border-radius: 9px; }
+.emp-row.editing input:first-child { flex: 1.3; }
+.emp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.emp-text strong { overflow: hidden; font-size: .98rem; font-weight: 600; letter-spacing: .02em; text-overflow: ellipsis; white-space: nowrap; }
+.emp-text small { overflow: hidden; color: var(--text-2); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.emp-text small.none { color: var(--text-3); }
+.emp-btn { display: grid; flex: none; width: 36px; height: 36px; min-height: 36px; padding: 0; place-items: center; border-radius: 50%; background: transparent; color: var(--text-2); }
+.emp-btn .icon { width: 1.1rem; height: 1.1rem; }
+.emp-btn.mine { color: #ffd60a; }
+.emp-btn.mine .icon { fill: #ffd60a; }
+.emp-btn.ok { background: #1f6b43; color: #fff; }
+.emp-add { display: flex; align-items: center; justify-content: center; gap: .2rem; width: 100%; min-height: 44px; border: 1px dashed var(--line-strong); border-radius: 12px; background: transparent; color: var(--text-2); font-size: .9rem; font-weight: 600; }
+.emp-add .icon { width: 1rem; height: 1rem; }
+.emp-empty { margin: .8rem .3rem; text-align: center; }
+.emp-actions { justify-content: space-between; }
+
+.undo-toast { position: fixed; z-index: 8; left: 50%; bottom: calc(var(--bottom-bar, 200px) + .8rem); display: flex; align-items: center; gap: .8rem; max-width: calc(100% - 2rem); padding: .35rem .4rem .35rem 1rem; border-radius: 999px; background: rgba(28, 28, 30, .96); color: #fff; font-size: .85rem; font-weight: 600; box-shadow: 0 8px 28px rgba(0, 0, 0, .5); transform: translateX(-50%); }
+.undo-toast[hidden] { display: none; }
+.undo-toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undo-toast button { min-height: 34px; padding: 0 .9rem; border-radius: 999px; background: #ffd60a; color: #151515; font-weight: 800; }
+
+.shutter.holding { animation: hold-pulse .9s ease-in-out infinite; touch-action: none; }
+@keyframes hold-pulse { 50% { box-shadow: inset 0 0 0 3px var(--cream), 0 0 0 6px rgba(255, 59, 48, .55); } }
+.shutter { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+
+/* Wheel rows: a small pencil beside each ID and name, and "+ Add next" rows. */
+.wheel3 .wheel-item { position: relative; }
+.wheel-edit { display: grid; flex: none; width: 26px; height: 26px; min-height: 26px; padding: 0; place-items: center; border-radius: 50%; background: transparent; color: var(--text-3); }
+.wheel-edit .icon { width: .9rem; height: .9rem; }
+.wheel3 .wheel-item.add strong { color: var(--text-2); font-weight: 600; font-size: .92rem; }
+.wheel3 .wheel-item.editing { z-index: 2; }
+.wheel-input { width: 100%; min-height: 36px !important; padding: .2rem .5rem !important; border-radius: 9px !important; text-align: center; font-size: 16px; }
+#wheelSearchRow { margin: .3rem 0 0; }
+.sheet-head #wheelSearchToggle { margin-right: .4rem; }
+.wheel3 .wheel-item { font-size: .95rem; } .wheel3 .wheel-item small { font-size: .9rem; }
+
+/* The wheels, like the iPhone Timers picker: no headings, one band; one pencil at the left of the middle row. */
+.wheel3 { grid-template-columns: 1.15fr 1.15fr .8fr; }
+.wheel-pencil { position: absolute; z-index: 3; left: .35rem; top: 50%; display: grid; width: 34px; height: 34px; min-height: 34px; margin-top: -17px; padding: 0; place-items: center; border-radius: 50%; background: rgba(255, 255, 255, .1); color: var(--text); }
+.wheel-pencil[hidden] { display: none; }
+.wheel-pencil .icon { width: 1rem; height: 1rem; }
+.wheel-pencil.ok { background: #1f6b43; color: #fff; }
+.wheel3 .wheel-item[aria-selected=true] strong { font-weight: 700; }
+.wheel3.editing-row #employeeWheel, .wheel3.editing-row #nameWheel { overflow-y: hidden; }
+.wheel3 .wheel-item { font-size: 1.05rem; }
+
+/* ---------- The Attendance area (Employees · Shifts · Register · Team), laid out like the iPhone Alarms app ---------- */
+dialog.hub { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: 0; border-radius: 0; overflow: hidden; background: #000; box-shadow: none; animation: none; }
+dialog.hub::backdrop { background: #000; }
+.hub-head, .hub-bar { position: absolute; z-index: 5; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: .6rem; padding: calc(env(safe-area-inset-top) + .5rem) 1rem .6rem; transition: background-color .2s, backdrop-filter .2s; }
+.hub.collapsed .hub-head { background: rgba(10, 10, 12, .72); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.hub-bar { background: rgba(10, 10, 12, .72); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); justify-content: space-between; }
+.hub-bar h2 { flex: 1; margin: 0; text-align: center; font-size: 1.05rem; font-weight: 700; letter-spacing: 0; }
+.hub-actions { display: flex; align-items: center; gap: .5rem; margin-left: auto; }
+.hub-small { position: absolute; left: 50%; transform: translateX(-50%); opacity: 0; font-weight: 700; transition: opacity .2s; pointer-events: none; }
+.hub.collapsed .hub-small { opacity: 1; }
+.round-btn, .pill-btn { display: grid; flex: none; place-items: center; min-height: 44px; border-radius: 999px; background: rgba(60, 60, 64, .75); color: #fff; font-weight: 600; font-size: 1rem; }
+.round-btn { width: 44px; padding: 0; }
+.round-btn .icon { width: 1.2rem; height: 1.2rem; }
+.round-btn.ok { background: #ffd60a; color: #151515; }
+.pill-btn { padding: 0 1.1rem; }
+.pill-btn.active { background: #ffd60a; color: #151515; }
+.hub-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; padding: calc(env(safe-area-inset-top) + 4.2rem) 1rem calc(env(safe-area-inset-bottom) + 7rem); }
+.hub-title { margin: .4rem 0 1rem; font-size: 2.1rem; font-weight: 800; letter-spacing: -.02em; }
+.hub-section { margin: 1.2rem 0 .3rem; color: var(--text); font-size: 1.15rem; font-weight: 700; }
+.hub-empty { margin: 1.5rem .2rem; text-align: center; }
+.alarm-list { border-top: 1px solid var(--line-strong); }
+.alarm-row { position: relative; overflow: hidden; border-bottom: 1px solid var(--line-strong); cursor: pointer; touch-action: pan-y; }
+.alarm-content { position: relative; z-index: 1; display: flex; align-items: center; gap: .8rem; padding: .7rem 0; background: #000; will-change: transform; }
+.alarm-main { flex: 1; min-width: 0; }
+.alarm-time { display: flex; align-items: baseline; gap: .4rem; overflow: hidden; font-size: 1.9rem; font-weight: 300; letter-spacing: -.01em; white-space: nowrap; }
+.alarm-time small { color: var(--text-2); font-size: 1rem; font-weight: 500; letter-spacing: 0; }
+.alarm-time small.none { color: var(--text-3); }
+.alarm-time .mine { width: 1rem; height: 1rem; align-self: center; fill: #ffd60a; color: #ffd60a; }
+.alarm-sub { margin-top: .1rem; color: var(--text-2); font-size: .92rem; }
+.alarm-row.dim .alarm-time, .alarm-row.dim .alarm-sub, .alarm-row.dim small { color: var(--text-3); }
+.switch-wrap { flex: none; display: block; margin: 0 !important; }
+.row-chevron { flex: none; width: 1.1rem; height: 1.1rem; color: var(--text-3); }
+.row-delete { position: absolute; z-index: 0; top: 0; right: 0; bottom: 0; width: 88px; min-height: 0; border-radius: 0; background: #ff3b30; color: #fff; font-weight: 700; }
+.alarm-list.editing .alarm-content, #hubEmpList.editing .alarm-content, #hubShiftList.editing .alarm-content { transform: translateX(-88px); transition: transform .2s ease; }
+.hub-tabs { position: absolute; z-index: 6; left: 1rem; right: 1rem; bottom: calc(env(safe-area-inset-bottom) + .7rem); display: grid; grid-template-columns: repeat(4, 1fr); padding: .3rem; border-radius: 32px; background: rgba(34, 34, 38, .78); -webkit-backdrop-filter: blur(22px) saturate(1.4); backdrop-filter: blur(22px) saturate(1.4); box-shadow: 0 8px 30px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(255, 255, 255, .08); }
+.hub-tabs button { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: .15rem; min-height: 56px; padding: .45rem 0; border-radius: 26px; background: transparent; color: var(--text); font-size: .7rem; font-weight: 600; }
+.hub-tabs button .icon { width: 1.5rem; height: 1.5rem; }
+.hub-tabs button[aria-selected=true] { color: #ffd60a; }
+#hubHighlight { position: absolute; z-index: 0; top: .3rem; bottom: .3rem; left: 0; width: 25%; border-radius: 26px; background: rgba(0, 0, 0, .55); transition: transform .3s cubic-bezier(.2, .8, .2, 1), width .3s; margin-left: .3rem; }
+/* Edit pages (employee, shift) */
+dialog.hub-edit { background: #000; }
+.hub-body { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; padding: calc(env(safe-area-inset-top) + 4.5rem) 1rem calc(env(safe-area-inset-bottom) + 2rem); }
+.hub-body .card { margin-bottom: 1rem; padding: 0 1rem; border-radius: 16px; background: #1c1c1e; }
+.hub-body .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; min-height: 54px; margin: 0; padding: 0; border-bottom: 1px solid var(--line-strong); background: transparent; color: var(--text); font-size: 1.02rem; font-weight: 400; text-align: left; }
+.hub-body .card > :last-child.row, .hub-body .card > .row:last-child { border-bottom: 0; }
+.hub-body .row > span { flex: none; color: var(--text); font-size: 1rem; }
+.hub-body .row input[type=text], .hub-body .row select { flex: 1; width: auto; min-width: 0; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-2); font-size: 16px; text-align: right; box-shadow: none; }
+.hub-body .row input[type=text]:focus, .hub-body .row select:focus { background: transparent; color: #fff; }
+.hub-body .row select { appearance: none; -webkit-appearance: none; background-image: none; direction: rtl; }
+.hub-body .row.stack { flex-direction: column; align-items: stretch; gap: .6rem; padding: .9rem 0; }
+.hub-body .row.time-row b { color: #ffd60a; font-size: 1.02rem; font-weight: 600; }
+.days { display: flex; justify-content: space-between; }
+.day { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; background: #3a3a3c; color: var(--text-2); font-weight: 700; font-size: .9rem; }
+.day[aria-pressed=true] { background: #ffd60a; color: #151515; }
+.delete-button { display: block; width: 100%; min-height: 54px; border-radius: 16px; background: #1c1c1e; color: #ff453a; font-size: 1.02rem; font-weight: 600; }
+.time-wheel { margin: 0 0 .3rem; }
+.time-wheel .wheel { height: 176px; padding: 66px 0; }
+.time-wheel { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .25rem; }
+.status-chip { grid-column: 1 / -1; justify-self: start; padding: .05rem .5rem; border-radius: 999px; background: #2c2c2e; color: #f0a15e; font-size: .72rem; font-style: normal; font-weight: 700; letter-spacing: .04em; }
+/* The employee wheel page uses the same header */
+dialog.wheel-sheet { padding-top: 0; }
+.picker-bar { position: static; margin: 0 -1.15rem .4rem; padding: .7rem 1rem .5rem; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.picker-bar h2 { font-size: 1.05rem; }
+.picker-bar .round-btn { width: 40px; min-height: 40px; }
+.picker-bar .pill-btn { min-height: 40px; }
+.wheel3 { padding-left: 0; }
+
+.undo-toast[popover] { inset: auto auto calc(var(--bottom-bar, 200px) + .8rem) 50%; margin: 0; border: 0; overflow: visible; color: #fff; }
+.undo-toast[popover].over-hub { bottom: calc(env(safe-area-inset-bottom) + 6.4rem); }
+
+.hub-body .card .row.last, .hub-body .card > .row:last-child { border-bottom: 0; }
+dialog.hub .switch:checked { background: #ffd60a; }
+dialog.hub .switch:checked::before { background: #151515; }
+.hub-body .row { border-radius: 0; }
+
+.step-row { display: flex; align-items: center; gap: .5rem; padding-block: .35rem; }
+.step-main { flex: 1; min-width: 0; width: 100%; display: grid; justify-items: start; justify-content: start; text-align: left; background: none; padding: 0; min-height: 44px; border-radius: 0; color: inherit; }
+.step-main b { font-weight: 600; }
+.step-main small { color: var(--text-2); font-size: .8rem; }
+.step-remove { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; background: #3a3a3c; color: var(--text-2); }
+#eeRunHint { margin: 0; padding: .6rem 1rem; }
+
+.register-row .log.weekoff { color: #7fb6ff; }
+.log-choice button[aria-pressed=true][data-source] { background: #2f6fd1; }
+.id-guide { position: absolute; left: 50%; top: 40%; width: min(82%, 420px); aspect-ratio: 85.6 / 54; transform: translate(-50%, -50%); border: 2px dashed rgba(255, 255, 255, .85); border-radius: 14px; pointer-events: none; z-index: 2; display: grid; place-items: end center; padding-bottom: .5rem; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28); }
+.id-guide[hidden] { display: none; }
+.id-guide span { font-size: .75rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
+.passport-row { display: flex; align-items: center; gap: 1rem; }
+.passport-row img { width: 70px; height: 90px; object-fit: cover; border-radius: 8px; background: #000; }
+.passport-buttons { display: grid; gap: .5rem; }
+.passport-buttons button { min-height: 40px; padding: 0 1rem; border-radius: 11px; background: #3a3a3c; color: #fff; font-weight: 600; }
+.passport-buttons #eePassportClear { background: transparent; color: #ff453a; }

@@ -3,7 +3,8 @@
 //   <out>/            the browser version of the app (web/), for iPhone and desktop
 //   <out>/ota/        the signed over-the-air update for the Android app
 //
-// Usage: node tools/ota/publish.mjs [--out _site] [--web web] [--site web]
+// Usage: node tools/ota/publish.mjs [--out _site] [--web web] [--site web] [--channel live|preview]
+// --channel preview labels the update "...-preview" so Settings shows which version a phone follows.
 // The update is signed with the private key in OTA_PRIVATE_KEY (PEM, ECDSA P-256). Without it the
 // site is still built, but no update is published.
 import crypto from 'node:crypto'
@@ -15,6 +16,7 @@ const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, inde
 const out = args.out || '_site'
 const webDir = args.web || 'web'                               // the app's files (the same web/ folder the apps bundle)
 const siteDir = args.site || 'web'                              // what browsers get
+const channel = args.channel === 'preview' ? 'preview' : 'live'
 
 // The only files the Android app will serve or accept (keep in sync with OtaUpdater.java).
 const allowed = /^(index\.html|style\.css|camera\.js|manifest\.webmanifest|vendor\/qrcode\.(mjs|txt)|vendor\/qrcode-LICENSE\.txt|vendor\/tz-lookup\.js|vendor\/tz-lookup-LICENSE\.txt|vendor\/pdf\.(min|worker\.min)\.js|vendor\/pdf-LICENSE\.txt|assets\/[a-z0-9-]{1,60}\.(svg|woff2|jpg|png|txt))$/
@@ -45,7 +47,7 @@ if (!included.includes('index.html')) throw new Error('index.html is missing fro
 const now = new Date(Number(args.now) || Date.now())
 const version = Math.floor(now.getTime() / 60000)            // minutes since 1970: always increasing
 const pad = value => String(value).padStart(2, '0')
-const label = `${pad(now.getUTCFullYear() % 100)}.${pad(now.getUTCMonth() + 1)}.${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`
+const label = `${pad(now.getUTCFullYear() % 100)}.${pad(now.getUTCMonth() + 1)}.${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${channel === 'preview' ? '-preview' : ''}`
 const minApkFile = 'android/ota-min-apk.txt'
 const minApk = Number(args['min-apk'] ?? (fs.existsSync(minApkFile) ? fs.readFileSync(minApkFile, 'utf8').trim() : 0))
 
