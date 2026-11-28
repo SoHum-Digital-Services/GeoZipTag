@@ -20,7 +20,7 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Next
 
-1. Owner decisions (below), put to HQ.
+1. Owner decisions (below), put to HQ. Desk · Console to be briefed by HQ on contracts#118 section 7 (registry entry, admin screens, HMAC credential); host of the actions service still open.
 2. On decisions: Desk · Contracts merges the entitlement contract (draft is ready here); Desk · Console builds the admin screens and API; this desk then writes a brief for the app side (verify signed entitlement, hide the banner, redeem screen). Order: contract, console API + migration (applied only on the owner's word), app.
 3. Where Pro hooks in (from the handover, checked: `web/camera.js` "Banner ad (apps only)" and the `adShow`/`adHide` bridge calls; `dialog#settings` in `web/index.html` for a "Redeem code" row). A page-level entitlement check before `adShow` needs no native build, so the first app step can ship by wireless update (and preview channel first).
 4. Update `web/privacy.html` for whatever the redeem call sends before any app change ships.
@@ -38,7 +38,8 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Open pull requests
 
-None open. (Branch `desk/geoziptag-status-and-entitlements-proposal`, this ledger plus the proposal, pushed and rebased on main; no PR yet.)
+- [SoHum-Digital-Services/sohum-contracts#118](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/118): GeoZipTag entitlement and console integration contract 0.1 (**draft**; five schemas validated, examples, manifest example, 3.1 row). Not merged; waits on the owner decisions.
+- None in this repo. (Branch `desk/geoziptag-status-and-entitlements-proposal`, this ledger plus the proposal, pushed and rebased on main; no PR yet.)
 
 ## Live
 
