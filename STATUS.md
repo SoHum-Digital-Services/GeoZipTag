@@ -5,7 +5,7 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 ## Now
 
 - **Roles (HQ, 2026-11-28):** the cloud GeoZipTag session does all app work (iOS/Android code, in-app UI, AdMob). This desk keeps this ledger, the contract work (entitlement and redeem-code shapes, as a draft for a sohum-contracts PR) and console integration with Desk · Console, and reports to HQ. This desk edits no app code and nothing on the cloud session's branches; it cannot be messaged from HQ, so anything it needs is written here or in `docs/` and HQ relays it.
-- **Owner decision relayed by HQ: "use both"** (read as billing route (a): store in-app billing for individual Pro plus codes). HQ's same message still lists billing, code reuse and account model as open, so (a) is recorded as *both, to be confirmed by HQ*; (b) and (c) are open. The draft contract already allows `source: store` and now carries an optional `store` block.
+- **Owner decisions (relayed by HQ 2026-11-28, "yes, those defaults are fine"):** Pro removes the AdMob banner only. Codes and free offers are built first; individual paid Pro through Apple/Google billing is later and not in the first build (`source: paid` stays in the shape). A code can be used by several people up to a per-code limit (1 = single use), every redemption recorded. Device-based by default; SoHum sign-in only for team plans and memberships (members inherit the team's plan; removing a member removes their entitlement). Kept: signed entitlement, public-key check, daily re-check, ~7-day grace, propose then confirm, owner/operator only. Recorded in contracts#118 (updated).
 
 - Desk created 2026-11-28 (HQ brought the vertical in from a lone cloud session). This turn: this ledger and a **design proposal** for console-managed Pro, trials and coupon codes: [docs/CONSOLE_ENTITLEMENTS_PROPOSAL.md](docs/CONSOLE_ENTITLEMENTS_PROPOSAL.md), with a draft contract in [docs/contracts-draft/](docs/contracts-draft/). **Design only: no app code, no database change, nothing sent to the console repos.**
 
@@ -31,14 +31,14 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Waiting on the owner
 
-- **(a) Billing:** relayed as "both" (confirm). Original question: are individual Pro subscriptions sold through Apple/Google in-app billing, codes only, or both? (Store rules require their billing for in-app digital subscriptions; a code-only model is safe for team/organisation plans sold outside the app and for promotional trials, but see the proposal, section 3.)
-- **(b) Codes:** may one code be used by many people (campaign code with a usage cap) or only once per phone/person? Proposal supports both; the owner picks the default.
-- **(c) Account model:** device-only (no sign-in; entitlement bound to an anonymous install id) or SoHum sign-in? This decides whether a subscription survives a new phone and whether personal data is collected.
-- Smaller: price points; whether "Pro" removes only the banner or also unlocks features; trial length defaults; whether a team plan covers named members or anyone with the team code.
+- Create the entitlement signing key (private half a managed secret; public half goes in the app); a migration and any deploy, each only on the owner's word through HQ.
+- Later (step 3): store subscription products, price points, store server credentials.
+- Confirm the build order I assumed: step 1 codes, trials, admin grants; step 2 team plans and sign-in membership; step 3 store billing.
+- Not yet decided by anyone: host of the actions service (example: Supabase edge function `geoziptag-actions`); how signed-in joining reuses the register's team code.
 
 ## Open pull requests
 
-- [SoHum-Digital-Services/sohum-contracts#118](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/118): GeoZipTag entitlement and console integration contract 0.1 (**draft**; five schemas validated, examples, manifest example, 3.1 row). Not merged; waits on the owner decisions.
+- [SoHum-Digital-Services/sohum-contracts#118](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/118): GeoZipTag entitlement and console integration contract 0.1 (**draft**; five schemas plus team member, validated; examples, manifest example, 3.1 row; decisions recorded). Not merged; waits on the owner decisions.
 - None in this repo. (Branch `desk/geoziptag-status-and-entitlements-proposal`, this ledger plus the proposal, pushed and rebased on main; no PR yet.)
 
 ## Live
