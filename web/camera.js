@@ -1983,7 +1983,7 @@ function showReview() {
 // code verifies it offline with the public key below, keeps it on the phone, asks again about once a day, and keeps
 // honouring it for about 7 days when offline. The identity is a random install id: no account, no phone, no hardware id.
 // Contract: sohum-contracts docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md 0.1.1 (commit 0a2a17c).
-const ENTITLEMENTS_LIVE = false   // the owner flips this in a separate pull request, once the service is checked
+const ENTITLEMENTS_LIVE = true    // PREVIEW BUILD ONLY: never merge this branch; the draft PR keeps this false
 const ENTITLEMENT_BASE = 'https://ziebgspujtdzkiwyybsa.supabase.co/functions/v1/geoziptag-actions'
 // Public keys only (never a private key). A key id not listed here is not trusted; a new key arrives in an app update.
 const ENTITLEMENT_KEYS = [
