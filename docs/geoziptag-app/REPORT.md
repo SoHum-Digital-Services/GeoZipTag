@@ -42,7 +42,9 @@ Not verified:    A real code redeemed against the live service (no real code was
                  http://127.0.0.1 on iPhone and the app's own https origin on Android, both secure contexts, but not checked on
                  a device: if it is missing the feature fails soft and the banner stays); preview-channel behaviour on a phone;
                  the final privacy wording; store review impact.
-Deviations:      (1) the ad code got its own marker pair so E6 can load syncAd; (2) the check runs every 60 s only to re-evaluate
+Deviations:      (0) at the owner's request the app also checks every time it is opened or comes back to the front (at most once a
+                 minute, and only on an install that holds an entitlement or has ever redeemed a code), not only after check_after, so
+                 a revoke takes effect at the next open; a failed check still changes nothing. (1) the ad code got its own marker pair so E6 can load syncAd; (2) the check runs every 60 s only to re-evaluate
                  and call the service when due; (3) the Redeem row lives in its own "Pro" settings group; (4) "key-2026-11" has no
                  not_before in the bundled constant (the app does not use it).
 Questions:       see QUESTIONS.md
