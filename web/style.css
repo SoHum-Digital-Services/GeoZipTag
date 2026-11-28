@@ -112,10 +112,11 @@ html.gps-slow .location-button[data-state="pending"]::after { display: block; ba
 .style-track { display: flex; gap: .4rem; overflow-x: auto; padding: 2px calc(50% - 1.5rem); scroll-snap-type: x mandatory; scrollbar-width: none; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
 .style-track::-webkit-scrollbar { display: none; }
 .style-pill {
-  flex: none; scroll-snap-align: center; min-height: 26px; height: 26px; padding: 0 .85rem; border-radius: 999px;
-  background: transparent; color: rgba(255, 255, 255, .85); font-size: .72rem; font-weight: 600; letter-spacing: .02em; line-height: 1; white-space: nowrap;
+  flex: none; scroll-snap-align: center; min-height: 28px; height: 28px; padding: 0 .9rem; border-radius: 0;
+  background: transparent; color: rgba(255, 255, 255, .62); font-size: .76rem; font-weight: 600; letter-spacing: .03em; line-height: 1; white-space: nowrap;
+  transition: color .15s;
 }
-.style-pill[aria-pressed=true] { background: rgba(255, 255, 255, .2); color: #ffd60a; }
+.style-pill[aria-pressed=true] { background: transparent; color: #ffd60a; font-weight: 700; }
 /* Launch cover: black, the icon in the middle, "by SoHum" at the bottom (like Android's splash);
    on iOS the text sits under the icon (like the iPhone launch screen). It fades out when startup is done. */
 .launch-cover { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: #021739; transition: opacity .3s ease; }
@@ -948,11 +949,11 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
      dark frosted shutter tray. Only the tray has a background, so it never overlaps the card. */
   .controls { padding: 0; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .controls > .location-bar, .controls > .gps-choice { margin: .5rem .9rem 0; }
-  /* One dark capsule, like the iPhone Camera's mode strip: the active style is a lighter pill with yellow text,
-     the neighbours are cut off at the capsule's ends. It sits between the stamp card and the tray. */
-  .style-strip { width: min(21rem, calc(100% - 1.8rem)); margin: 0 auto .45rem; border-radius: 999px; overflow: hidden;
-    background: rgba(28, 28, 30, .78); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
-  .style-track { padding: 3px calc(50% - 2.1rem); gap: .1rem; }
+  /* No capsule: plain labels you swipe, the active one yellow and centred over the shutter. They sit between the
+     stamp card and the tray, and fade out toward the edges. */
+  .style-strip { margin: 0 0 .1rem; overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
+  .style-track { padding: 0 calc(50% - 2.1rem); gap: .2rem; }
   .shutter-tray { padding: .5rem .9rem calc(env(safe-area-inset-bottom) + .4rem); background: rgba(0, 0, 0, .55); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
   .capture-dock { margin: 0; }
   .thumb-slot, .dock-tool, .last-photo { width: 44px; height: 44px; min-height: 44px; }
@@ -1015,10 +1016,11 @@ dialog label.file-drop:hover { border-color: var(--text-3); background: var(--su
 .level-line.straight, .level-line.straight::before, .level-line.straight::after { background: #ffd60a; }
 
 /* Photo / Video, slid like the iPhone camera: the active mode is yellow and centred. */
-.mode-switch { overflow: hidden; width: min(14rem, 70%); margin: .3rem auto 0; padding: 6px 0; border-radius: 999px; background: rgba(28, 28, 30, .78); touch-action: pan-y; }   /* the extra padding makes a taller, easier target to slide */
-.mode-track { display: flex; justify-content: center; gap: .1rem; transition: transform .28s cubic-bezier(.2,.8,.2,1); }
-.mode-track button { min-height: 26px; padding: 0 .95rem; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, .85); font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
-.mode-track button[aria-pressed=true] { background: rgba(255, 255, 255, .2); color: #ffd60a; }
+.mode-switch { overflow: hidden; width: min(16rem, 80%); margin: .2rem auto 0; padding: 4px 0; touch-action: pan-y;   /* a taller target to slide */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); }
+.mode-track { display: flex; justify-content: center; gap: .2rem; transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+.mode-track button { min-height: 28px; padding: 0 1rem; border-radius: 0; background: transparent; color: rgba(255, 255, 255, .62); font-size: .74rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; transition: color .15s; }
+.mode-track button[aria-pressed=true] { background: transparent; color: #ffd60a; font-weight: 700; }
 .mode-track button:disabled { opacity: .45; }
 /* Video mode: a red record button that turns into a stop square while recording. */
 body.video-mode .shutter::before { background: #ff3b30; }
