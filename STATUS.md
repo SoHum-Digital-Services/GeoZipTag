@@ -27,6 +27,12 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 3. **Secrets** (owner creates, as function secrets, never in the repo or chat): the ES256 private key (public half goes into the app build) and the console HMAC secret (shared with Desk · Console's registry entry).
 4. **Deploy** of the function: only on the owner's word through HQ.
 
+## Step briefs (written 2026-11-28, not started)
+
+- [docs/briefs/GEOZIPTAG_SERVICE_backend.md](docs/briefs/GEOZIPTAG_SERVICE_backend.md): `supabase/functions/geoziptag-actions` plus migration; what the owner creates, applies and deploys afterwards; the console flip checklist.
+- [docs/briefs/GEOZIPTAG_APP_frontend.md](docs/briefs/GEOZIPTAG_APP_frontend.md): redeem row, verify, daily check, grace, hide the banner, behind a flag; for the cloud GeoZipTag session or a step session. Part 2 (team sign-in) waits on how the app signs in to SoHum (open).
+- Both pinned to `sohum-contracts` `0a2a17c`. Contracts, console-api (#9, #11) and console-web (#14) are merged per HQ.
+
 ## Next
 
 1. Owner decisions (below), put to HQ. Desk · Console to be briefed by HQ on contracts#118 section 7 (registry entry, admin screens, HMAC credential); host of the actions service still open.
