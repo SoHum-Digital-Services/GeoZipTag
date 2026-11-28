@@ -1246,3 +1246,5 @@ dialog.hub .switch:checked::before { background: #151515; }
 .passport-buttons { display: grid; gap: .5rem; }
 .passport-buttons button { min-height: 40px; padding: 0 1rem; border-radius: 11px; background: #3a3a3c; color: #fff; font-weight: 600; }
 .passport-buttons #eePassportClear { background: transparent; color: #ff453a; }
+
+.flash-button.unavailable { opacity: .4; }

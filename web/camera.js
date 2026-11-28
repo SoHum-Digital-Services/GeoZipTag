@@ -1552,9 +1552,13 @@ function applyHardwareSetting(camera, change) {
 function showFlash(camera, settings) {
   const button = $('torchToggle')
   const usable = !!camera.flashModes || camera.torch
-  button.hidden = !usable
+  // The button stays in its place while the camera is live (the dock does not jump around); when this camera
+  // cannot flash (the front camera, or Video mode in a phone web view) it is dimmed and says why when tapped.
+  button.hidden = false
   button.disabled = false
-  setFlashButton(camera.flashModes ? settings.flash || 'off' : settings.torch ? 'on' : 'off')
+  button.classList.toggle('unavailable', !usable)
+  button.setAttribute('aria-disabled', String(!usable))
+  setFlashButton(usable ? (camera.flashModes ? settings.flash || 'off' : settings.torch ? 'on' : 'off') : 'off')
 }
 function setFlashButton(mode) {
   const button = $('torchToggle')
@@ -1566,6 +1570,11 @@ $('torchToggle').addEventListener('click', async () => {
   const camera = cameraHardware
   if (!camera) return
   const button = $('torchToggle')
+  if (button.classList.contains('unavailable')) {
+    message(captureMode === 'video' ? 'Flash is not available in Video mode on this phone. Use Photo mode for flash.'
+      : facing === 'user' ? 'The front camera has no flash. Flip to the back camera.' : 'This camera has no flash.', 3500)
+    return
+  }
   const modes = camera.flashModes
   const current = button.dataset.flash || 'off'
   const next = modes ? modes[(modes.indexOf(current) + 1) % modes.length] : current === 'on' ? 'off' : 'on'
