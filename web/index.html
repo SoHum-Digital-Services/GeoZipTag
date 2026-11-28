@@ -381,9 +381,10 @@
 </dialog>
 
 <dialog id="employeePicker" class="wheel-sheet" aria-labelledby="employeeTitle">
-  <div class="sheet-head"><h2 id="employeeTitle">Employee</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
-  <div class="wheel-heads" aria-hidden="true"><span>Employee ID</span><span>Name</span><span>Action</span></div>
-  <div class="wheel-wrap wheel3">
+  <div class="sheet-head"><h2 id="employeeTitle">Employee</h2><button id="wheelSearchToggle" class="icon-button" type="button" aria-label="Search employees"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg></button><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <div id="wheelSearchRow" class="emp-search" hidden><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="wheelSearch" type="search" placeholder="Search ID or name" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search"></div>
+  <div id="wheelRows" class="wheel-wrap wheel3">
+    <button id="wheelEdit" class="wheel-pencil" type="button" aria-label="Edit this employee" hidden><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>
     <div id="employeeWheel" class="wheel" role="listbox" aria-label="Employee ID" tabindex="0"></div>
     <div id="nameWheel" class="wheel" role="listbox" aria-label="Name"></div>
     <div id="actionWheel" class="wheel" role="listbox" aria-label="Log in or Log out"></div>

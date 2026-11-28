@@ -2392,23 +2392,94 @@ function setWheel(wheel, index, instant = true) {
   wheel.scrollTo({ top: index * wheelItem, behavior: instant ? 'auto' : 'smooth' })
   setTimeout(() => wheelQuiet.delete(wheel.id), 160)
 }
-function prepareEmployeePicker() {
+let wheelFilter = ''
+function wheelList() {
+  const all = allEmployees(), query = wheelFilter.trim().toLowerCase()
+  const entries = [{ kind: 'none', id: '', name: '' }]
+  const groups = new Map()
+  for (const entry of all) {
+    const key = splitId(entry.id).prefix
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(entry)
+  }
+  for (const [prefix, list] of groups) {
+    for (const entry of list) {
+      if (!query || entry.id.toLowerCase().includes(query) || (entry.name || '').toLowerCase().includes(query)) entries.push({ kind: 'emp', ...entry })
+    }
+    const next = nextId(prefix, new Set(all.map(entry => entry.id)))
+    if (!query && next) entries.push({ kind: 'add', id: '', name: '', prefix, next })   // "+" below the last ID of each series
+  }
+  return entries
+}
+// One pencil, to the left of the selected (middle) row: edit that row's ID and name right there.
+let rowEditing = false
+function editSelectedRow() {
+  const index = Math.round($('employeeWheel').scrollTop / wheelItem), entry = wheelEntries[index]
+  if (!entry || entry.kind !== 'emp') return
+  const idItem = $('employeeWheel').children[index], nameItem = $('nameWheel').children[index]
+  const make = (item, value, placeholder, label, upper) => {
+    const input = document.createElement('input')
+    input.className = 'wheel-input'; input.value = value; input.placeholder = placeholder; input.spellcheck = false
+    input.maxLength = upper ? 40 : 60; input.setAttribute('aria-label', label)
+    if (upper) input.autocapitalize = 'characters'
+    item.classList.add('editing'); item.style.transform = 'none'; item.style.opacity = '1'
+    item.replaceChildren(input)
+    return input
+  }
+  const idInput = make(idItem, entry.id, 'ID', 'Employee ID', true), nameInput = make(nameItem, entry.name || '', 'Add name', 'Name', false)
+  rowEditing = true
+  $('wheelRows').classList.add('editing-row')
+  const pencil = $('wheelEdit')
+  pencil.querySelector('use').setAttribute('href', '#i-check'); pencil.setAttribute('aria-label', 'Save'); pencil.classList.add('ok')
+  let done = false
+  const finish = (save) => {
+    if (done) return
+    done = true
+    rowEditing = false
+    $('wheelRows').classList.remove('editing-row')
+    pencil.querySelector('use').setAttribute('href', '#i-edit'); pencil.setAttribute('aria-label', 'Edit this employee'); pencil.classList.remove('ok')
+    if (save) {
+      const id = cleanId(idInput.value) || entry.id, name = nameInput.value.trim()
+      if (id !== entry.id && allEmployees().some(other => other.id === id)) message(`${id} is already in the list.`, 3000)
+      else if (id !== entry.id || name !== (entry.name || '')) renameEmployee(entry.id, id, name)
+    }
+    pencil.onclick = null
+    prepareEmployeePicker(true)
+  }
+  for (const input of [idInput, nameInput]) {
+    input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); finish(true) } else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(false) } })   // cancel the edit, not the whole sheet
+    input.addEventListener('focusout', event => { if (!event.relatedTarget || !event.relatedTarget.closest('#wheelRows')) setTimeout(() => finish(true), 0) })
+  }
+  pencil.onclick = (event) => { event.stopPropagation(); finish(true) }
+  nameInput.focus(); nameInput.select()
+}
+function prepareEmployeePicker(keepPlace = false) {
   // Picking an employee is attendance: switch the stamp to the Attendance style.
   if (preferences.template !== 'attendance') {
     const radio = document.querySelector('input[name="template"][value="attendance"]')
     radio.checked = true
     radio.dispatchEvent(new Event('change'))
   }
-  wheelEntries = [{ id: '', name: '' }, ...allEmployees()]
+  if (!keepPlace) { wheelFilter = ''; $('wheelSearch').value = ''; $('wheelSearchRow').hidden = true }
+  wheelEntries = wheelList()
   const [idWheel, nameWheel, actionWheel] = wheelIds()
   const click = (wheel, index) => item => item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+  const addNext = (entry) => {
+    employees.list.push({ id: entry.next, name: '' })
+    persistEmployees()
+    selectedEmployeeId = entry.next; logOverride = undefined
+    prepareEmployeePicker(true)
+    setTimeout(editSelectedRow, 60)   // the new row is in the middle: ready to type its name
+  }
   idWheel.replaceChildren(...wheelEntries.map((entry, index) => {
-    const item = makeWheelItem(entry.id || 'No ID', { none: !entry.id })
+    const item = makeWheelItem(entry.kind === 'add' ? `+ Add ${entry.next}` : entry.id || 'No ID', { none: entry.kind !== 'emp' })
+    if (entry.kind === 'add') { item.classList.add('add'); item.addEventListener('click', () => addNext(entry)); return item }
     click(idWheel, index)(item)
     return item
   }))
   nameWheel.replaceChildren(...wheelEntries.map((entry, index) => {
-    const item = makeWheelItem(entry.name || (entry.id ? '·' : ''), { none: !entry.name })
+    const item = makeWheelItem(entry.kind === 'emp' ? entry.name || 'Add name' : '', { none: !entry.name })
+    if (entry.kind === 'add') { item.classList.add('add'); item.addEventListener('click', () => addNext(entry)); return item }
     click(nameWheel, index)(item)
     return item
   }))
@@ -2417,15 +2488,35 @@ function prepareEmployeePicker() {
     click(actionWheel, index)(item)
     return item
   }))
-  const index = Math.max(0, wheelEntries.findIndex(entry => entry.id === selectedEmployeeId))
+  const index = Math.max(0, wheelEntries.findIndex(entry => entry.kind === 'emp' && entry.id === selectedEmployeeId))
   setWheel(idWheel, index); setWheel(nameWheel, index)
   styleWheels()
   showLogChoice()
 }
+// The magnifier in the picker's header: filter the wheels by ID or name.
+$('wheelSearchToggle').addEventListener('click', () => {
+  const row = $('wheelSearchRow')
+  row.hidden = !row.hidden
+  if (row.hidden) { wheelFilter = ''; $('wheelSearch').value = ''; prepareEmployeePicker(true) } else $('wheelSearch').focus()
+})
+$('wheelSearch').addEventListener('input', () => {
+  wheelFilter = $('wheelSearch').value
+  prepareEmployeePicker(true)
+  const first = wheelEntries.find(entry => entry.kind === 'emp')
+  if (wheelFilter.trim() && first) {   // the first match is selected and in the middle
+    selectedEmployeeId = first.id; logOverride = undefined
+    const at = wheelEntries.indexOf(first)
+    setWheel($('employeeWheel'), at); setWheel($('nameWheel'), at)
+    styleWheels(); showLogChoice(); updateEmployeeSummary(); renderLiveStamp()
+  }
+})
+$('wheelEdit').addEventListener('click', () => { if (!rowEditing) editSelectedRow() })
 function styleWheels() {
+  if (!rowEditing) $('wheelEdit').hidden = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]?.kind !== 'emp'   // only an employee row can be edited
   for (const wheel of wheelIds()) {
     const centre = wheel.scrollTop / wheelItem
     ;[...wheel.children].forEach((item, index) => {
+      if (item.classList.contains('editing')) return
       const distance = index - centre
       item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.3))
       item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
@@ -2442,7 +2533,7 @@ for (const [wheel, other] of [[$('employeeWheel'), $('nameWheel')], [$('nameWhee
     clearTimeout(wheelTimer)
     wheelTimer = setTimeout(() => {
       const entry = wheelEntries[Math.round(wheel.scrollTop / wheelItem)]
-      if (!entry || entry.id === selectedEmployeeId) return
+      if (!entry || entry.kind === 'add' || entry.id === selectedEmployeeId) return   // the "+" rows are buttons, not people
       selectedEmployeeId = entry.id
       logOverride = undefined   // a new person: back to the automatic Log in / Log out
       showLogChoice()
@@ -2551,7 +2642,7 @@ function empRow(entry, fresh) {
     row.classList.add('editing')
     const idInput = document.createElement('input'), nameInput = document.createElement('input')
     idInput.value = entry.id; idInput.setAttribute('aria-label', 'Employee ID'); idInput.autocapitalize = 'characters'; idInput.spellcheck = false; idInput.maxLength = 40
-    nameInput.value = entry.name || ''; nameInput.setAttribute('aria-label', 'Name'); nameInput.placeholder = 'Name'; nameInput.maxLength = 60
+    nameInput.value = entry.name || ''; nameInput.setAttribute('aria-label', 'Name'); nameInput.placeholder = 'Add name'; nameInput.maxLength = 60
     const finish = () => {
       const id = cleanId(idInput.value), name = nameInput.value.trim()
       if (!id) { $('employeeStatus').textContent = 'An employee ID cannot be empty.'; idInput.focus(); return }
@@ -2571,7 +2662,8 @@ function empRow(entry, fresh) {
   const text = document.createElement('div')
   text.className = 'emp-text'
   const strong = document.createElement('strong'); strong.textContent = entry.id
-  const small = document.createElement('small'); small.textContent = entry.name || 'No name'
+  const small = document.createElement('button'); small.type = 'button'; small.textContent = entry.name || 'Add name'
+  small.setAttribute('aria-label', `Edit the name of ${entry.id}`); small.addEventListener('click', () => { editingId = entry.id; renderEmployeeList() })
   if (!entry.name) small.className = 'none'
   text.append(strong, small)
   row.append(star, text, empButton('edit', `Edit ${entry.id}`, () => { editingId = entry.id; renderEmployeeList() }))
@@ -2647,7 +2739,7 @@ function draftEmployeeRow() {
   row.className = 'emp-row editing draft'
   const idInput = document.createElement('input'), nameInput = document.createElement('input')
   idInput.placeholder = 'First ID, e.g. TMPLEMP001'; idInput.setAttribute('aria-label', 'First employee ID of the new format'); idInput.autocapitalize = 'characters'; idInput.spellcheck = false; idInput.maxLength = 40
-  nameInput.placeholder = 'Name'; nameInput.setAttribute('aria-label', 'Name'); nameInput.maxLength = 60
+  nameInput.placeholder = 'Add name'; nameInput.setAttribute('aria-label', 'Name'); nameInput.maxLength = 60
   const finish = () => {
     const id = cleanId(idInput.value)
     if (!id) { $('employeeStatus').textContent = 'Type the first ID of the new format.'; idInput.focus(); return }
@@ -4021,7 +4113,7 @@ for (const sheet of document.querySelectorAll('dialog')) {
   sheet.addEventListener('close', reset)
   sheet.addEventListener('touchstart', event => {
     startY = undefined
-    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range], .wheel, .register-list')) return
+    if (event.touches.length !== 1 || event.target.closest('select, textarea, input[type=range], .wheel, .register-list, .emp-list')) return
     if (sheet.scrollTop > 0 && !event.target.closest('.sheet-head')) return
     startY = event.touches[0].clientY
     startTime = performance.now()
