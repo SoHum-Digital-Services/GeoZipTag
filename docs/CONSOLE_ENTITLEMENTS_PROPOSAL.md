@@ -49,3 +49,7 @@ Desk · Contracts: review/merge the draft contract. Desk · Console (`local_16b5
 ## 8. Not decided, not built
 
 All of the above. No key exists, no table exists, no API exists, no live write was made.
+
+## 9. Note from the cloud session's handover (2026-11-28)
+
+The ad hook is page-level (`adShow`/`adHide` in `web/camera.js`), so a first app version needs no native build. The existing team tables are in the `public` schema of `sohum`; entitlement tables should go in the console's own schema behind the console API, not next to them, and the team plan should reference the existing team id. The cloud session will not touch entitlement work.

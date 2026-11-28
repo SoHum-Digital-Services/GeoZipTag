@@ -1,4 +1,4 @@
-# GeoZipTag status            updated 2026-11-28 by Desk · GeoZipTag
+# GeoZipTag status            updated 2026-11-28 by Desk · GeoZipTag (handover from the cloud session folded in)
 
 Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; iOS and Android camera app, bundle `cc.sohum.geoziptag`). How this ledger works: `sohum-contracts` docs/OPERATING_MODEL.md. Facts below were read from the repository on 2026-11-28; nothing was run or deployed in this turn. "Not verified" means exactly that.
 
@@ -8,9 +8,10 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## What exists (from the code)
 
+- Main is at a9c4d9b (PRs #2 to #6 merged). New in the web app: Attendance area (Employees / Shifts / Register / Team), per-employee shifts, week offs and rotation, ON TIME / LATE / EARLY / WEEK OFF marks, Week Off style, flash button always visible, Android front-camera display flash (native 1.25). Employees, shifts and passport photos live in localStorage.
 - Web app in `web/` (one copy, bundled into both phone apps and published to GitHub Pages): GPS photo/video stamp, satellite map, photo attendance with employee IDs and shifts, Week Off mode, reports.
 - Android 1.25 (code 26) and iPhone 1.25 (build 26): native shells around `web/`. Signed wireless updates of `web/` (ECDSA P-256, public key bundled in the app; `tools/ota/`).
-- Optional shared team register on the **`sohum` Supabase project** (`ziebgspujtdzkiwyybsa`): the app calls `rpc/geoziptag_*` functions and bucket `geoziptag-photos` with the publishable key; a team is a code plus a 6-digit manager PIN. **No user accounts, no device identity, no sign-in anywhere in the app.** The migrations and RPC definitions are not in this repository (not verified where they live).
+- Optional shared team register on the **`sohum` Supabase project** (`ziebgspujtdzkiwyybsa`): the app calls `rpc/geoziptag_*` functions and bucket `geoziptag-photos` with the publishable key; a team is a code plus a 6-digit manager PIN. **No user accounts, no device identity, no sign-in anywhere in the app.** Per the cloud session's handover (not re-verified by this desk): tables `geoziptag_teams` and `geoziptag_attendance` and functions `geoziptag_create_team / join / submit / list / team_folder` are in the **public** schema; that session applied a migration on 2026-11-28 (action `weekoff` allowed; nullable `shift`, `status`, `photo_kind`; `submit` and `list` updated; Week Off rows have GPS/place stripped server-side; verified with a rolled-back test). The migration files are not in this repository (not verified where they live); they should be committed here or to the console repo.
 - Ads: one Google AdMob banner in the photo view on Android and iPhone, **Google test ad IDs only** until store listings exist (`android/app/build.gradle`, `ios/project.yml`). Always shown; there is no Pro, trial, coupon or entitlement concept in the code today.
 - Privacy policy in `web/privacy.html` (says what the register stores; says nothing about entitlements).
 
@@ -18,7 +19,8 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 1. Owner decisions (below), put to HQ.
 2. On decisions: Desk · Contracts merges the entitlement contract (draft is ready here); Desk · Console builds the admin screens and API; this desk then writes a brief for the app side (verify signed entitlement, hide the banner, redeem screen). Order: contract, console API + migration (applied only on the owner's word), app.
-3. Update `web/privacy.html` for whatever the redeem call sends before any app change ships.
+3. Where Pro hooks in (from the handover, checked: `web/camera.js` "Banner ad (apps only)" and the `adShow`/`adHide` bridge calls; `dialog#settings` in `web/index.html` for a "Redeem code" row). A page-level entitlement check before `adShow` needs no native build, so the first app step can ship by wireless update (and preview channel first).
+4. Update `web/privacy.html` for whatever the redeem call sends before any app change ships.
 
 ## Blocked
 
@@ -33,7 +35,7 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Open pull requests
 
-None.
+None open. (Branch `desk/geoziptag-status-and-entitlements-proposal`, this ledger plus the proposal, pushed and rebased on main; no PR yet.)
 
 ## Live
 
