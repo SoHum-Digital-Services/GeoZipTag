@@ -796,6 +796,19 @@ public final class MainActivity extends Activity {
             });
         }
 
+        /**
+         * Display flash for the front camera: the page turns the screen white and asks for full brightness
+         * (1) for the photo, then back to the phone's own level (-1).
+         */
+        @JavascriptInterface public void setScreenBrightness(float level) {
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                android.view.WindowManager.LayoutParams params = getWindow().getAttributes();
+                params.screenBrightness = level < 0 ? android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.min(1f, level);
+                getWindow().setAttributes(params);
+            });
+        }
+
         /** Opens this app's page in the phone's Settings (where camera and location access can be turned on). */
         @JavascriptInterface public void openSettings() {
             runOnUiThread(() -> {

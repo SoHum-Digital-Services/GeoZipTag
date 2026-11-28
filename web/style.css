@@ -1248,3 +1248,6 @@ dialog.hub .switch:checked::before { background: #151515; }
 .passport-buttons #eePassportClear { background: transparent; color: #ff453a; }
 
 .flash-button.unavailable { opacity: .4; }
+
+.screen-flash { position: fixed; inset: 0; z-index: 50; background: #fff; pointer-events: none; }
+.screen-flash[hidden] { display: none; }
