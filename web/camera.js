@@ -19,6 +19,14 @@ let cameraProblem, locationDenied = false, nativeFrameSeen = false
 let facing = 'user'   // GeoZiptag always opens on the front camera
 let cameraRequest = 0
 let busy = false
+// A light tick when a swipe or wheel clicks into place: the app's own haptics where it has them (iPhone, Android),
+// otherwise the browser's vibration where that exists.
+function haptic() {
+  try {
+    if (typeof android !== 'undefined' && android && typeof android.haptic === 'function') android.haptic()
+    else if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) navigator.vibrate?.(8)
+  } catch {}
+}
 let fromPicker = false
 let pickerFix, pendingCapture
 let timestampOnly = false
@@ -2372,6 +2380,7 @@ for (const [wheel, other] of [[$('employeeWheel'), $('nameWheel')], [$('nameWhee
       showLogChoice()
       updateEmployeeSummary()
       renderLiveStamp()
+      haptic()
     }, 120)
   })
 }
@@ -2385,6 +2394,7 @@ $('actionWheel').addEventListener('scroll', () => {
     logOverride = Math.round($('actionWheel').scrollTop / wheelItem) === 1 ? 'out' : 'in'
     showLogChoice()
     renderLiveStamp()
+    haptic()
   }, 120)
 })
 function showLogChoice() {
@@ -2968,6 +2978,7 @@ document.fonts?.ready.then(centreMode)   // the labels change width when the app
 function setMode(mode) {
   if (recording || busy || mode === captureMode || (mode === 'video' && !videoCapable)) return
   captureMode = mode
+  haptic()
   for (const button of $('modeTrack').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode))
   document.body.classList.toggle('video-mode', mode === 'video')
   $('shutter').setAttribute('aria-label', mode === 'video' ? 'Record video' : 'Take photo')
@@ -3417,7 +3428,7 @@ styleTrack.addEventListener('scroll', () => {
       const distance = Math.abs(pill.offsetLeft + pill.offsetWidth / 2 - middle)
       if (distance < best) { best = distance; nearest = pill }
     }
-    if (nearest && nearest.dataset.template !== preferences.template) nearest.click()
+    if (nearest && nearest.dataset.template !== preferences.template) { nearest.click(); haptic() }
   }, 140)
 }, { passive: true })
 window.addEventListener('resize', () => centerStylePill(false))
@@ -4116,7 +4127,7 @@ function renderLiveStamp() {
   if (document.hidden) return   // nothing to see while the app is in the background (saves battery)
   const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden && !earlyPreview
   liveStamp.hidden = !show
-  if (!show) { $('logTap').hidden = true; $('idTap').hidden = true; $('logChoice').hidden = true; return }
+  if (!show) { for (const id of ['logTap', 'idTap', 'mapTap', 'noteTap']) $(id).hidden = true; $('logChoice').hidden = true; return }
   const scale = Math.min(window.devicePixelRatio || 1, 3)
   // The stamp preview sits exactly where it lands on the photo, behind the see-through controls.
   const frame = video.parentElement.getBoundingClientRect()
@@ -4151,18 +4162,22 @@ function renderLiveStamp() {
 // Attendance: an invisible button over the card's LOG IN / LOG OUT tile; tapping it offers Log in or Log out
 // (for the next photo only; after that the app goes back to choosing by itself).
 function placeLogTap(frame, edges, scale) {
-  const tap = $('logTap'), idTap = $('idTap'), attendance = preferences.template === 'attendance'
-  tap.hidden = idTap.hidden = !attendance
-  if (!attendance) { $('logChoice').hidden = true; return }
+  const attendance = preferences.template === 'attendance'
   const unit = frame.width / 460   // the stamp is drawn in units of a 460th of its width
   const top = `${frame.top + edges.top / scale}px`, height = `${(edges.bottom - edges.top) / scale}px`
-  Object.assign(tap.style, { left: `${frame.left + 10 * unit}px`, top, width: `${104 * unit}px`, height })     // the LOG IN / LOG OUT tile
-  Object.assign(idTap.style, { left: `${frame.left + 114 * unit}px`, top, width: `${336 * unit}px`, height })  // the ID and name: opens the wheels
+  const zone = (id, from, width, on) => {
+    const el = $(id)
+    el.hidden = !on
+    if (on) Object.assign(el.style, { left: `${frame.left + from * unit}px`, top, width: `${width * unit}px`, height })
+  }
+  zone('logTap', 10, 104, attendance)      // the LOG IN / LOG OUT tile
+  zone('idTap', 114, 336, attendance)      // the ID and name: opens the wheels
+  zone('mapTap', 10, 104, !attendance)     // the map tile: opens Maps
+  zone('noteTap', 114, 336, !attendance)   // the text: edits the note
+  if (!attendance) $('logChoice').hidden = true
 }
 function closeLogChoice() { $('logChoice').hidden = true }
-$('idTap').addEventListener('click', event => { event.stopPropagation(); closeLogChoice(); $('employeeButton').click() })
-$('logTap').addEventListener('click', event => {
-  event.stopPropagation()
+function openLogChoice() {
   if (!selectedEmployeeId) { $('employeeButton').click(); return }   // no ID yet: pick one first
   const choice = $('logChoice')
   if (!choice.hidden) { closeLogChoice(); return }
@@ -4172,7 +4187,60 @@ $('logTap').addEventListener('click', event => {
   const rect = $('logTap').getBoundingClientRect()
   choice.style.left = `${Math.max(8, Math.min(window.innerWidth - choice.offsetWidth - 8, rect.left))}px`
   choice.style.top = `${Math.max(8, rect.top - choice.offsetHeight - 8)}px`
-})
+}
+// Gestures on the live card. Up or down: roll the ID and name, or flip Log in / Log out. Left or right: the stamp style.
+// A tap keeps its own meaning (the wheels, the Log in / Log out choice, Maps, the note).
+function stepEmployee(direction) {
+  const list = allEmployees()
+  if (!list.length) return
+  const index = list.findIndex(entry => entry.id === selectedEmployeeId)
+  const next = list[Math.max(0, Math.min(list.length - 1, (index < 0 ? 0 : index) + direction))]
+  if (!next || next.id === selectedEmployeeId) return
+  selectedEmployeeId = next.id
+  logOverride = undefined   // a new person: back to the automatic Log in / Log out
+  updateEmployeeSummary(); showLogChoice(); renderLiveStamp(); haptic()
+}
+function flipLog() {
+  const attendance = currentAttendance()
+  if (!attendance) return
+  logOverride = attendance.action === 'out' ? 'in' : 'out'
+  showLogChoice(); renderLiveStamp(); haptic()
+}
+function stepStyle(direction) {
+  const pills = [...$('styleTrack').children]
+  const index = pills.findIndex(pill => pill.dataset.template === preferences.template)
+  const next = pills[Math.max(0, Math.min(pills.length - 1, index + direction))]
+  if (!next || index < 0 || next.dataset.template === preferences.template || busy) return
+  next.click(); haptic()
+}
+function cardGesture(button, { tap, vertical }) {
+  let start, swiped = false
+  button.style.touchAction = 'none'
+  button.addEventListener('pointerdown', event => { start = { id: event.pointerId, x: event.clientX, y: event.clientY }; swiped = false })
+  button.addEventListener('pointerup', event => {
+    if (!start || start.id !== event.pointerId) { start = undefined; return }
+    const dx = event.clientX - start.x, dy = event.clientY - start.y, ax = Math.abs(dx), ay = Math.abs(dy)
+    start = undefined
+    if (ax > 36 && ax > 1.5 * ay) { swiped = true; stepStyle(dx < 0 ? 1 : -1) }
+    else if (ay > 22 && ay > 1.5 * ax && vertical) { swiped = true; vertical(dy < 0 ? 1 : -1) }   // swipe up = next, like scrolling a list
+  })
+  button.addEventListener('pointercancel', () => { start = undefined })
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    if (swiped) { swiped = false; return }
+    tap?.(event)
+  })
+}
+cardGesture($('logTap'), { tap: openLogChoice, vertical: flipLog })
+cardGesture($('idTap'), { tap: () => { closeLogChoice(); $('employeeButton').click() }, vertical: stepEmployee })
+cardGesture($('mapTap'), { tap: () => {
+  const snapshot = manualFix || currentFix()
+  if (!snapshot) return
+  const link = new URL('https://www.google.com/maps/search/')
+  link.search = new URLSearchParams({ api: '1', query: `${snapshot.lat.toFixed(6)},${snapshot.lon.toFixed(6)}` })
+  window.open(link.toString(), '_blank', 'noopener')   // the app opens it in the phone's Maps / browser
+} })
+cardGesture($('noteTap'), { tap: () => { $('locationTools').showModal(); setTimeout(() => $('stampNote').focus(), 50) } })
 for (const button of $('logChoice').querySelectorAll('[data-choose]')) {
   button.addEventListener('click', event => {
     event.stopPropagation()
