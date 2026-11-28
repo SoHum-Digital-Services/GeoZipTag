@@ -37,7 +37,7 @@ let captureMode = 'photo'   // photo | video
 let timerSeconds = 0
 const preferences = { template: 'satellite', position: 'bottom', keepOriginal: false, preferShare: false, aspect: '16:9',
   quality: 'high', tapAction: 'focus', volumeShutter: true, shareAfter: false, reviewAfter: true,
-  mirrorFront: false, showLevel: false, weekoffSource: 'live' }
+  mirrorFront: false, showLevel: false, weekoffSource: 'live', weekoffChosen: false }
 // Week Off stamps carry no GPS, like the old time-only stamp.
 const noGps = () => preferences.template === 'time' || preferences.template === 'weekoff'
 const usesEmployee = () => preferences.template === 'attendance' || preferences.template === 'weekoff'
@@ -47,6 +47,7 @@ try {
   if (['satellite', 'attendance', 'qr', 'weekoff'].includes(saved.template)) preferences.template = saved.template
   else if (saved.template === 'time') preferences.template = 'attendance'
   if (['live', 'id', 'passport'].includes(saved.weekoffSource)) preferences.weekoffSource = saved.weekoffSource
+  preferences.weekoffChosen = saved.weekoffChosen === true   // picked by hand; otherwise a saved passport photo is used automatically
   if (saved.position === 'top') preferences.position = 'top'
   preferences.keepOriginal = saved.keepOriginal === true
   preferences.preferShare = saved.preferShare === true
@@ -1117,7 +1118,7 @@ function drawStamp(canvas, { snapshot, date, picked, address, map, template = pr
     // Attendance: who (large), their name, where, the coordinates and when.
     const status = attendance?.status
     const statusColor = { late: '#f0a15e', early: '#f0a15e', weekoff: '#7fb6ff', ontime: '#5fd391' }[status?.kind] || colors.brand
-    add(weekOff ? `WEEK OFF${attendance?.source && attendance.source !== 'live' ? ` · ${attendance.source === 'id' ? 'ID CARD' : 'PASSPORT PHOTO'}` : ''}` : `${snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE'}${status ? ` · ${status.label}` : ''}`, 8.5, weekOff ? '#7fb6ff' : statusColor, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
+    add(weekOff ? `WEEK OFF${attendance?.source ? ` · ${attendance.source === 'id' ? 'ID CARD' : attendance.source === 'passport' ? 'PASSPORT PHOTO' : 'LIVE PHOTO'}` : ''}` : `${snapshot?.manual ? 'ATTENDANCE · MANUAL LOCATION' : 'ATTENDANCE'}${status ? ` · ${status.label}` : ''}`, 8.5, weekOff ? '#7fb6ff' : statusColor, 700, { maxLines: 1, tracking: 1.4, gapAfter: 3 })
     add(attendance?.id || 'No employee ID', 19, attendance?.id ? colors.text : colors.muted, 700, { maxLines: 1, tracking: 0.3, gapAfter: 1 })
     if (attendance?.name) add(attendance.name, 13, colors.muted, 600, { maxLines: 1, gapAfter: 3 })
     else if (!attendance?.id) add('Choose one with the ID button', 11.5, colors.muted, 500, { maxLines: 1, gapAfter: 3 })
@@ -2154,7 +2155,7 @@ $('timerToggle').addEventListener('click', () => {
 })
 
 function takeLivePhoto(snapshot) {
-  if (preferences.template === 'weekoff' && preferences.weekoffSource === 'passport') { takePassportPhoto(); return }
+  if (preferences.template === 'weekoff' && weekoffSource() === 'passport') { takePassportPhoto(); return }
   if (!timerSeconds) {
     capture(video, false, snapshot)
     return
@@ -2355,7 +2356,7 @@ const logWord = (action) => action === 'weekoff' ? 'Week off' : action === 'out'
 function currentAttendance() {
   if (!usesEmployee() || !selectedEmployeeId) return undefined
   const person = allEmployees().find(entry => entry.id === selectedEmployeeId) || employeeById(selectedEmployeeId)
-  if (preferences.template === 'weekoff') return { id: person.id, name: person.name || '', action: 'weekoff', source: preferences.weekoffSource, status: { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 } }
+  if (preferences.template === 'weekoff') return { id: person.id, name: person.name || '', action: 'weekoff', source: weekoffSource(person.id), status: { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 } }
   const action = logOverride || suggestedLog(person.id)
   return { id: person.id, name: person.name || '', action, status: attendanceStatus(person, action, new Date()) }
 }
@@ -2700,17 +2701,23 @@ async function takePassportPhoto() {
   if (!passports[person.id]) { message(`No passport photo saved for ${person.id}. Add one in the employee's details, or choose Live photo or ID card.`, 5000); return }
   capture(await passportSheet(passports[person.id]), false, undefined, { imageFile: true, withAttendance: true })
 }
+// Week Off photo type: what the person picked, or (until they pick) their saved passport photo when there is one.
+function weekoffSource(id = selectedEmployeeId) {
+  if (preferences.weekoffChosen) return preferences.weekoffSource
+  return id && passports[id] ? 'passport' : 'live'
+}
 // Week Off: the ID card guide on the viewfinder while "ID card" is the photo type.
 function syncWeekoffUi() {
-  $('idGuide').hidden = !(preferences.template === 'weekoff' && preferences.weekoffSource === 'id')
+  $('idGuide').hidden = !(preferences.template === 'weekoff' && weekoffSource() === 'id')
 }
 for (const button of $('sourceChoice').querySelectorAll('[data-source]')) {
   button.addEventListener('click', event => {
     event.stopPropagation()
     preferences.weekoffSource = button.dataset.source
+    preferences.weekoffChosen = true
     savePreferences(); closeLogChoice(); syncWeekoffUi(); renderLiveStamp(); haptic()
     const person = selectedEmployeeId
-    if (preferences.weekoffSource === 'passport' && person && !passports[person]) message(`No passport photo saved for ${person} yet. Add one in the employee's details.`, 4500)
+    if (weekoffSource() === 'passport' && person && !passports[person]) message(`No passport photo saved for ${person} yet. Add one in the employee's details.`, 4500)
   })
 }
 
@@ -4867,7 +4874,7 @@ function openLogChoice() {
   if (!selectedEmployeeId) { $('employeeButton').click(); return }   // no ID yet: pick one first
   const weekoff = preferences.template === 'weekoff'
   const choice = weekoff ? $('sourceChoice') : $('logChoice')
-  if (weekoff) for (const button of choice.querySelectorAll('[data-source]')) button.setAttribute('aria-pressed', String(button.dataset.source === preferences.weekoffSource))
+  if (weekoff) for (const button of choice.querySelectorAll('[data-source]')) button.setAttribute('aria-pressed', String(button.dataset.source === weekoffSource()))
   if (!choice.hidden) { closeLogChoice(); return }
   const current = currentAttendance()?.action
   for (const button of choice.querySelectorAll('[data-choose]')) button.setAttribute('aria-pressed', String(button.dataset.choose === current))
@@ -4886,7 +4893,7 @@ function stepEmployee(direction) {
   if (!next || next.id === selectedEmployeeId) return
   selectedEmployeeId = next.id
   logOverride = undefined   // a new person: back to the automatic Log in / Log out
-  updateEmployeeSummary(); showLogChoice(); renderLiveStamp(); haptic()
+  updateEmployeeSummary(); showLogChoice(); syncWeekoffUi(); renderLiveStamp(); haptic()
 }
 function flipLog() {
   const attendance = currentAttendance()
