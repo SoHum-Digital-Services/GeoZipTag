@@ -53,3 +53,7 @@ All of the above. No key exists, no table exists, no API exists, no live write w
 ## 9. Note from the cloud session's handover (2026-11-28)
 
 The ad hook is page-level (`adShow`/`adHide` in `web/camera.js`), so a first app version needs no native build. The existing team tables are in the `public` schema of `sohum`; entitlement tables should go in the console's own schema behind the console API, not next to them, and the team plan should reference the existing team id. The cloud session will not touch entitlement work.
+
+## 10. Billing "both" (relayed by HQ 2026-11-28)
+
+If store billing is in, the server (not the app) verifies each purchase with Apple / Google and issues the same signed entitlement with `source: store` and a `store` block (platform, product id). The console shows these read-only (store state is the truth; an admin can still disable one). Needs, from the owner and not yet done: store subscription products, store server credentials (secrets, never in the repo), and a restore-purchases path in the app (cloud session). Codes and team plans are unchanged.

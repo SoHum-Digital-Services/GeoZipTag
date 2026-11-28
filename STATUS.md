@@ -4,6 +4,9 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Now
 
+- **Roles (HQ, 2026-11-28):** the cloud GeoZipTag session does all app work (iOS/Android code, in-app UI, AdMob). This desk keeps this ledger, the contract work (entitlement and redeem-code shapes, as a draft for a sohum-contracts PR) and console integration with Desk · Console, and reports to HQ. This desk edits no app code and nothing on the cloud session's branches; it cannot be messaged from HQ, so anything it needs is written here or in `docs/` and HQ relays it.
+- **Owner decision relayed by HQ: "use both"** (read as billing route (a): store in-app billing for individual Pro plus codes). HQ's same message still lists billing, code reuse and account model as open, so (a) is recorded as *both, to be confirmed by HQ*; (b) and (c) are open. The draft contract already allows `source: store` and now carries an optional `store` block.
+
 - Desk created 2026-11-28 (HQ brought the vertical in from a lone cloud session). This turn: this ledger and a **design proposal** for console-managed Pro, trials and coupon codes: [docs/CONSOLE_ENTITLEMENTS_PROPOSAL.md](docs/CONSOLE_ENTITLEMENTS_PROPOSAL.md), with a draft contract in [docs/contracts-draft/](docs/contracts-draft/). **Design only: no app code, no database change, nothing sent to the console repos.**
 
 ## What exists (from the code)
@@ -28,7 +31,7 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 
 ## Waiting on the owner
 
-- **(a) Billing:** are individual Pro subscriptions sold through Apple/Google in-app billing, codes only, or both? (Store rules require their billing for in-app digital subscriptions; a code-only model is safe for team/organisation plans sold outside the app and for promotional trials, but see the proposal, section 3.)
+- **(a) Billing:** relayed as "both" (confirm). Original question: are individual Pro subscriptions sold through Apple/Google in-app billing, codes only, or both? (Store rules require their billing for in-app digital subscriptions; a code-only model is safe for team/organisation plans sold outside the app and for promotional trials, but see the proposal, section 3.)
 - **(b) Codes:** may one code be used by many people (campaign code with a usage cap) or only once per phone/person? Proposal supports both; the owner picks the default.
 - **(c) Account model:** device-only (no sign-in; entitlement bound to an anonymous install id) or SoHum sign-in? This decides whether a subscription survives a new phone and whether personal data is collected.
 - Smaller: price points; whether "Pro" removes only the banner or also unlocks features; trial length defaults; whether a team plan covers named members or anyone with the team code.
