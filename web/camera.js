@@ -1978,13 +1978,189 @@ function showReview() {
   renderLiveStamp()
 }
 
+// ---- Entitlement (start) ----
+// GeoZiptag Pro (ad-free) from a redeemed code, a trial or an admin grant. The service signs an entitlement (ES256); this
+// code verifies it offline with the public key below, keeps it on the phone, asks again about once a day, and keeps
+// honouring it for about 7 days when offline. The identity is a random install id: no account, no phone, no hardware id.
+// Contract: sohum-contracts docs/GEOZIPTAG_ENTITLEMENT_SHAPE.md 0.1.1 (commit 0a2a17c).
+const ENTITLEMENTS_LIVE = false   // the owner flips this in a separate pull request, once the service is checked
+const ENTITLEMENT_BASE = 'https://ziebgspujtdzkiwyybsa.supabase.co/functions/v1/geoziptag-actions'
+// Public keys only (never a private key). A key id not listed here is not trusted; a new key arrives in an app update.
+const ENTITLEMENT_KEYS = [
+  { key_id: 'key-2026-11', alg: 'ES256',
+    public_key_b64: 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEDel0u7wCdMXi5+bLR5rTwT8t0I2c/RJmJ271/3E2ia5iUNzdH1ME6ntaN+WnNuv3mLxfCl5uvTZplITPSLIESQ==' }
+]
+const INSTALL_KEY = 'geoziptagInstallId', ENTITLEMENT_KEY = 'geoziptagEntitlement', REDEEMED_KEY = 'geoziptagRedeemed'
+const PAYLOAD_SCHEMA = 'sohum.geoziptag.entitlement.payload/1', SIGNED_SCHEMA = 'sohum.geoziptag.entitlement.signed/1'
+const entitlementState = { payload: undefined, envelope: undefined, loaded: false, checking: false }
+let memoryInstallId
+
+function storageGet(key) { try { return localStorage.getItem(key) } catch { return null } }
+function storageSet(key, value) { try { localStorage.setItem(key, value) } catch {} }
+function storageRemove(key) { try { localStorage.removeItem(key) } catch {} }
+
+function newUuid() {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+// A random id made once on this phone. It is sent only with the entitlement calls and never joined to anything else.
+function installId() {
+  const saved = storageGet(INSTALL_KEY)
+  if (saved && /^[0-9a-f-]{36}$/i.test(saved)) return saved.toLowerCase()
+  const made = memoryInstallId || newUuid().toLowerCase()
+  memoryInstallId = made
+  storageSet(INSTALL_KEY, made)
+  return made
+}
+
+function bytesFromBase64(text, urlSafe) {
+  let s = String(text)
+  if (urlSafe) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=' }
+  const binary = atob(s)
+  const out = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
+  return out
+}
+const importedKeys = new Map()
+function entitlementKey(keyId) {
+  const entry = ENTITLEMENT_KEYS.find(key => key.key_id === keyId && key.alg === 'ES256')
+  if (!entry) return undefined
+  if (!importedKeys.has(keyId)) {
+    importedKeys.set(keyId, crypto.subtle.importKey('spki', bytesFromBase64(entry.public_key_b64, false),
+      { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']))
+  }
+  return importedKeys.get(keyId)
+}
+const isDate = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value))
+
+// Verifies a signed envelope and returns its payload, or undefined for anything that is not exactly right. Never throws.
+async function verifyEnvelope(envelope) {
+  try {
+    if (!envelope || typeof envelope !== 'object' || envelope.schema !== SIGNED_SCHEMA || envelope.alg !== 'ES256') return undefined
+    if (typeof envelope.key_id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(envelope.payload_b64 || '') ||
+        !/^[A-Za-z0-9_-]+$/.test(envelope.signature_b64 || '')) return undefined
+    const key = entitlementKey(envelope.key_id)
+    if (!key) return undefined   // unknown key id: untrusted
+    const payloadBytes = bytesFromBase64(envelope.payload_b64, true)
+    const signature = bytesFromBase64(envelope.signature_b64, true)
+    if (signature.length !== 64) return undefined   // raw r||s
+    const good = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, await key, signature, payloadBytes)
+    if (!good) return undefined
+    const payload = JSON.parse(new TextDecoder().decode(payloadBytes))   // parsed only after the signature checked out
+    if (!payload || payload.schema !== PAYLOAD_SCHEMA || payload.plan !== 'pro' || payload.key_id !== envelope.key_id) return undefined
+    if (!payload.subject || payload.subject.kind !== 'install' || String(payload.subject.id).toLowerCase() !== installId()) return undefined
+    if (typeof payload.enabled !== 'boolean' || !isDate(payload.starts_at) || !isDate(payload.issued_at) ||
+        !isDate(payload.check_after) || !isDate(payload.grace_until)) return undefined
+    if (payload.ends_at !== null && !isDate(payload.ends_at)) return undefined
+    return payload
+  } catch { return undefined }
+}
+
+// Is Pro on? Uses the last verified payload (see loadEntitlement), so it is quick and needs no network.
+function entitled(now = Date.now()) {
+  if (!ENTITLEMENTS_LIVE) return false
+  const p = entitlementState.payload
+  if (!p || !p.enabled) return false
+  const t = typeof now === 'number' ? now : +now
+  if (t < Date.parse(p.starts_at)) return false
+  if (p.ends_at !== null && t >= Date.parse(p.ends_at)) return false
+  return t < Date.parse(p.grace_until)
+}
+// When Pro ends (for the Settings line): the end date, or undefined for no end.
+function entitlementEnds() { return entitlementState.payload?.ends_at ? new Date(entitlementState.payload.ends_at) : undefined }
+
+// Reads what is stored and verifies it again (the storage can be edited, so it is never trusted as it is).
+async function loadEntitlement() {
+  entitlementState.loaded = true
+  if (!ENTITLEMENTS_LIVE) return
+  entitlementState.payload = entitlementState.envelope = undefined
+  const raw = storageGet(ENTITLEMENT_KEY)
+  if (!raw) return
+  let envelope
+  try { envelope = JSON.parse(raw) } catch { return }
+  const payload = await verifyEnvelope(envelope)
+  if (payload) { entitlementState.payload = payload; entitlementState.envelope = envelope }
+}
+
+// Takes a service reply: null means no entitlement; a signed envelope must verify before it is kept. Returns false when
+// the reply could not be trusted, and then changes nothing.
+async function acceptReply(data) {
+  if (data === null) {
+    entitlementState.payload = entitlementState.envelope = undefined
+    storageRemove(ENTITLEMENT_KEY)
+    return true
+  }
+  const payload = await verifyEnvelope(data)
+  if (!payload) return false
+  entitlementState.payload = payload
+  entitlementState.envelope = data
+  storageSet(ENTITLEMENT_KEY, JSON.stringify(data))
+  return true
+}
+
+// One call to the service. Never throws and never exposes the server's text: {ok, status, data}.
+async function entitlementCall(action, body) {
+  if (!ENTITLEMENTS_LIVE) return { ok: false, status: 0 }
+  try {
+    const response = await fetch(`${ENTITLEMENT_BASE}/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store'
+    })
+    let reply
+    try { reply = await response.json() } catch {}
+    return { ok: response.ok && reply?.success === true, status: response.status, data: reply?.data }
+  } catch { return { ok: false, status: 0 } }
+}
+
+// Redeem a typed code. Returns 'ok', 'invalid' (bad, expired or used up: deliberately not told apart), 'limited' or 'offline'.
+async function redeemEntitlementCode(code) {
+  if (!ENTITLEMENTS_LIVE) return 'offline'
+  const typed = String(code ?? '').trim()
+  if (typed.length < 4 || typed.length > 40) return 'invalid'
+  const reply = await entitlementCall('redeem_code', { install_id: installId(), code: typed })
+  if (reply.status === 422) return 'invalid'
+  if (reply.status === 429) return 'limited'
+  if (!reply.ok) return 'offline'
+  if (reply.data === null || reply.data === undefined) return 'offline'   // a redeem always returns an entitlement
+  if (!(await acceptReply(reply.data))) return 'offline'
+  storageSet(REDEEMED_KEY, '1')
+  return 'ok'
+}
+
+// The re-check (about daily): on launch and when the app comes back, if it is due. A failed call changes nothing, so the
+// stored entitlement keeps working until its grace period ends.
+async function checkEntitlementNow({ force = false, now = Date.now() } = {}) {
+  if (!ENTITLEMENTS_LIVE || entitlementState.checking) return false
+  const p = entitlementState.payload
+  const due = force || (p ? now >= Date.parse(p.check_after) : storageGet(REDEEMED_KEY) === '1')
+  if (!due) return false
+  entitlementState.checking = true
+  try {
+    const reply = await entitlementCall('check_entitlement', { install_id: installId() })
+    if (!reply.ok || reply.data === undefined) return false
+    return await acceptReply(reply.data)
+  } finally { entitlementState.checking = false }
+}
+// ---- Entitlement (end) ----
+
+// ---- Banner ad (start) ----
 // ---- Banner ad (apps only): a native view the app draws over the ad slot in the photo view. It is
 // hidden whenever a sheet or dialog is open (it would otherwise sit on top of it). ----
 const adHost = typeof android?.adShow === 'function' ? android : undefined
 let adShown = false
+// Pro (a redeemed code, trial or admin grant) means no banner. Any problem checking it leaves the banner as it is.
+function adFree() { try { return entitled() } catch { return false } }
 function syncAd() {
   if (!adHost) return
   const slot = $('adSlot')
+  if (adFree()) {
+    slot.hidden = true
+    if (adShown) { try { adHost.adHide() } catch {} }
+    adShown = false
+    return
+  }
   const show = !$('review').hidden && !document.hidden && !document.querySelector('dialog[open]')
   slot.hidden = $('review').hidden
   if (show) {
@@ -2003,6 +2179,52 @@ if (adHost) {
     .observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
   document.addEventListener('visibilitychange', syncAd)
   window.addEventListener('resize', () => requestAnimationFrame(syncAd))
+}
+// ---- Banner ad (end) ----
+
+// ---- Pro: wiring and the Redeem code sheet ----
+let lastAdFree = false
+const proDate = (date) => date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+function updateProRow() {
+  if (!ENTITLEMENTS_LIVE) return
+  const on = entitled(), ends = entitlementEnds()
+  $('proSummary').textContent = on ? (ends ? `Ads are off until ${proDate(ends)}` : 'Ads are off') : 'Enter a code to turn ads off'
+}
+async function refreshEntitlement({ force = false } = {}) {
+  try {
+    if (!entitlementState.loaded) await loadEntitlement()
+    await checkEntitlementNow({ force })
+  } catch {}
+  updateProRow()
+  const free = adFree()
+  if (free !== lastAdFree) { lastAdFree = free; syncAd() }   // the banner returns by itself when Pro ends
+}
+if (ENTITLEMENTS_LIVE) {
+  $('proGroup').hidden = false
+  refreshEntitlement()
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshEntitlement() })
+  setInterval(refreshEntitlement, 60000)   // cheap: it only calls the service when the check is due
+  const redeemMessages = {
+    invalid: "This code can't be used.",
+    limited: 'Too many tries. Please try again later.',
+    offline: "Couldn't reach SoHum. Try again."
+  }
+  $('redeemForm').addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const button = $('redeemButton'), status = $('redeemStatus')
+    button.disabled = true
+    status.textContent = 'Checking…'
+    const result = await redeemEntitlementCode($('redeemCode').value)
+    button.disabled = false
+    if (result === 'ok') {
+      $('redeemCode').value = ''
+      await refreshEntitlement()
+      const ends = entitlementEnds()
+      status.textContent = ends ? `Ads are off until ${proDate(ends)}.` : 'Ads are off.'
+      haptic()
+    } else status.textContent = redeemMessages[result]
+  })
+  $('proRow').addEventListener('click', () => { $('redeemStatus').textContent = ''; updateProRow() })
 }
 
 function hideReview() {
