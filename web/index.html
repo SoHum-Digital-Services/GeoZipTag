@@ -131,6 +131,7 @@
   </section>
   <canvas id="liveStamp" class="live-stamp" aria-hidden="true" hidden></canvas>
   <button id="logTap" class="log-tap" type="button" aria-label="Change Log in or Log out" aria-haspopup="true" hidden></button>
+  <button id="idTap" class="log-tap" type="button" aria-label="Choose employee" aria-haspopup="dialog" hidden></button>
   <div id="logChoice" class="log-choice" role="group" aria-label="Log in or Log out" hidden>
     <button type="button" data-choose="in">Log in</button>
     <button type="button" data-choose="out">Log out</button>
@@ -373,10 +374,11 @@
 
 <dialog id="employeePicker" class="wheel-sheet" aria-labelledby="employeeTitle">
   <div class="sheet-head"><h2 id="employeeTitle">Employee</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
-  <div class="wheel-wrap"><div id="employeeWheel" class="wheel" role="listbox" aria-label="Employee ID" tabindex="0"></div></div>
-  <div class="segmented" role="group" aria-label="Attendance">
-    <button type="button" data-log="in" aria-pressed="true">Log in</button>
-    <button type="button" data-log="out" aria-pressed="false">Log out</button>
+  <div class="wheel-heads" aria-hidden="true"><span>Employee ID</span><span>Name</span><span>Action</span></div>
+  <div class="wheel-wrap wheel3">
+    <div id="employeeWheel" class="wheel" role="listbox" aria-label="Employee ID" tabindex="0"></div>
+    <div id="nameWheel" class="wheel" role="listbox" aria-label="Name"></div>
+    <div id="actionWheel" class="wheel" role="listbox" aria-label="Log in or Log out"></div>
   </div>
   <p id="logHint" class="hint wheel-hint"></p>
   <button type="button" class="text-button wheel-manage" data-open="employeesSheet">Add or import IDs</button>

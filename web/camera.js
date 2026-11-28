@@ -2296,9 +2296,26 @@ function updateEmployeeSummary() {
 }
 updateEmployeeSummary()
 
-// The picker: a rolling wheel (like the iPhone clock) and Log in / Log out.
+// The picker: three rolling wheels like the iPhone clock's: employee ID, name, and Log in / Log out.
+// The ID and name wheels are the same list (turning one turns the other); the third picks the action.
 const wheelItem = 44
-let wheelEntries = [], wheelTimer
+let wheelEntries = [], wheelTimer, actionTimer, wheelQuiet = new Set()
+const wheelIds = () => [$('employeeWheel'), $('nameWheel'), $('actionWheel')]
+function makeWheelItem(text, { small = false, none = false, role = 'option', data } = {}) {
+  const item = document.createElement('div')
+  item.className = `wheel-item${none ? ' none' : ''}`
+  item.setAttribute('role', role)
+  const label = document.createElement(small ? 'small' : 'strong')
+  label.textContent = text
+  item.append(label)
+  if (data) item.dataset.log = data
+  return item
+}
+function setWheel(wheel, index, instant = true) {
+  wheelQuiet.add(wheel.id)   // our own move: the wheel's scroll handler must not treat it as a user choice
+  wheel.scrollTo({ top: index * wheelItem, behavior: instant ? 'auto' : 'smooth' })
+  setTimeout(() => wheelQuiet.delete(wheel.id), 160)
+}
 function prepareEmployeePicker() {
   // Picking an employee is attendance: switch the stamp to the Attendance style.
   if (preferences.template !== 'attendance') {
@@ -2307,65 +2324,78 @@ function prepareEmployeePicker() {
     radio.dispatchEvent(new Event('change'))
   }
   wheelEntries = [{ id: '', name: '' }, ...allEmployees()]
-  const wheel = $('employeeWheel')
-  wheel.replaceChildren(...wheelEntries.map((entry, index) => {
-    const item = document.createElement('div')
-    item.className = `wheel-item${entry.id ? '' : ' none'}`
-    item.setAttribute('role', 'option')
-    const strong = document.createElement('strong')
-    strong.textContent = entry.id || 'No ID'
-    item.append(strong)
-    if (entry.name) {
-      const small = document.createElement('small')
-      small.textContent = entry.name
-      item.append(small)
-    }
-    item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+  const [idWheel, nameWheel, actionWheel] = wheelIds()
+  const click = (wheel, index) => item => item.addEventListener('click', () => wheel.scrollTo({ top: index * wheelItem, behavior: 'smooth' }))
+  idWheel.replaceChildren(...wheelEntries.map((entry, index) => {
+    const item = makeWheelItem(entry.id || 'No ID', { none: !entry.id })
+    click(idWheel, index)(item)
+    return item
+  }))
+  nameWheel.replaceChildren(...wheelEntries.map((entry, index) => {
+    const item = makeWheelItem(entry.name || (entry.id ? '·' : ''), { none: !entry.name })
+    click(nameWheel, index)(item)
+    return item
+  }))
+  actionWheel.replaceChildren(...['in', 'out'].map((action, index) => {
+    const item = makeWheelItem(action === 'in' ? 'Log in' : 'Log out', { data: action })
+    click(actionWheel, index)(item)
     return item
   }))
   const index = Math.max(0, wheelEntries.findIndex(entry => entry.id === selectedEmployeeId))
-  wheel.scrollTop = index * wheelItem
-  styleWheel()
+  setWheel(idWheel, index); setWheel(nameWheel, index)
+  styleWheels()
   showLogChoice()
 }
-function styleWheel() {
-  const wheel = $('employeeWheel'), centre = wheel.scrollTop / wheelItem
-  ;[...wheel.children].forEach((item, index) => {
-    const distance = index - centre
-    item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.3))
-    item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
-    item.setAttribute('aria-selected', String(Math.round(centre) === index))
+function styleWheels() {
+  for (const wheel of wheelIds()) {
+    const centre = wheel.scrollTop / wheelItem
+    ;[...wheel.children].forEach((item, index) => {
+      const distance = index - centre
+      item.style.opacity = String(Math.max(0.2, 1 - Math.abs(distance) * 0.3))
+      item.style.transform = `rotateX(${Math.max(-60, Math.min(60, distance * -20))}deg)`
+      item.setAttribute('aria-selected', String(Math.round(centre) === index))
+    })
+  }
+}
+// Turning the ID or the name wheel: the other follows, and once it settles that person is selected.
+for (const [wheel, other] of [[$('employeeWheel'), $('nameWheel')], [$('nameWheel'), $('employeeWheel')]]) {
+  wheel.addEventListener('scroll', () => {
+    styleWheels()
+    if (wheelQuiet.has(wheel.id)) return
+    if (Math.abs(other.scrollTop - wheel.scrollTop) > 1) setWheel(other, wheel.scrollTop / wheelItem)
+    clearTimeout(wheelTimer)
+    wheelTimer = setTimeout(() => {
+      const entry = wheelEntries[Math.round(wheel.scrollTop / wheelItem)]
+      if (!entry || entry.id === selectedEmployeeId) return
+      selectedEmployeeId = entry.id
+      logOverride = undefined   // a new person: back to the automatic Log in / Log out
+      showLogChoice()
+      updateEmployeeSummary()
+      renderLiveStamp()
+    }, 120)
   })
 }
-$('employeeWheel').addEventListener('scroll', () => {
-  styleWheel()
-  clearTimeout(wheelTimer)
-  wheelTimer = setTimeout(() => {
-    const entry = wheelEntries[Math.round($('employeeWheel').scrollTop / wheelItem)]
-    if (!entry || entry.id === selectedEmployeeId) return
-    selectedEmployeeId = entry.id
-    logOverride = undefined
+// Turning the action wheel: Log in or Log out for the next photo.
+$('actionWheel').addEventListener('scroll', () => {
+  styleWheels()
+  if (wheelQuiet.has('actionWheel')) return
+  clearTimeout(actionTimer)
+  actionTimer = setTimeout(() => {
+    if (!currentAttendance()) return
+    logOverride = Math.round($('actionWheel').scrollTop / wheelItem) === 1 ? 'out' : 'in'
     showLogChoice()
-    updateEmployeeSummary()
     renderLiveStamp()
   }, 120)
 })
 function showLogChoice() {
   const attendance = currentAttendance()
-  for (const button of document.querySelectorAll('[data-log]')) {
-    button.disabled = !attendance
-    button.setAttribute('aria-pressed', String(attendance?.action === button.dataset.log))
-  }
+  const wheel = $('actionWheel')
+  wheel.classList.toggle('disabled', !attendance)
+  wheel.querySelectorAll('[data-log]').forEach(item => item.setAttribute('aria-pressed', String(attendance?.action === item.dataset.log)))
+  if (attendance && Math.round(wheel.scrollTop / wheelItem) !== (attendance.action === 'out' ? 1 : 0)) setWheel(wheel, attendance.action === 'out' ? 1 : 0)
   const last = attendance && [...register].reverse().find(row => row.id === attendance.id)
   $('logHint').textContent = !attendance ? 'Photos will have no employee ID.'
     : last ? `Last: ${last.action === 'out' ? 'Log out' : 'Log in'} on ${last.date} at ${last.clock.slice(0, 5)}` : 'No entries yet for this ID.'
-}
-for (const button of document.querySelectorAll('[data-log]')) {
-  button.addEventListener('click', () => {
-    logOverride = button.dataset.log
-    showLogChoice()
-    renderLiveStamp()
-  })
 }
 
 // Employee IDs: typed one per line ("ID, Name") or imported from a text, CSV or PDF file.
@@ -3950,7 +3980,7 @@ function renderLiveStamp() {
   if (document.hidden) return   // nothing to see while the app is in the background (saves battery)
   const show = phoneLayout.matches && (!video.hidden || switching) && $('review').hidden && !earlyPreview
   liveStamp.hidden = !show
-  if (!show) { $('logTap').hidden = true; $('logChoice').hidden = true; return }
+  if (!show) { $('logTap').hidden = true; $('idTap').hidden = true; $('logChoice').hidden = true; return }
   const scale = Math.min(window.devicePixelRatio || 1, 3)
   // The stamp preview sits exactly where it lands on the photo, behind the see-through controls.
   const frame = video.parentElement.getBoundingClientRect()
@@ -3985,14 +4015,16 @@ function renderLiveStamp() {
 // Attendance: an invisible button over the card's LOG IN / LOG OUT tile; tapping it offers Log in or Log out
 // (for the next photo only; after that the app goes back to choosing by itself).
 function placeLogTap(frame, edges, scale) {
-  const tap = $('logTap'), attendance = preferences.template === 'attendance'
-  tap.hidden = !attendance
+  const tap = $('logTap'), idTap = $('idTap'), attendance = preferences.template === 'attendance'
+  tap.hidden = idTap.hidden = !attendance
   if (!attendance) { $('logChoice').hidden = true; return }
   const unit = frame.width / 460   // the stamp is drawn in units of a 460th of its width
-  Object.assign(tap.style, { left: `${frame.left + 10 * unit}px`, top: `${frame.top + edges.top / scale}px`, width: `${104 * unit}px`, height: `${(edges.bottom - edges.top) / scale}px` })
-  tap.dataset.top = String(frame.top + edges.top / scale)
+  const top = `${frame.top + edges.top / scale}px`, height = `${(edges.bottom - edges.top) / scale}px`
+  Object.assign(tap.style, { left: `${frame.left + 10 * unit}px`, top, width: `${104 * unit}px`, height })     // the LOG IN / LOG OUT tile
+  Object.assign(idTap.style, { left: `${frame.left + 114 * unit}px`, top, width: `${336 * unit}px`, height })  // the ID and name: opens the wheels
 }
 function closeLogChoice() { $('logChoice').hidden = true }
+$('idTap').addEventListener('click', event => { event.stopPropagation(); closeLogChoice(); $('employeeButton').click() })
 $('logTap').addEventListener('click', event => {
   event.stopPropagation()
   if (!selectedEmployeeId) { $('employeeButton').click(); return }   // no ID yet: pick one first
