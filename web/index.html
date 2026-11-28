@@ -466,16 +466,27 @@
       <label class="row"><span>Employee ID</span><input id="eeId" type="text" maxlength="40" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ID"></label>
       <label class="row"><span>Name</span><input id="eeName" type="text" maxlength="60" autocomplete="off" placeholder="Add name"></label>
     </div>
-    <div class="card">
+    <div class="card" id="eeOffCard">
       <div class="row stack"><span>Week off</span><div id="eeDays" class="days" role="group" aria-label="Week off days"></div></div>
     </div>
-    <div class="card">
+    <div class="card" id="eeShiftCard">
       <label class="row"><span>Shift</span><select id="eeShift" aria-label="Shift"></select></label>
       <div id="eeCustom" hidden>
         <button id="eeStartRow" class="row time-row" type="button" aria-expanded="false"><span>Starts</span><b id="eeStartText">9:00 AM</b></button>
         <div id="eeStartWheel" hidden></div>
         <button id="eeEndRow" class="row time-row last" type="button" aria-expanded="false"><span>Ends</span><b id="eeEndText">6:00 PM</b></button>
         <div id="eeEndWheel" hidden></div>
+      </div>
+    </div>
+    <div class="card" id="eeRotateCard">
+      <label class="row"><span>Rotate shifts</span><input id="eeRotate" class="switch" type="checkbox"></label>
+      <div id="eeRotation" hidden>
+        <label class="row"><span>Changes every</span><select id="eeEvery" aria-label="Shift changes every"><option value="7">Week</option><option value="15">15 days</option><option value="month">Month</option><option value="30">30 days</option><option value="custom">Custom…</option></select></label>
+        <label class="row" id="eeEveryRow" hidden><span>Number of days</span><input id="eeEveryDays" type="number" inputmode="numeric" min="1" max="365" value="10"></label>
+        <label class="row"><span>First turn starts</span><input id="eeFrom" type="date"></label>
+        <p id="eeRunHint" class="hint"></p>
+        <div id="eeSteps"></div>
+        <label class="row last"><span>Add a shift</span><select id="eeAddStep" aria-label="Add a shift to the rotation"></select></label>
       </div>
     </div>
     <div class="card">
@@ -501,6 +512,9 @@
       <div id="seStartWheel" hidden></div>
       <button id="seEndRow" class="row time-row last" type="button" aria-expanded="false"><span>Ends</span><b id="seEndText">6:00 PM</b></button>
       <div id="seEndWheel" hidden></div>
+    </div>
+    <div class="card">
+      <div class="row stack"><span>Shift days</span><div id="seDays" class="days" role="group" aria-label="Days this shift works"></div></div>
     </div>
     <button id="seDelete" class="delete-button" type="button">Delete shift</button>
   </div>

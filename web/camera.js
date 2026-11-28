@@ -2315,7 +2315,7 @@ function suggestedLog(id) {
   const now = new Date(), last = [...register].reverse().find(row => row.id === id)
   const person = allEmployees().find(entry => entry.id === id)
   // With a shift (which can run past midnight): Log out if the last entry is a Log in from within the last 20 hours.
-  if (person?.shift) return last && last.action === 'in' && now - new Date(last.time) < 20 * 3600e3 ? 'out' : 'in'
+  if (person && effective(person, now).shift) return last && last.action === 'in' && now - new Date(last.time) < 20 * 3600e3 ? 'out' : 'in'
   return last && new Date(last.time).toDateString() === now.toDateString() && last.action === 'in' ? 'out' : 'in'
 }
 function currentAttendance() {
@@ -2331,7 +2331,7 @@ function recordAttendance(attendance, { date, snapshot, address, file, photo }) 
     date: zoned.csvDate.format(date), clock: zoned.csvTime.format(date),
     place: snapshot ? placeHeading(snapshot, address) : '', address: address ? fullAddress(address) : '',
     lat: snapshot?.lat, lon: snapshot?.lon, file,
-    shift: (() => { const shift = allEmployees().find(entry => entry.id === attendance.id)?.shift; return shift ? `${shift.start}-${shift.end}` : '' })(),
+    shift: (() => { const person = allEmployees().find(entry => entry.id === attendance.id), shift = person && effective(person, date).shift; return shift ? `${shift.start}-${shift.end}` : '' })(),
     status: attendance.status?.label || ''
   }
   register.push(row)
@@ -2657,13 +2657,39 @@ function shiftInstance(shift, now) {
   }
   return best || nearest
 }
+// ---- Rotation: an employee's shifts take turns every week, 15 days, month, 30 days or a custom number of days ----
+const dayNumber = (date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 864e5)
+const parseDay = (text) => { const [y, m, d] = String(text || '').split('-').map(Number); return y ? new Date(y, m - 1, d) : new Date() }
+const dayText = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dayShort = (date) => `${DAY_NAMES[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]}`
+const everyLabel = (every) => every === 'month' ? 'Monthly' : Number(every) === 7 ? 'Weekly' : `${Number(every)} days`
+function rosterStep(roster, date) {
+  const count = roster?.steps?.length
+  if (!count) return undefined
+  const from = parseDay(roster.from)
+  const turn = roster.every === 'month'
+    ? date.getFullYear() * 12 + date.getMonth() - (from.getFullYear() * 12 + from.getMonth())
+    : Math.floor((dayNumber(date) - dayNumber(from)) / Math.max(1, Number(roster.every) || 7))
+  return roster.steps[((turn % count) + count) % count]
+}
+// The shift and week off that apply to a person on a day: this turn's step of their rotation, or their one shift.
+function effective(person, date) {
+  const step = rosterStep(person.roster, date), shift = step || person.shift
+  const off = shift?.days?.length ? [0, 1, 2, 3, 4, 5, 6].filter(day => !shift.days.includes(day)) : person.off
+  return { shift, off, step }
+}
 const minutesText = (minutes) => minutes < 60 ? `${minutes} MIN` : `${Math.floor(minutes / 60)} H${minutes % 60 ? ` ${minutes % 60} MIN` : ''}`
 // How a Log in / Log out compares with the person's shift and week off.
 function attendanceStatus(person, action, now) {
   if (!person) return undefined
-  const instance = person.shift ? shiftInstance(person.shift, now) : undefined
+  // A night shift that began yesterday still belongs to yesterday's turn of the rotation.
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1)
+  let eff = effective(person, now), instance = eff.shift ? shiftInstance(eff.shift, now) : undefined
+  const before = effective(person, yesterday), beforeInstance = before.shift ? shiftInstance(before.shift, now) : undefined
+  if (beforeInstance && beforeInstance.start.toDateString() === yesterday.toDateString() && now <= beforeInstance.end.getTime() + 4 * 3600e3) { eff = before; instance = beforeInstance }
   const weekday = (instance ? instance.start : now).getDay()
-  if (person.off?.includes(weekday)) return { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 }
+  if (eff.off?.includes(weekday)) return { kind: 'weekoff', label: 'WEEK OFF', minutes: 0 }
   if (!instance) return undefined
   if (action === 'out') {
     const early = Math.round((instance.end - now) / 60000)
@@ -2770,9 +2796,69 @@ function fillShiftChoices() {
   select.closest('.row').classList.toggle('last', $('eeCustom').hidden)
   if (select.value === 'custom') empTimes.set(shift.start, shift.end)
 }
+// ---- Rotation section of the employee editor ----
+const EVERY_PRESETS = ['7', '15', 'month', '30']
+function stepText(step) { return [shiftLabel(step), step.days?.length && step.days.length < 7 ? `Works ${step.days.map(day => DAY_NAMES[day]).join(', ')}` : ''].filter(Boolean).join(' · ') }
+function fillRotation() {
+  const r = editState.roster
+  $('eeRotate').checked = r.on
+  $('eeRotation').hidden = !r.on
+  const preset = EVERY_PRESETS.includes(String(r.every))
+  $('eeEvery').value = preset ? String(r.every) : 'custom'
+  $('eeEveryRow').hidden = preset
+  if (!preset) $('eeEveryDays').value = String(r.every)
+  $('eeFrom').value = r.from
+  $('eeAddStep').replaceChildren(new Option('Choose…', ''), ...shifts.map(shift => new Option(`${shift.name || 'Shift'} · ${shiftLabel(shift)}`, shift.id)), new Option('New for this person…', 'new'))
+  drawSteps(); syncEditor()
+}
+function drawSteps() {
+  const r = editState.roster, box = $('eeSteps')
+  box.replaceChildren()
+  r.steps.forEach((step, index) => {
+    const row = document.createElement('div'); row.className = 'row step-row'
+    const text = document.createElement('button'); text.type = 'button'; text.className = 'step-main'
+    const title = document.createElement('b'); title.textContent = `${index + 1}. ${step.name || 'Shift'}`
+    const detail = document.createElement('small'); detail.textContent = stepText(step)
+    text.append(title, detail)
+    text.addEventListener('click', () => openShiftEdit(step, { step: true, onSave: values => { Object.assign(step, values); drawSteps(); syncEditor() }, onRemove: () => { r.steps.splice(index, 1); drawSteps(); syncEditor() } }))
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'step-remove'; remove.setAttribute('aria-label', `Remove ${step.name || 'shift'} from the rotation`); remove.textContent = '✕'
+    remove.addEventListener('click', () => { r.steps.splice(index, 1); drawSteps(); syncEditor() })
+    row.append(text, remove)
+    box.append(row)
+  })
+}
+// What each turn covers, e.g. "Wed 2 Dec – Tue 8 Dec", and which cards apply.
+function syncEditor() {
+  const r = editState.roster, from = parseDay(r.from)
+  if (r.every === 'month') $('eeRunHint').textContent = `Each turn runs from the 1st to the end of a calendar month, starting with ${MONTHS[from.getMonth()]} ${from.getFullYear()}. Shifts take turns in the order below.`
+  else {
+    const days = Math.max(1, Number(r.every) || 7), end = new Date(from); end.setDate(end.getDate() + days - 1)
+    $('eeRunHint').textContent = `First turn: ${dayShort(from)} – ${dayShort(end)}, then the next shift takes over every ${days} days. Shifts take turns in the order below.`
+  }
+  $('eeShiftCard').hidden = r.on
+  $('eeOffCard').hidden = r.on || !!(editState.shift?.days?.length)
+}
+$('eeRotate').addEventListener('change', () => { editState.roster.on = $('eeRotate').checked; $('eeRotation').hidden = !editState.roster.on; syncEditor(); haptic() })
+$('eeEvery').addEventListener('change', () => {
+  const value = $('eeEvery').value, r = editState.roster
+  $('eeEveryRow').hidden = value !== 'custom'
+  r.every = value === 'custom' ? Math.max(1, Number($('eeEveryDays').value) || 10) : value === 'month' ? 'month' : Number(value)
+  syncEditor()
+})
+$('eeEveryDays').addEventListener('input', () => { editState.roster.every = Math.max(1, Math.min(365, Math.round(Number($('eeEveryDays').value)) || 1)); syncEditor() })
+$('eeFrom').addEventListener('change', () => { if ($('eeFrom').value) { editState.roster.from = $('eeFrom').value; syncEditor() } })
+$('eeAddStep').addEventListener('change', () => {
+  const value = $('eeAddStep').value, r = editState.roster
+  $('eeAddStep').value = ''
+  if (!value) return
+  if (value === 'new') openShiftEdit(undefined, { step: true, onSave: values => { r.steps.push(values); drawSteps(); syncEditor() } })
+  else { const base = shifts.find(shift => shift.id === value); r.steps.push({ id: base.id, name: base.name, start: base.start, end: base.end, days: base.days ? [...base.days] : undefined }); drawSteps(); syncEditor() }
+})
 function openEmpEdit(entry, { prefill = '' } = {}) {
   const isNew = !entry
-  editState = { orig: entry, isNew, off: new Set(entry?.off || []), shift: entry?.shift ? { ...entry.shift } : undefined }
+  const roster = entry?.roster
+  editState = { orig: entry, isNew, off: new Set(entry?.off || []), shift: entry?.shift ? { ...entry.shift } : undefined,
+    roster: { on: !!roster?.steps?.length, every: roster?.every ?? 7, from: roster?.from || dayText(new Date()), steps: (roster?.steps || []).map(step => ({ ...step, days: step.days ? [...step.days] : undefined })) } }
   $('empEditTitle').textContent = isNew ? 'New Employee' : 'Edit Employee'
   $('eeId').value = entry?.id || prefill
   $('eeName').value = entry?.name || ''
@@ -2781,6 +2867,7 @@ function openEmpEdit(entry, { prefill = '' } = {}) {
   $('eeDelete').hidden = isNew
   drawDays()
   fillShiftChoices()
+  fillRotation()
   $('empEdit').showModal()
   $('empEdit').querySelector('.hub-body').scrollTop = 0
   if (isNew) setTimeout(() => $('eeName').focus(), 80)
@@ -2791,7 +2878,8 @@ $('eeShift').addEventListener('change', () => {
   $('eeShift').closest('.row').classList.toggle('last', value !== 'custom')
   if (!value) editState.shift = undefined
   else if (value === 'custom') { const base = editState.shift || { start: '09:00', end: '18:00' }; editState.shift = { start: base.start, end: base.end }; empTimes.set(base.start, base.end) }
-  else { const preset = shifts.find(shift => shift.id === value); editState.shift = { id: preset.id, name: preset.name, start: preset.start, end: preset.end } }
+  else { const preset = shifts.find(shift => shift.id === value); editState.shift = { id: preset.id, name: preset.name, start: preset.start, end: preset.end, days: preset.days ? [...preset.days] : undefined } }
+  syncEditor()
 })
 function afterEmployeesChanged() {
   updateEmployeeSummary(); showLogChoice(); renderLiveStamp()
@@ -2804,9 +2892,11 @@ $('eeSave').addEventListener('click', () => {
   const orig = editState.orig
   if ((!orig || id !== orig.id) && allEmployees().some(other => other.id === id)) { message(`${id} is already in the list.`, 3500); $('eeId').focus(); return }
   const shift = editState.shift && !editState.shift.id ? { ...editState.shift, ...empTimes.get() } : editState.shift
-  const patch = { id, name, off: [...editState.off].sort(), shift, active: $('eeActive').checked ? undefined : false }
+  const rot = editState.roster, rotating = rot.on && rot.steps.length
+  const patch = { id, name, off: rotating ? undefined : [...editState.off].sort(), shift: rotating ? undefined : shift, active: $('eeActive').checked ? undefined : false,
+    roster: rotating ? { every: rot.every, from: rot.from, steps: rot.steps.map(step => tidy({ ...step })) } : undefined }
   if (editState.orig) {
-    updateEmployee(orig.id, { ...patch, off: patch.off.length ? patch.off : undefined })
+    updateEmployee(orig.id, { ...patch, off: patch.off?.length ? patch.off : undefined })
   } else {
     employees.list.push(tidy(patch)); selectedEmployeeId = id; logOverride = undefined; persistEmployees()
   }
@@ -2835,28 +2925,47 @@ function deleteWithUndo(id) {
 // ---- The shift editor ----
 let shiftState
 const shiftTimes = timeSection('se')
-function openShiftEdit(shift) {
-  shiftState = { orig: shift, isNew: !shift }
-  $('shiftEditTitle').textContent = shift ? 'Edit Shift' : 'New Shift'
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
+function drawShiftDays() {
+  const box = $('seDays'); box.replaceChildren()
+  DAY_LETTERS.forEach((letter, day) => {
+    const button = document.createElement('button')
+    button.type = 'button'; button.className = 'day'; button.textContent = letter
+    button.setAttribute('aria-label', DAY_NAMES[day]); button.setAttribute('aria-pressed', String(shiftState.days.has(day)))
+    button.addEventListener('click', () => { shiftState.days.has(day) ? shiftState.days.delete(day) : shiftState.days.add(day); button.setAttribute('aria-pressed', String(shiftState.days.has(day))); haptic() })
+    box.append(button)
+  })
+}
+function openShiftEdit(shift, { step = false, onSave, onRemove } = {}) {
+  shiftState = { orig: shift, isNew: !shift, step, onSave, onRemove, days: new Set(shift?.days?.length ? shift.days : ALL_DAYS) }
+  drawShiftDays()
+  $('shiftEditTitle').textContent = step ? 'Shift for this person' : shift ? 'Edit Shift' : 'New Shift'
+  $('seDelete').textContent = step ? 'Remove from rotation' : 'Delete shift'
   $('seName').value = shift?.name || ''
   shiftTimes.set(shift?.start || '09:00', shift?.end || '18:00')
-  $('seDelete').hidden = !shift
+  $('seDelete').hidden = step ? !shift || !onRemove : !shift
   $('shiftEdit').showModal()
   $('shiftEdit').querySelector('.hub-body').scrollTop = 0
 }
 $('seSave').addEventListener('click', () => {
   const { start, end } = shiftTimes.get(), name = $('seName').value.trim() || 'Shift'
+  const days = shiftState.days.size === 7 ? undefined : [...shiftState.days].sort()
+  if (shiftState.step) {   // this person's own hours for a turn of their rotation; the shared shift is not touched
+    $('shiftEdit').close(); shiftState.onSave({ id: shiftState.orig?.id, name, start, end, days }); return
+  }
   if (shiftState.orig) {
-    Object.assign(shiftState.orig, { name, start, end })
-    for (const person of employees.list) if (person.shift?.id === shiftState.orig.id) person.shift = { ...person.shift, name, start, end }   // everyone on this shift follows
+    Object.assign(shiftState.orig, { name, start, end, days })
+    for (const person of employees.list) if (person.shift?.id === shiftState.orig.id) person.shift = { ...person.shift, name, start, end, days }   // everyone on this shift follows
+    for (const person of employees.list) for (const step of person.roster?.steps || []) if (step.id === shiftState.orig.id) step.name = name   // rotations keep each person's own hours
     saveEmployees()
-  } else shifts.push({ id: `s${Date.now().toString(36)}`, name, start, end })
+  } else shifts.push(tidy({ id: `s${Date.now().toString(36)}`, name, start, end, days }))
   saveShifts()
   $('shiftEdit').close()
   renderHub(); renderLiveStamp()
 })
 $('seCancel').addEventListener('click', () => $('shiftEdit').close())
 $('seDelete').addEventListener('click', () => {
+  if (shiftState.step) { $('shiftEdit').close(); shiftState.onRemove?.(); return }
   const shift = shiftState.orig
   $('shiftEdit').close()
   shifts = shifts.filter(item => item !== shift); saveShifts()
@@ -2927,7 +3036,10 @@ function renderHubEmployees() {
       big.append(id, name)
       if (employees.me === entry.id) { const mine = empIcon('star'); mine.classList.add('mine'); big.append(mine) }
       const sub = document.createElement('div'); sub.className = 'alarm-sub'
-      sub.textContent = [entry.shift ? shiftLabel(entry.shift) : 'No shift', offLabel(entry.off)].join(' · ')
+      { const eff = effective(entry, new Date())
+        sub.textContent = entry.roster?.steps?.length
+          ? [`${eff.step.name || 'Shift'} ${shiftLabel(eff.step)}`, `${everyLabel(entry.roster.every)} rotation`, offLabel(eff.off)].join(' · ')
+          : [eff.shift ? shiftLabel(eff.shift) : 'No shift', offLabel(eff.off)].join(' · ') }
       text.append(big, sub)
       const wrap = document.createElement('label'); wrap.className = 'switch-wrap'; wrap.setAttribute('aria-label', `${entry.id} active`)
       const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.className = 'switch'; toggle.checked = entry.active !== false

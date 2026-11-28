@@ -1228,3 +1228,10 @@ dialog.wheel-sheet { padding-top: 0; }
 dialog.hub .switch:checked { background: #ffd60a; }
 dialog.hub .switch:checked::before { background: #151515; }
 .hub-body .row { border-radius: 0; }
+
+.step-row { display: flex; align-items: center; gap: .5rem; padding-block: .35rem; }
+.step-main { flex: 1; min-width: 0; width: 100%; display: grid; justify-items: start; justify-content: start; text-align: left; background: none; padding: 0; min-height: 44px; border-radius: 0; color: inherit; }
+.step-main b { font-weight: 600; }
+.step-main small { color: var(--text-2); font-size: .8rem; }
+.step-remove { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; background: #3a3a3c; color: var(--text-2); }
+#eeRunHint { margin: 0; padding: .6rem 1rem; }
