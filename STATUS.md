@@ -1,13 +1,15 @@
-# GeoZipTag status            updated 2026-11-28 by Desk · GeoZipTag (handover from the cloud session folded in)
+# GeoZipTag status            updated 2026-11-28 by Desk · GeoZipTag (actions service live, app side not built)
 
 Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; iOS and Android camera app, bundle `cc.sohum.geoziptag`). How this ledger works: `sohum-contracts` docs/OPERATING_MODEL.md. Facts below were read from the repository on 2026-11-28; nothing was run or deployed in this turn. "Not verified" means exactly that.
 
 ## Now
+- **Live (owner ran every step, 2026-11-28, per HQ):** the actions service is deployed and the console talks to it. See "Actions service: live" and "Live" below. **Not built:** the app side (redeem screen, entitlement check, banner hiding), real phone redemption, paid store billing, team joining from the app.
+
+
 
 - **Roles (HQ, 2026-11-28):** the cloud GeoZipTag session does all app work (iOS/Android code, in-app UI, AdMob). This desk keeps this ledger, the contract work (entitlement and redeem-code shapes, as a draft for a sohum-contracts PR) and console integration with Desk · Console, and reports to HQ. This desk edits no app code and nothing on the cloud session's branches; it cannot be messaged from HQ, so anything it needs is written here or in `docs/` and HQ relays it.
 - **Owner decisions (relayed by HQ 2026-11-28, "yes, those defaults are fine"):** Pro removes the AdMob banner only. Codes and free offers are built first; individual paid Pro through Apple/Google billing is later and not in the first build (`source: paid` stays in the shape). A code can be used by several people up to a per-code limit (1 = single use), every redemption recorded. Device-based by default; SoHum sign-in only for team plans and memberships (members inherit the team's plan; removing a member removes their entitlement). Kept: signed entitlement, public-key check, daily re-check, ~7-day grace, propose then confirm, owner/operator only. Recorded in contracts#118 (updated).
 
-- Desk created 2026-11-28 (HQ brought the vertical in from a lone cloud session). This turn: this ledger and a **design proposal** for console-managed Pro, trials and coupon codes: [docs/CONSOLE_ENTITLEMENTS_PROPOSAL.md](docs/CONSOLE_ENTITLEMENTS_PROPOSAL.md), with a draft contract in [docs/contracts-draft/](docs/contracts-draft/). **Design only: no app code, no database change, nothing sent to the console repos.**
 
 ## What exists (from the code)
 
@@ -18,45 +20,57 @@ Covers this repository (`SoHum-Digital-Services/GeoZipTag`, folder `GeoZipTag`; 
 - Ads: one Google AdMob banner in the photo view on Android and iPhone, **Google test ad IDs only** until store listings exist (`android/app/build.gradle`, `ios/project.yml`). Always shown; there is no Pro, trial, coupon or entitlement concept in the code today.
 - Privacy policy in `web/privacy.html` (says what the register stores; says nothing about entitlements).
 
-## Actions service: not built
+## Actions service: live (2026-11-28, owner ran each step; facts from HQ, re-checked by none of this desk's own calls)
 
-`geoziptag-actions` (the console manifest, admin and app actions of contracts GEOZIPTAG_ENTITLEMENT_SHAPE) **does not exist**: no function, tables, keys or secrets. The only GeoZipTag backend today is the team register (`public` tables and `geoziptag_*` RPCs on project `sohum`, base `https://ziebgspujtdzkiwyybsa.supabase.co/rest/v1/rpc/`), not manifest-shaped. Recommended host: Supabase edge function `geoziptag-actions` in `sohum`, base URL `https://ziebgspujtdzkiwyybsa.supabase.co/functions/v1`. To build it, as separate step briefs later (each its own session; contract pinned at contracts#118 plus #119):
+- Migration `supabase/migrations/0001_geoziptag_entitlements.sql` applied to project `sohum`: schema `geoziptag`, 9 tables, RLS on, no policies. Rollback: `supabase/rollbacks/0001_geoziptag_entitlements.down.sql`.
+- Function `geoziptag-actions` deployed from GeoZipTag#7 (merged, `ec1e419`); `GET /health` returns `ok`, version 0.1.0. Base `https://ziebgspujtdzkiwyybsa.supabase.co/functions/v1`. 17 actions, manifest at `/geoziptag-actions/manifest`.
+- Function secrets set: `GEOZIPTAG_SIGNING_KEY`, `GEOZIPTAG_SIGNING_KEY_ID` (`key-2026-11`), `GEOZIPTAG_PUBLIC_KEYS`, `GEOZIPTAG_CONSOLE_SECRET`, `GEOZIPTAG_CODE_PEPPER`. Private copies are in the owner's password manager; the public keys file is in `~/geoziptag-keys` on the owner's machine (the app needs the public half; it is not in this repo yet).
+- `sohum-console-api` revision 00007 has the shared secret and `CONSOLE_ROLES` (owner only). Console screens are live (console-web #14, Worker `30c8e5b6`).
+- Checked by HQ: the registry shows GeoZipTag up with 17 actions. The owner created a test code through the console (propose, confirm); it appeared in the code list and the audit log, then was disabled. DB afterwards: 1 code (enabled = false), 16 audit rows, 0 entitlements.
+- Also settled by HQ: `public.geoziptag_teams` has `id` (uuid), `name`, `code`; the `sohum` project publishes an ES256 JWKS.
 
-1. **Migration** (file in `supabase/migrations/` here; applied to the live project only on the owner's instruction): entitlement, redeem-code (hashed), redemption, team-membership tables in their own schema, RLS on, no public policy, tested rollback.
-2. **Function code** (`supabase/functions/geoziptag-actions`): manifest and health, the admin actions behind the console HMAC check (signs `timestamp.METHOD.path.body`, contracts#119), propose/confirm with idempotency, `redeem_code`, `check_entitlement`, `get_public_keys` (and later `join_team`), ES256 signing, rate limits, audit.
-3. **Secrets** (owner creates, as function secrets, never in the repo or chat): the ES256 private key (public half goes into the app build) and the console HMAC secret (shared with Desk · Console's registry entry).
-4. **Deploy** of the function: only on the owner's word through HQ.
+### Not built, not verified
 
-## Step briefs (written 2026-11-28, not started)
+- **App side not built:** nothing in `web/` knows about entitlements. No redeem screen, no signed-entitlement check, no daily re-check or grace, banner still always shown. The public key is not in the app. Brief: [docs/briefs/GEOZIPTAG_APP_frontend.md](docs/briefs/GEOZIPTAG_APP_frontend.md), behind a flag, not started.
+- **No real phone redemption yet:** `redeem_code` and `check_entitlement` have not been called from a phone; 0 entitlements exist. Only the console's create-code path was exercised live.
+- **Paid billing not built** (Apple/Google); `source: paid`/`store` stay in the shape.
+- **Team joining not built:** `join_team` exists in the function but the app has no SoHum sign-in, so no team member has ever joined. How the app signs in to SoHum is undecided.
+- **Not verified live:** that signed entitlements verify in a phone web view (WebCrypto ECDSA r||s); that `redeem_code`, `check_entitlement`, `get_public_keys`, `join_team` work against the deployed function; that the SoHum token check works through the JWKS (HQ confirmed the JWKS is published, not that a real token verifies); rate limits and replay rejection against the deployed function (tested only locally: 32 tests pass on real Postgres 15 and the fake store, per the step report in `docs/geoziptag-service/REPORT.md`).
+- **Known gap:** role and actor headers are not under the console HMAC (contract 0.1.1), so anyone holding the secret can claim any role. The secret lives only on the console API. A later contract version should sign them (`docs/geoziptag-service/QUESTIONS.md` item 6).
 
-- [docs/briefs/GEOZIPTAG_SERVICE_backend.md](docs/briefs/GEOZIPTAG_SERVICE_backend.md): `supabase/functions/geoziptag-actions` plus migration; what the owner creates, applies and deploys afterwards; the console flip checklist.
-- [docs/briefs/GEOZIPTAG_APP_frontend.md](docs/briefs/GEOZIPTAG_APP_frontend.md): redeem row, verify, daily check, grace, hide the banner, behind a flag; for the cloud GeoZipTag session or a step session. Part 2 (team sign-in) waits on how the app signs in to SoHum (open).
-- Both pinned to `sohum-contracts` `0a2a17c`. Contracts, console-api (#9, #11) and console-web (#14) are merged per HQ.
+## Step briefs
+
+- Service brief: [docs/briefs/GEOZIPTAG_SERVICE_backend.md](docs/briefs/GEOZIPTAG_SERVICE_backend.md): **done** (GeoZipTag#7, merged and live). Report: [docs/geoziptag-service/REPORT.md](docs/geoziptag-service/REPORT.md); questions with answers: [docs/geoziptag-service/QUESTIONS.md](docs/geoziptag-service/QUESTIONS.md).
+- App brief: [docs/briefs/GEOZIPTAG_APP_frontend.md](docs/briefs/GEOZIPTAG_APP_frontend.md): for the cloud GeoZipTag session or a step session, **not started**. Part 2 (team sign-in) waits on how the app signs in to SoHum.
+- Both pinned to `sohum-contracts` `0a2a17c`.
 
 ## Next
 
-1. Owner decisions (below), put to HQ. Desk · Console to be briefed by HQ on contracts#118 section 7 (registry entry, admin screens, HMAC credential); host of the actions service still open.
-2. On decisions: Desk · Contracts merges the entitlement contract (draft is ready here); Desk · Console builds the admin screens and API; this desk then writes a brief for the app side (verify signed entitlement, hide the banner, redeem screen). Order: contract, console API + migration (applied only on the owner's word), app.
-3. Where Pro hooks in (from the handover, checked: `web/camera.js` "Banner ad (apps only)" and the `adShow`/`adHide` bridge calls; `dialog#settings` in `web/index.html` for a "Redeem code" row). A page-level entitlement check before `adShow` needs no native build, so the first app step can ship by wireless update (and preview channel first).
-4. Update `web/privacy.html` for whatever the redeem call sends before any app change ships.
+1. App part 1 (redeem row, verify, daily check, grace, banner off, flag `ENTITLEMENTS_LIVE=false`): start from the app brief once HQ relays it to the cloud GeoZipTag session. First: put the public keys from `~/geoziptag-keys` into the app (key id `key-2026-11`); the owner provides the file, never the private key.
+2. Then a real-phone test with an owner-created code; only after that flip the flag by wireless update (preview channel first).
+3. Update `web/privacy.html` for what the redeem call sends before any app change ships.
+4. Decide how the app signs in to SoHum (blocks team joining), then app part 2.
+5. Later: store billing (step 3 of the build order).
 
 ## Blocked
 
-- Nothing built yet: waits on the owner (signing key, HMAC secret, migration and deploy decisions) and on a console entitlements API that does not exist yet.
+- Team joining: the app has no SoHum sign-in; method undecided (blocks app part 2).
+- App part 1 can start now: it needs nothing more from the service or the console.
 
 ## Waiting on the owner
 
-- Create the entitlement signing key (private half a managed secret; public half goes in the app); a migration and any deploy, each only on the owner's word through HQ.
-- Later (step 3): store subscription products, price points, store server credentials.
-- Confirm the build order I assumed: step 1 codes, trials, admin grants; step 2 team plans and sign-in membership; step 3 store billing.
-- Not yet decided by anyone: host of the actions service (example: Supabase edge function `geoziptag-actions`); how signed-in joining reuses the register's team code.
+- Decide how the app signs in to SoHum (for team plans only).
+- Later: store subscription products, price points, store server credentials.
+- Confirm the build order assumed: step 1 codes (done in the service), step 2 team plans and sign-in membership, step 3 store billing.
+- Not yet decided: how signed-in joining reuses the register's team code.
 
 ## Open pull requests
 
-- [SoHum-Digital-Services/sohum-contracts#118](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/118): GeoZipTag entitlement and console integration contract 0.1 (**merged 2026-11-28**; five schemas plus team member, validated; examples, manifest example, 3.1 row; decisions recorded). 
-- [SoHum-Digital-Services/sohum-contracts#119](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/119): 0.1.1, the console admin signature covers method and path (test vector included). Open, for the owner to merge.
-- None in this repo. (Branch `desk/geoziptag-status-and-entitlements-proposal`, this ledger plus the proposal, pushed and rebased on main; no PR yet.)
+- This ledger update: draft PR from `desk/geoziptag-status-live-2026-11-28` (not merged).
+- Merged: [sohum-contracts#118](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/118), [#119](https://github.com/SoHum-Digital-Services/sohum-contracts/pull/119) (per HQ), [GeoZipTag#7](https://github.com/SoHum-Digital-Services/GeoZipTag/pull/7) (service), sohum-console-api #9 and #11, sohum-console-web #14. The master document row is being updated by HQ (sohum-contracts#120).
 
 ## Live
 
-Browser app at https://sohum-digital-services.github.io/GeoZipTag/ and the wireless update channel (from `main`). Android and iPhone builds: store release state not verified here (README says test ads "until the store listings exist"). Entitlements, codes and console integration: **nothing exists or is live.** Not yet a row in the master document's status table (3.1); HQ to add (rule 11).
+Browser app at https://sohum-digital-services.github.io/GeoZipTag/ and the wireless update channel (from `main`). Android and iPhone builds: store release state not verified here (README says test ads "until the store listings exist").
+
+**Actions service (new, 2026-11-28):** migration applied and function `geoziptag-actions` deployed to project `sohum`, secrets set, console wired and its screens live (details above, as reported by HQ). **Not live:** anything in the app: no entitlement, redeem or banner change reaches users. Master document row: HQ updating via sohum-contracts#120.
