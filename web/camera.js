@@ -2241,7 +2241,7 @@ const employeeKey = 'geoziptagEmployees', registerKey = 'geoziptagAttendance'
 function loadJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback } catch { return fallback }
 }
-let employees = loadJson(employeeKey, { me: 'ENDWEMP20153', list: [] })
+let employees = loadJson(employeeKey, { me: '', list: [] })   // nothing built in: every phone starts with its own, empty list
 if (!Array.isArray(employees.list)) employees.list = []
 let register = loadJson(registerKey, [])
 if (!Array.isArray(register)) register = []
@@ -3214,7 +3214,7 @@ function renderTemplatePreview() {
   grid.lineTo(128, 44)
   grid.stroke()
   drawStamp(canvas, {
-    attendance: preferences.template === 'attendance' ? currentAttendance() || { id: 'ENDWEMP20153', name: '', action: 'in' } : undefined,
+    attendance: preferences.template === 'attendance' ? currentAttendance() || { id: 'EMP1001', name: '', action: 'in' } : undefined,
     snapshot: isTime ? undefined : { lat: 17.2, lon: 79.2 },
     address: isTime ? undefined : { street: 'Site access road', locality: 'Example village', county: 'Example mandal', state: 'Telangana', postcode: '500001', country: 'India' },
     note: stampNote || 'Foundation inspection, Block B',
