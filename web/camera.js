@@ -2438,23 +2438,158 @@ function parseEmployees(text) {
 function listText(list) {
   return list.map(entry => entry.name ? `${entry.id}, ${entry.name}` : entry.id).join('\n')
 }
-function fillEmployeesSheet() {
-  $('myEmployeeId').value = employees.me || ''
-  $('employeeList').value = listText(employees.list)
-  $('employeeCount').textContent = employees.list.length ? `(${employees.list.length})` : ''
-  $('employeeStatus').textContent = ''
+// ---- The employee list: grouped by ID format (the letters before the number), edited in place ----
+// "ENDWEMP20161" -> prefix "ENDWEMP", number 20161. "+" adds the next number of that format, keeping the zero padding.
+const splitId = (id) => { const m = /^(.*?)(\d+)$/.exec(id); return m ? { prefix: m[1], digits: m[2] } : { prefix: id, digits: '' } }
+function nextId(prefix, taken) {
+  const numbers = [...taken].map(splitId).filter(part => part.prefix === prefix && part.digits)
+  if (!numbers.length) return ''
+  const width = Math.max(...numbers.map(part => part.digits.length))   // zero padding of the series
+  let number = Math.max(...numbers.map(part => Number(part.digits))) + 1
+  while (taken.has(prefix + String(number).padStart(width, '0'))) number++   // skip numbers already used
+  return prefix + String(number).padStart(width, '0')
 }
-$('saveEmployees').addEventListener('click', () => {
-  const me = $('myEmployeeId').value.trim().toUpperCase().replace(/\s+/g, '')
-  const list = parseEmployees($('employeeList').value)
-  if (me && !list.some(entry => entry.id === me)) list.unshift({ id: me, name: '' })
-  const wasMine = selectedEmployeeId === employees.me
-  employees = { me, list }
-  if (wasMine || !selectedEmployeeId) selectedEmployeeId = me
+let editingId, empFilter = ''
+const cleanId = (value) => value.trim().toUpperCase().replace(/\s+/g, '')
+function persistEmployees() {
   saveEmployees()
-  fillEmployeesSheet()
-  $('employeeStatus').textContent = `Saved ${list.length} ID${list.length === 1 ? '' : 's'}.`
   renderLiveStamp()
+}
+function empIcon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('class', 'icon'); svg.setAttribute('aria-hidden', 'true')
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use'); use.setAttribute('href', `#i-${name}`)
+  svg.append(use); return svg
+}
+function empButton(icon, label, handler, extra = '') {
+  const button = document.createElement('button')
+  button.type = 'button'; button.className = `emp-btn ${extra}`.trim(); button.setAttribute('aria-label', label)
+  button.append(empIcon(icon)); button.addEventListener('click', handler); return button
+}
+function empRow(entry, fresh) {
+  const row = document.createElement('div')
+  row.className = 'emp-row'
+  if (editingId === entry.id) {
+    row.classList.add('editing')
+    const idInput = document.createElement('input'), nameInput = document.createElement('input')
+    idInput.value = entry.id; idInput.setAttribute('aria-label', 'Employee ID'); idInput.autocapitalize = 'characters'; idInput.spellcheck = false; idInput.maxLength = 40
+    nameInput.value = entry.name || ''; nameInput.setAttribute('aria-label', 'Name'); nameInput.placeholder = 'Name'; nameInput.maxLength = 60
+    const finish = () => {
+      const id = cleanId(idInput.value), name = nameInput.value.trim()
+      if (!id) { $('employeeStatus').textContent = 'An employee ID cannot be empty.'; idInput.focus(); return }
+      if (id !== entry.id && allEmployees().some(other => other.id === id)) { $('employeeStatus').textContent = `${id} is already in the list.`; idInput.focus(); return }
+      renameEmployee(entry.id, id, name)
+      editingId = undefined
+      $('employeeStatus').textContent = ''
+      renderEmployeeList()
+    }
+    for (const input of [idInput, nameInput]) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); finish() } })
+    row.append(idInput, nameInput, empButton('check', 'Save', finish, 'ok'))
+    if (fresh) setTimeout(() => nameInput.focus())
+    return row
+  }
+  const mine = employees.me === entry.id
+  const star = empButton('star', mine ? 'This is my ID' : 'Make this my ID', () => { employees.me = mine ? '' : entry.id; persistEmployees(); renderEmployeeList() }, mine ? 'mine' : '')
+  const text = document.createElement('div')
+  text.className = 'emp-text'
+  const strong = document.createElement('strong'); strong.textContent = entry.id
+  const small = document.createElement('small'); small.textContent = entry.name || 'No name'
+  if (!entry.name) small.className = 'none'
+  text.append(strong, small)
+  row.append(star, text, empButton('edit', `Edit ${entry.id}`, () => { editingId = entry.id; renderEmployeeList() }))
+  return row
+}
+function renameEmployee(oldId, id, name) {
+  const wasMine = employees.me === oldId, wasSelected = selectedEmployeeId === oldId
+  const index = employees.list.findIndex(entry => entry.id === oldId)
+  if (index >= 0) employees.list[index] = { id, name }
+  else employees.list.push({ id, name })   // "my ID" that was only implied until now
+  if (wasMine) employees.me = id
+  if (wasSelected) selectedEmployeeId = id
+  persistEmployees()   // earlier register entries keep the ID they were made with
+}
+function renderEmployeeList(freshId) {
+  const box = $('empList'), query = empFilter.trim().toLowerCase()
+  const all = allEmployees()
+  $('employeeCount').textContent = all.length ? `(${all.length})` : ''
+  const matches = (entry) => !query || entry.id.toLowerCase().includes(query) || (entry.name || '').toLowerCase().includes(query)
+  const groups = new Map()
+  for (const entry of all) {
+    const key = splitId(entry.id).prefix
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(entry)
+  }
+  box.replaceChildren()
+  if (!all.length) {
+    const empty = document.createElement('p'); empty.className = 'hint emp-empty'
+    empty.textContent = 'No IDs yet. Tap "+ New ID format" and type the first one, for example EMP001.'
+    box.append(empty)
+  }
+  let shown = 0
+  for (const [prefix, entries] of groups) {
+    const visible = entries.filter(matches)
+    if (!visible.length) continue
+    const group = document.createElement('section'); group.className = 'emp-group'
+    if (groups.size > 1 || prefix) {
+      const heading = document.createElement('h4'); heading.textContent = prefix || 'IDs'; group.append(heading)
+    }
+    for (const entry of visible) { group.append(empRow(entry, entry.id === freshId)); shown++ }
+    const next = nextId(prefix, new Set(all.map(entry => entry.id)))
+    if (!query && next) {
+      const add = document.createElement('button'); add.type = 'button'; add.className = 'emp-add'
+      add.append(empIcon('plus-sm'), document.createTextNode(` Add ${next}`))
+      add.addEventListener('click', () => {
+        employees.list.push({ id: next, name: '' })
+        editingId = next
+        persistEmployees()
+        renderEmployeeList(next)
+      })
+      group.append(add)
+    }
+    box.append(group)
+  }
+  if (draftRow) box.append(draftEmployeeRow())
+  if (query && !shown) {
+    const none = document.createElement('p'); none.className = 'hint emp-empty'; none.textContent = `No ID or name matches "${empFilter.trim()}".`; box.append(none)
+  }
+}
+function fillEmployeesSheet() {
+  editingId = undefined
+  draftRow = false
+  empFilter = ''
+  $('empSearch').value = ''
+  $('employeeStatus').textContent = ''
+  renderEmployeeList()
+}
+$('empSearch').addEventListener('input', () => { empFilter = $('empSearch').value; renderEmployeeList() })
+// A new ID format: a blank row at the bottom of the list; type its first ID (for example TMPLEMP001), then "+" continues it.
+let draftRow = false
+function draftEmployeeRow() {
+  const row = document.createElement('div')
+  row.className = 'emp-row editing draft'
+  const idInput = document.createElement('input'), nameInput = document.createElement('input')
+  idInput.placeholder = 'First ID, e.g. TMPLEMP001'; idInput.setAttribute('aria-label', 'First employee ID of the new format'); idInput.autocapitalize = 'characters'; idInput.spellcheck = false; idInput.maxLength = 40
+  nameInput.placeholder = 'Name'; nameInput.setAttribute('aria-label', 'Name'); nameInput.maxLength = 60
+  const finish = () => {
+    const id = cleanId(idInput.value)
+    if (!id) { $('employeeStatus').textContent = 'Type the first ID of the new format.'; idInput.focus(); return }
+    if (allEmployees().some(entry => entry.id === id)) { $('employeeStatus').textContent = `${id} is already in the list.`; idInput.focus(); return }
+    employees.list.push({ id, name: nameInput.value.trim() })
+    draftRow = false
+    persistEmployees()
+    $('employeeStatus').textContent = ''
+    renderEmployeeList()
+  }
+  for (const input of [idInput, nameInput]) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); finish() } })
+  row.append(idInput, nameInput, empButton('check', 'Add', finish, 'ok'))
+  setTimeout(() => idInput.focus())
+  return row
+}
+$('empNewSeries').addEventListener('click', () => {
+  draftRow = true
+  $('empSearch').value = ''; empFilter = ''
+  renderEmployeeList()
+  $('empList').lastElementChild?.scrollIntoView({ block: 'nearest' })
 })
 $('employeeFile').addEventListener('change', async () => {
   const fileChosen = $('employeeFile').files?.[0]
@@ -2465,15 +2600,16 @@ $('employeeFile').addEventListener('change', async () => {
     const text = /\.pdf$/i.test(fileChosen.name) || fileChosen.type === 'application/pdf' ? await pdfText(fileChosen) : await fileChosen.text()
     const imported = parseEmployees(text)
     if (!imported.length) { $('employeeStatus').textContent = 'No employee IDs found in that file.'; return }
-    const current = parseEmployees($('employeeList').value)
-    const known = new Map(current.map(entry => [entry.id, entry.name]))
+    const known = new Map(allEmployees().map(entry => [entry.id, entry.name]))
     let added = 0
     for (const entry of imported) {
       if (!known.has(entry.id)) added++
       if (!known.get(entry.id)) known.set(entry.id, entry.name)
     }
-    $('employeeList').value = listText([...known].map(([id, name]) => ({ id, name })))
-    $('employeeStatus').textContent = `Found ${imported.length} IDs (${added} new). Tap Save to keep them.`
+    employees.list = [...known].map(([id, name]) => ({ id, name }))
+    persistEmployees()
+    renderEmployeeList()
+    $('employeeStatus').textContent = `Found ${imported.length} IDs (${added} new), saved.`
   } catch {
     $('employeeStatus').textContent = 'That file could not be read. Try a text or CSV file.'
   }

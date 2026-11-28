@@ -57,6 +57,11 @@
   <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4Z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.7a7.5 7.5 0 0 1 0 10.6"/></symbol>
   <symbol id="i-position" viewBox="0 0 24 24"><rect x="4.5" y="3" width="15" height="18" rx="2"/><path d="M7.5 16.5h9"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.9.7c0 1.7-2.5 2.1-2.5 3.7M12 17h.01"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-4-4L4 16z"/><path d="m14 6 4 4"/></symbol>
+  <symbol id="i-plus-sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z"/></symbol>
   <symbol id="i-zoom-in" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-6 6M10 20H4v-6M4 20l6-6"/></symbol>
   <symbol id="i-zoom-out" viewBox="0 0 24 24"><path d="M4 10h6V4M10 10 4 4M20 14h-6v6M14 14l6 6"/></symbol>
   <symbol id="i-flash-off" viewBox="0 0 24 24"><path d="M13 3 6 13h5l-1 8 7-10h-5l1-8Z"/><path d="M4 4l16 16"/></symbol>
@@ -385,18 +390,18 @@
 </dialog>
 
 <dialog id="employeesSheet" aria-labelledby="employeesTitle">
-  <div class="sheet-head"><h2 id="employeesTitle">Employee IDs</h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
-  <label for="myEmployeeId">My employee ID</label>
-  <input id="myEmployeeId" type="text" maxlength="40" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. EMP1001">
-  <p class="hint">Shown on every photo, unless you pick someone else with the ID button.</p>
-  <label for="employeeList">All IDs <small id="employeeCount"></small></label>
-  <textarea id="employeeList" rows="8" autocapitalize="characters" spellcheck="false" placeholder="EMP1001, Asha&#10;EMP1002, Ravi"></textarea>
-  <p class="hint">One per line: the ID, then the name if you like. Or import a text, CSV or PDF file that lists them.</p>
-  <div class="sheet-actions">
+  <div class="sheet-head"><h2 id="employeesTitle">Employee IDs <small id="employeeCount"></small></h2><form method="dialog"><button class="sheet-done">Done</button></form></div>
+  <div class="emp-search">
+    <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+    <input id="empSearch" type="search" placeholder="Search ID or name" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search">
+  </div>
+  <div id="empList" class="emp-list"></div>
+  <div class="sheet-actions emp-actions">
+    <button id="empNewSeries" type="button" class="text-button">+ New ID format</button>
     <label class="file-button" for="employeeFile">Import file</label>
     <input id="employeeFile" class="logo-input" type="file" accept=".txt,.csv,.pdf,text/plain,text/csv,application/pdf">
-    <button id="saveEmployees" class="primary" type="button">Save</button>
   </div>
+  <p class="hint">Changes are saved as you make them. Tap + to add the next ID in a series; tap the pencil to change an ID or name.</p>
   <p id="employeeStatus" class="hint" role="status"></p>
 </dialog>
 
